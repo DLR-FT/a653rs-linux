@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "hypervisor",
+    "partition",
+    "core",
+    "examples/hello_part",
+]

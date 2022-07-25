@@ -1,0 +1,21 @@
+name: Nix Related Actions
+
+on:
+  pull_request:
+  push:
+    branches: [test-nightly]
+
+jobs:
+  checks:
+    name: Nix Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v13
+        with:
+          nix_path: nixpkgs=channel:nixos-stable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: Run Checks
+        run: nix develop -c run-hypervisor-hello-example-scoped
