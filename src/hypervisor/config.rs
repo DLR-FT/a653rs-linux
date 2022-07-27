@@ -3,7 +3,9 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[derive(Debug)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub major_frame: Duration,
     pub cgroup_root: PathBuf,
@@ -12,28 +14,28 @@ pub struct Config {
     pub channel: HashSet<Channel>,
 }
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct Partition {
     pub name: String,
     pub duration: Duration,
     pub offset: Duration,
-    pub entry: fn(),
+    pub bin: PathBuf,
 }
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Channel {
-    Queuing(QueuingChannel),
-    Sampling(SamplingChannel),
+    //Queuing(QueuingChannel),
+    //Sampling(SamplingChannel),
 }
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct SamplingChannel {
     pub name: String,
     pub source: String,
     pub destination: HashSet<String>,
 }
 
-#[derive(Debug, Eq)]
+#[derive(Debug, Eq, Serialize, Deserialize)]
 pub struct QueuingChannel {
     pub name: String,
     pub source: String,
@@ -76,12 +78,18 @@ impl Hash for SamplingChannel {
     }
 }
 
-impl Config{
-    pub fn generate_schedule(&self) -> Vec<(Duration, String, bool)>{
-        let mut s = self.partitions.iter().flat_map(|p| {
-            [(p.offset, p.name.clone(), true), 
-            (p.offset + p.duration, p.name.clone(), false)]
-        }).collect::<Vec<_>>();
+impl Config {
+    pub fn generate_schedule(&self) -> Vec<(Duration, String, bool)> {
+        let mut s = self
+            .partitions
+            .iter()
+            .flat_map(|p| {
+                [
+                    (p.offset, p.name.clone(), true),
+                    (p.offset + p.duration, p.name.clone(), false),
+                ]
+            })
+            .collect::<Vec<_>>();
         s.sort_by(|(d1, ..), (d2, ..)| d1.cmp(d2));
         s
     }

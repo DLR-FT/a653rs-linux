@@ -17,18 +17,20 @@ clone3 = "0.2"
 ipc-channel = { version = "0.16", features = [ "memfd" ] }
 serde = { version = "1.0", features = ["derive"] }
 libc = "0.2"
-
-# Not yet used but may should
-smol = "1.2"
+crossbeam = "0.8"
+#smol = "1.2"
 hotwatch = "0.4"
 fslock = "0.2"
 notify = "4.0"
-
-# Temporal
 procfs = "0.13"
 raw_sync = "0.1"
 shared_memory = "0.12"
-futures = "0.3"
+libmount = "0.1"
+#futures = "0.3"
+itertools = "0.10"
 
 [[example]]
 name = "hello"
+
+[[example]]
+name = "part1"

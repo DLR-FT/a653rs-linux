@@ -3,7 +3,6 @@ use std::{
     fmt::Debug,
     mem::size_of,
     path::{Path, PathBuf},
-    pin::Pin,
 };
 
 use raw_sync::locks::*;
@@ -31,6 +30,7 @@ pub struct SamplingPortDestination {
 }
 
 /// TODO: use file replace for sampling port (no need to use shared memory)
+/// Bind-mount read only on destination side
 
 impl SamplingPort {
     pub fn new<P: AsRef<Path>>(path: P, size: usize) -> Result<Self> {
