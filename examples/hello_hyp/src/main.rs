@@ -1,32 +1,41 @@
-use std::{collections::HashSet, path::PathBuf, thread::sleep, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
-use linux_apex::hypervisor::{
+use linux_apex_hypervisor::hypervisor::{
     config::{Config, Partition},
     linux::Hypervisor,
 };
 
 fn main() {
-    let root = "/sys/fs/cgroup/user.slice/user-125030.slice/user@125030.service/app.slice";
-    let name = "linux-apex-root";
+    let cgroup =
+        "/sys/fs/cgroup/user.slice/user-125030.slice/user@125030.service/app.slice/linux-apex-root";
 
+    let bin_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("target/x86_64-unknown-linux-musl/release/hello_part");
+    if !bin_path.exists() {
+        panic!("\nNo partition binary!\nMake sure to run \"cargo build -p hello_part --release --target x86_64-unknown-linux-musl\" first!\n");
+    }
+    //println!("{}", env!("CARGO_BIN_FILE_HELLO_PART"));
     let config = Config {
         major_frame: Duration::from_secs(1),
-        cgroup_root: PathBuf::from(root),
-        cgroup_name: name.to_string(),
-        partitions: HashSet::from([
+        cgroup: PathBuf::from(cgroup),
+        partitions: vec![
             Partition {
                 name: "Foo".to_string(),
                 duration: Duration::from_millis(500),
                 offset: Duration::from_millis(0),
-                bin: PathBuf::from("./target/release/examples/part1"),
+                bin: bin_path.clone(),
             },
             Partition {
                 name: "Bar".to_string(),
                 duration: Duration::from_millis(500),
                 offset: Duration::from_millis(500),
-                bin: PathBuf::from("./target/release/examples/part1"),
+                bin: bin_path,
             },
-        ]),
+        ],
         channel: Default::default(),
         //channel: HashSet::from([Channel::Sampling(SamplingChannel{
         //    name: "Sampling1".to_string(),

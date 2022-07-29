@@ -1,4 +1,3 @@
-pub mod cgroup;
 pub mod config;
 pub mod linux;
 pub mod partition;

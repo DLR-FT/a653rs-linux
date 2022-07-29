@@ -1,5 +1,7 @@
 use anyhow::anyhow;
 use anyhow::Result;
+use linux_apex_core::cgroup::CGroup;
+use linux_apex_core::cgroup::DomainCGroup;
 use procfs::process::Process;
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,14 +13,15 @@ use std::time::Instant;
 use nix::sys::signal::*;
 
 //TODO add logging (trace, debug, error)
+//TODO add better errors than anyhow?
 
 use super::config::Channel;
 use super::config::Config;
-use super::{cgroup::CGroup, partition::Partition};
+use super::partition::Partition;
 
 //#[derive(Debug)]
 pub struct Hypervisor {
-    cg: CGroup,
+    cg: DomainCGroup,
     major_frame: Duration,
     schedule: Vec<(Duration, String, bool)>,
     partitions: HashMap<String, Partition>,
@@ -28,9 +31,10 @@ pub struct Hypervisor {
 impl Hypervisor {
     pub fn new(config: Config) -> Result<Self> {
         let proc = Process::myself()?;
-        let cgroup = proc.cgroups()?.get(0).unwrap().pathname.clone();
+        let prev_cgroup = proc.cgroups()?.get(0).unwrap().pathname.clone();
         //TODO use mountinfo in proc for /sys/fs/cgroup path
-        let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{cgroup}"));
+        //      This could be put into the CGroup struct
+        let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
 
         // TODO maybe dont panic for forcing unwind
         let sig_action = SigAction::new(
@@ -40,7 +44,10 @@ impl Hypervisor {
         );
         unsafe { sigaction(SIGINT, &sig_action) }.unwrap();
         let schedule = config.generate_schedule();
-        let cg = CGroup::new(config.cgroup_root, &config.cgroup_name)?;
+        let cg = DomainCGroup::new(
+            config.cgroup.parent().unwrap(),
+            config.cgroup.file_name().unwrap().to_str().unwrap(),
+        )?;
         let mut hv = Self {
             cg,
             schedule,
@@ -73,7 +80,8 @@ impl Hypervisor {
     }
 
     fn add_channel(&mut self, _channel: Channel) -> Result<()> {
-        todo!()
+        // TODO Implement Channels first, then implement this
+        Ok(())
     }
 
     pub fn run(mut self) -> ! {
@@ -97,8 +105,6 @@ impl Hypervisor {
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
             frame_start += self.major_frame;
-            sleep(Duration::from_secs(40));
-            panic!("");
         }
     }
 }
@@ -110,7 +116,7 @@ impl Drop for Hypervisor {
                 eprintln!("{e}")
             }
         }
-        if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()){
+        if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()) {
             eprintln!("{e}")
         }
         for (_, m) in self.partitions.drain() {

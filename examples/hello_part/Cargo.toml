@@ -1,0 +1,11 @@
+[package]
+name = "hello_part"
+version = "0.1.0"
+edition = "2021"
+#forced-target = "x86_64-unknown-linux-musl"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+linux-apex-core = { path = "../../core" }
+procfs = "0.13"

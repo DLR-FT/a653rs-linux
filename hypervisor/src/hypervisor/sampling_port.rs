@@ -22,16 +22,16 @@ impl Debug for SamplingPort {
 }
 
 pub struct SamplingPortSource {
+    #[allow(dead_code)]
     shm: Shmem,
 }
 
 pub struct SamplingPortDestination {
+    #[allow(dead_code)]
     shm: Shmem,
 }
 
-/// TODO: use file replace for sampling port (no need to use shared memory)
-/// Bind-mount read only on destination side
-
+/// TODO: Use a double buffered sharedmemory approach instead
 impl SamplingPort {
     pub fn new<P: AsRef<Path>>(path: P, size: usize) -> Result<Self> {
         let mutex_reserved = size_of::<libc::pthread_mutex_t>();
