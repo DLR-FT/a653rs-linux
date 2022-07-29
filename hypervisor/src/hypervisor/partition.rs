@@ -2,13 +2,15 @@ use std::fs::File;
 use std::os::unix::prelude::{AsRawFd, CommandExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 
 use anyhow::Result;
 use clone3::Clone3;
 use linux_apex_core::cgroup::DomainCGroup;
+use linux_apex_core::partition::{get_fd, SYSTEM_TIME};
 use linux_apex_core::shmem::Shmem;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Uid};
+use nix::unistd::{chdir, close, dup, pivot_root, setgid, setuid, Gid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
@@ -30,7 +32,7 @@ impl Partition {
         // Todo implement drop for cgroup? (in error case)
         let cg = DomainCGroup::new(cgroup_root, name)?;
         let wd = tempdir()?;
-        println!("Path: {:?}", wd.path());
+        trace!("CGroup Working directory: {:?}", wd.path());
         let shmem = unsafe { Shmem::new("shmem", [0, 0])? };
 
         //let sys_call = ipc_channel::ipc::channel()?;
@@ -41,7 +43,6 @@ impl Partition {
             bin: PathBuf::from(bin.as_ref()),
             name: name.to_string(),
             wd,
-            //sys_call,
         })
     }
 
@@ -53,6 +54,7 @@ impl Partition {
             .flatten()
             .filter(|fd| !keep.contains(&fd.fd))
         {
+            trace!("Close FD: {}", fd.fd);
             close(fd.fd)?
         }
 
@@ -63,7 +65,7 @@ impl Partition {
     fn print_fds() {
         let fds = Process::myself().unwrap().fd().unwrap();
         for f in fds.flatten() {
-            println!("{f:#?}")
+            debug!("Open File Descriptor: {f:#?}")
         }
     }
 
@@ -71,7 +73,7 @@ impl Partition {
     fn print_mountinfo() {
         let mi = Process::myself().unwrap().mountinfo().unwrap();
         for i in mi {
-            println!("{i:#?}")
+            debug!("Existing MountInfo: {i:#?}")
         }
     }
 
@@ -118,7 +120,8 @@ impl Partition {
                 setuid(Uid::from_raw(0)).unwrap();
                 setgid(Gid::from_raw(0)).unwrap();
 
-                Self::release_fds(&[self.shmem.fd()]).unwrap();
+                let sys_time = get_fd(SYSTEM_TIME).unwrap();
+                Self::release_fds(&[self.shmem.fd(), sys_time]).unwrap();
                 //Self::print_fds();
 
                 mount::<str, _, _, str>(
@@ -174,13 +177,13 @@ impl Partition {
                 //Self::print_mountinfo();
 
                 let err = Command::new("/bin").arg(&self.name).exec();
-                println!("{err:?}");
+                error!("{err:?}");
 
                 unsafe { libc::_exit(0) };
             }
             child => child,
         };
-        println!("Child Pid: {pid}");
+        info!("Child Pid: {pid}");
         std::fs::write(
             PathBuf::from("/proc").join(pid.to_string()).join("uid_map"),
             format!("0 {} 1", nix::unistd::getuid().as_raw()),

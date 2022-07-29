@@ -74,7 +74,7 @@ impl CGroup<true> {
 
     pub fn new<P: AsRef<Path>>(root: P, name: &str) -> Result<Self> {
         let path = PathBuf::from(root.as_ref()).join(name);
-        println!("{path:?}");
+        trace!("New CGroup: {path:?}");
 
         if !path.exists() {
             std::fs::create_dir(&path).unwrap();
@@ -121,7 +121,7 @@ impl CGroup<false> {
 
     pub fn new<P: AsRef<Path>>(root: P, name: &str) -> Result<Self> {
         let path = PathBuf::from(root.as_ref()).join(name);
-        println!("{path:?}");
+        trace!("New CGroup: {path:?}");
 
         if !path.exists() {
             std::fs::create_dir(&path).unwrap();

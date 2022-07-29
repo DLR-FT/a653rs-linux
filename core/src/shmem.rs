@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::size_of, ptr::null_mut};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use nix::{
     fcntl::{fcntl, FcntlArg, SealFlag},
     sys::{
@@ -10,6 +10,7 @@ use nix::{
     unistd::ftruncate,
 };
 
+#[derive(Clone, Copy)]
 pub struct Shmem<T> {
     fd: i32,
     ptr: *mut T,

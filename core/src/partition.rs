@@ -1,5 +1,6 @@
+use anyhow::{anyhow, Result};
+use procfs::process::{FDTarget, Process};
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
 
 pub enum PartitionState {
     Idle,
@@ -33,11 +34,28 @@ impl From<PartitionState> for isize {
     }
 }
 
+pub const SYSTEM_TIME: &str = "start_time";
+
+pub fn get_fd(name: &str) -> Result<i32> {
+    Process::myself()?
+        .fd()?
+        .flatten()
+        .find_map(|f| {
+            if let FDTarget::Path(p) = &f.target {
+                if p.to_string_lossy().contains(name) {
+                    Some(f.fd)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("No File Descriptor with Name: {name}"))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PartitionInfo {
-    // TODO SystemTime system_start should probably be a single shared memory
-    //    which is then distributed to all partitions as a read only sealed fd
-    system_start: SystemTime,
     name: String,
     // TODO Channel
 }

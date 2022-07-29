@@ -52,13 +52,15 @@ fn main() {
         let cgroup_path = cgroups[0].pathname.strip_prefix('/').unwrap(); // this can't fail, the cgroup reported will always start with a leading '/'
         cgroups_mount_point.join(cgroup_path)
     });
+    // Add Additional cgroup layer
+    let cgroup = cgroup.join("linux-hypervisor");
 
     info!("parsing config");
     let f = File::open(args.config_file).unwrap();
     let mut config: Config = serde_yaml::from_reader(&f).unwrap();
-    config.cgroup = cgroup.clone();
+    config.cgroup = cgroup;
 
-    trace!("{config:#?}");
+    //trace!("{config:#?}");
 
     info!("launching hypervisor");
     Hypervisor::new(config).unwrap().run();

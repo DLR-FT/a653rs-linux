@@ -1,13 +1,19 @@
-use anyhow::{anyhow, Result};
-use linux_apex_core::cgroup::{CGroup, DomainCGroup};
+use anyhow::anyhow;
+use anyhow::Result;
+use linux_apex_core::cgroup::CGroup;
+use linux_apex_core::cgroup::DomainCGroup;
+use linux_apex_core::file::TempFile;
+use linux_apex_core::partition::SYSTEM_TIME;
 use nix::sys::signal::*;
 use procfs::process::Process;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
+use std::path::Path;
+use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::Duration;
+use std::time::Instant;
+use tempfile::tempdir;
+use tempfile::TempDir;
 
 //TODO add better errors than anyhow?
 
@@ -23,6 +29,7 @@ pub struct Hypervisor {
     schedule: Vec<(Duration, String, bool)>,
     partitions: HashMap<String, Partition>,
     prev_cg: PathBuf,
+    start_time: TempFile<Instant>,
 }
 
 impl Hypervisor {
@@ -45,12 +52,16 @@ impl Hypervisor {
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )?;
+
+        let start_time = TempFile::new(SYSTEM_TIME)?;
+
         let mut hv = Self {
             cg,
             schedule,
             major_frame: config.major_frame,
             partitions: Default::default(),
             prev_cg,
+            start_time,
         };
 
         for c in config.channel {
@@ -89,6 +100,8 @@ impl Hypervisor {
         }
 
         let mut frame_start = Instant::now();
+        self.start_time.write(frame_start).unwrap();
+        self.start_time.lock_all().unwrap();
         loop {
             for (target_time, partition_name, start) in &self.schedule {
                 sleep(target_time.saturating_sub(frame_start.elapsed()));
@@ -110,19 +123,19 @@ impl Drop for Hypervisor {
     fn drop(&mut self) {
         for (_, m) in self.partitions.iter_mut() {
             if let Err(e) = m.freeze() {
-                eprintln!("{e}")
+                error!("{e}")
             }
         }
         if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()) {
-            eprintln!("{e}")
+            error!("{e}")
         }
         for (_, m) in self.partitions.drain() {
             if let Err(e) = m.delete() {
-                eprintln!("{e}")
+                error!("{e}")
             }
         }
         if let Err(e) = self.cg.delete() {
-            eprintln!("{e}")
+            error!("{e}")
         }
     }
 }
