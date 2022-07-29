@@ -6,18 +6,23 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(with = "humantime_serde")]
     pub major_frame: Duration,
+    #[serde(default)]
     pub cgroup: PathBuf,
     pub partitions: Vec<Partition>,
+    #[serde(default)]
     pub channel: Vec<Channel>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Partition {
     pub name: String,
+    #[serde(with = "humantime_serde")]
     pub duration: Duration,
+    #[serde(with = "humantime_serde")]
     pub offset: Duration,
-    pub bin: PathBuf,
+    pub image: PathBuf,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]

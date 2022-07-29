@@ -1,23 +1,20 @@
-use anyhow::anyhow;
-use anyhow::Result;
-use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::cgroup::DomainCGroup;
-use procfs::process::Process;
-use std::collections::HashMap;
-use std::path::Path;
-use std::path::PathBuf;
-use std::thread::sleep;
-use std::time::Duration;
-use std::time::Instant;
-
+use anyhow::{anyhow, Result};
+use linux_apex_core::cgroup::{CGroup, DomainCGroup};
 use nix::sys::signal::*;
+use procfs::process::Process;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
-//TODO add logging (trace, debug, error)
 //TODO add better errors than anyhow?
 
-use super::config::Channel;
-use super::config::Config;
-use super::partition::Partition;
+use super::{
+    config::{Channel, Config},
+    partition::Partition,
+};
 
 //#[derive(Debug)]
 pub struct Hypervisor {
@@ -61,7 +58,7 @@ impl Hypervisor {
         }
 
         for p in config.partitions {
-            hv.add_partition(&p.name, p.bin)?;
+            hv.add_partition(&p.name, p.image)?;
         }
 
         Ok(hv)
