@@ -7,7 +7,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+apex-hal = { path = "../../../apex_rs" }
 linux-apex-core = { path = "../../core" }
+linux-apex-partition = { path = "../../partition" }
 procfs = "0.13"
 log = "0"
 pretty_env_logger = "0.4"
+nix = "0.24"
+log-panics = "2.1"
+memmap2 = "0.5.5"

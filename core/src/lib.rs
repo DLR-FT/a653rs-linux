@@ -3,5 +3,6 @@ extern crate log;
 
 pub mod cgroup;
 pub mod file;
+pub mod log_helper;
 pub mod partition;
 pub mod shmem;

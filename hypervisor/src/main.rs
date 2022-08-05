@@ -1,11 +1,17 @@
 #[macro_use]
 extern crate log;
 
-use std::{fs::File, path::PathBuf};
-
-use linux_apex_hypervisor::hypervisor::{config::Config, linux::Hypervisor};
+use std::fs::File;
+use std::io::Write;
+use std::path::PathBuf;
 
 use clap::Parser;
+use linux_apex_core::cgroup::CGroup;
+use linux_apex_core::partition::NAME_ENV;
+use linux_apex_hypervisor::hypervisor::config::Config;
+use linux_apex_hypervisor::hypervisor::linux::Hypervisor;
+use log::LevelFilter;
+use nix::sys::signal::*;
 
 /// Hypervisor based on cgroups in Linux
 #[derive(Parser, Debug)]
@@ -21,11 +27,26 @@ pub struct Args {
 }
 
 fn main() {
-    std::env::set_var(
-        "RUST_LOG",
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+    log_panics::init();
+
+    let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
+    std::env::set_var("RUST_LOG", level.clone());
+    std::env::set_var(NAME_ENV, "Hypervisor");
+
+    pretty_env_logger::formatted_builder()
+        .parse_filters(&level)
+        .format(linux_apex_core::log_helper::format)
+        .filter_module("polling", LevelFilter::Off)
+        .format_timestamp_secs()
+        .init();
+
+    // Register Handler for SIGINT
+    let sig_action = SigAction::new(
+        SigHandler::Handler(unwind),
+        SaFlags::empty(),
+        SigSet::empty(),
     );
-    pretty_env_logger::init();
+    unsafe { sigaction(SIGINT, &sig_action) }.unwrap();
 
     trace!("parsing args");
     let mut args = Args::parse();
@@ -34,16 +55,7 @@ fn main() {
     trace!("My pid is {}", my_pid.pid);
 
     // assumes cgroupv2
-    let cgroups_mount_point = my_pid
-        .mountinfo()
-        .expect("unable to acquire mountinfo")
-        .iter()
-        .find(|m| m.mount_source == Some("cgroup2".into()))
-        .expect("no cgroup2 mount found")
-        .mount_point
-        .clone();
-
-    trace!("cgroups mount point is {cgroups_mount_point:?}");
+    let cgroups_mount_point = CGroup::mount_point().unwrap();
 
     let cgroup = args.cgroup.get_or_insert_with(|| {
         let cgroups = my_pid
@@ -64,4 +76,11 @@ fn main() {
 
     info!("launching hypervisor");
     Hypervisor::new(config).unwrap().run();
+}
+
+extern "C" fn unwind(_: i32) {
+    print!("\r");
+    std::io::stdout().flush().unwrap();
+    info!("Exiting");
+    quit::with_code(0)
 }

@@ -1,10 +1,8 @@
-use anyhow::{anyhow, Result};
-use std::{
-    fmt::Debug,
-    mem::size_of,
-    path::{Path, PathBuf},
-};
+use std::fmt::Debug;
+use std::mem::size_of;
+use std::path::{Path, PathBuf};
 
+use anyhow::{anyhow, Result};
 use raw_sync::locks::*;
 use shared_memory::{Shmem, ShmemConf};
 

@@ -1,19 +1,14 @@
-use std::fs::read_to_string;
-use std::fs::File;
+use std::fs::{read_to_string, File};
 use std::os::unix::prelude::AsRawFd;
-use std::path::Path;
-use std::path::PathBuf;
-use std::vec;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use anyhow::Result;
-use nix::sys::epoll::epoll_create;
-use nix::sys::epoll::epoll_ctl;
-use nix::sys::epoll::epoll_wait;
-use nix::sys::epoll::EpollEvent;
-use nix::sys::epoll::EpollFlags;
-use nix::sys::epoll::EpollOp;
-use nix::unistd::close;
+use anyhow::{anyhow, Result};
+use inotify::{Inotify, WatchMask};
+use itertools::Itertools;
 use nix::unistd::Pid;
+use polling::{Event, Poller};
+use walkdir::WalkDir;
 
 pub type DomainCGroup = CGroup<true>;
 pub type ThreadedCGroup = CGroup<false>;
@@ -27,7 +22,6 @@ pub type ThreadedCGroup = CGroup<false>;
 #[derive(Debug)]
 pub struct CGroup<const DOMAIN: bool> {
     path: PathBuf,
-    member: Vec<Pid>,
 }
 
 impl<const DOMAIN: bool> CGroup<DOMAIN> {
@@ -51,19 +45,17 @@ impl<const DOMAIN: bool> CGroup<DOMAIN> {
 
     // TODO Add timeout ?
     fn kill_all_with_file(&self, file: &str) -> Result<()> {
-        let epoll = epoll_create()?;
         let pid_path = self.path.join(file);
-        let pids = File::open(&pid_path)?;
-        let mut info = EpollEvent::new(EpollFlags::EPOLLIN, 0);
-        epoll_ctl(epoll, EpollOp::EpollCtlAdd, pids.as_raw_fd(), &mut info)?;
+        let mut notify = Inotify::init()?;
+        notify.add_watch(&pid_path, WatchMask::MODIFY)?;
+        let poller = Poller::new()?;
+        poller.add(notify.as_raw_fd(), Event::readable(0))?;
 
         std::fs::write(self.path.join("cgroup.kill"), "1")?;
-
-        let mut events = [EpollEvent::empty()];
         while !read_to_string(&pid_path)?.is_empty() {
-            epoll_wait(epoll, &mut events, 500)?;
+            poller.wait(Vec::new().as_mut(), Some(Duration::from_millis(500)))?;
+            poller.modify(notify.as_raw_fd(), Event::readable(0))?;
         }
-        close(epoll)?;
 
         Ok(())
     }
@@ -72,12 +64,25 @@ impl<const DOMAIN: bool> CGroup<DOMAIN> {
 impl CGroup<true> {
     const MEMBER_FILE: &'static str = "cgroup.procs";
 
+    pub fn mount_point() -> Result<PathBuf> {
+        let mnt = procfs::process::Process::myself()?
+            .mountinfo()?
+            .iter()
+            .find(|m| m.fs_type.eq("cgroup2"))
+            .ok_or_else(|| anyhow!("no cgroup2 mount found"))
+            .map(|m| m.mount_point.clone());
+
+        trace!("cgroups mount point is {mnt:?}");
+        mnt
+    }
+
     pub fn new<P: AsRef<Path>>(root: P, name: &str) -> Result<Self> {
         let path = PathBuf::from(root.as_ref()).join(name);
         trace!("New CGroup: {path:?}");
 
         if !path.exists() {
-            std::fs::create_dir(&path).unwrap();
+            trace!("Creating Cgroup, {path:?}");
+            std::fs::create_dir(&path)?;
         }
 
         // TODO use cpuset with feature opt in
@@ -88,15 +93,11 @@ impl CGroup<true> {
         //sleep(Duration::from_secs(1));
         //sleep(Duration::from_secs(1));
 
-        Ok(CGroup {
-            path,
-            member: vec![],
-        })
+        Ok(CGroup { path })
     }
 
     pub fn add_process(&mut self, pid: Pid) -> Result<()> {
         Self::add_process_to(&self.path, pid)?;
-        self.member.push(pid);
         Ok(())
     }
 
@@ -111,7 +112,15 @@ impl CGroup<true> {
 
     pub fn delete(&self) -> Result<()> {
         self.kill_all()?;
-        std::fs::remove_dir(&self.path)?;
+        for d in WalkDir::new(&self.path)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_dir())
+            .sorted_by(|a, b| a.depth().cmp(&b.depth()).reverse())
+        {
+            std::fs::remove_dir(&d.path())?;
+            trace!("Removed {:?}", d.path().as_os_str())
+        }
         Ok(())
     }
 }
@@ -129,15 +138,11 @@ impl CGroup<false> {
 
         std::fs::write(path.join("cgroup.type"), b"threaded")?;
 
-        Ok(CGroup {
-            path,
-            member: vec![],
-        })
+        Ok(CGroup { path })
     }
 
     pub fn add_thread(&mut self, pid: Pid) -> Result<()> {
         Self::add_thread_to(&self.path, pid)?;
-        self.member.push(pid);
         Ok(())
     }
 

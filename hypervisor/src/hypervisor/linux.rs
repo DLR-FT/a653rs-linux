@@ -1,22 +1,15 @@
-use anyhow::anyhow;
-use anyhow::Result;
-use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::cgroup::DomainCGroup;
-use linux_apex_core::file::TempFile;
-use linux_apex_core::partition::SYSTEM_TIME;
-use nix::sys::signal::*;
-use procfs::process::Process;
 use std::collections::HashMap;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
-use std::time::Duration;
-use std::time::Instant;
-use tempfile::tempdir;
-use tempfile::TempDir;
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, Result};
+use linux_apex_core::cgroup::{CGroup, DomainCGroup};
+use linux_apex_core::file::TempFile;
+use linux_apex_core::partition::SYSTEM_TIME_FILE;
+use procfs::process::Process;
 
 //TODO add better errors than anyhow?
-
 use super::{
     config::{Channel, Config},
     partition::Partition,
@@ -40,20 +33,13 @@ impl Hypervisor {
         //      This could be put into the CGroup struct
         let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
 
-        // TODO maybe dont panic for forcing unwind
-        let sig_action = SigAction::new(
-            SigHandler::Handler(handle_sigint),
-            SaFlags::empty(),
-            SigSet::empty(),
-        );
-        unsafe { sigaction(SIGINT, &sig_action) }.unwrap();
         let schedule = config.generate_schedule();
         let cg = DomainCGroup::new(
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )?;
 
-        let start_time = TempFile::new(SYSTEM_TIME)?;
+        let start_time = TempFile::new(SYSTEM_TIME_FILE)?;
 
         let mut hv = Self {
             cg,
@@ -138,8 +124,4 @@ impl Drop for Hypervisor {
             error!("{e}")
         }
     }
-}
-
-extern "C" fn handle_sigint(_: i32) {
-    panic!();
 }
