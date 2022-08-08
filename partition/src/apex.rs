@@ -7,6 +7,7 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
 use crate::partition::Partition;
+use crate::process::Process as LinuxProcess;
 use crate::{scheduler, PARTITION_STATE, SYSTEM_TIME};
 
 impl ApexPartition for Partition {
@@ -17,7 +18,7 @@ impl ApexPartition for Partition {
     fn set_partition_mode<L: Locked>(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
         // TODO: Handle transitions
         // TODO: Max error
-        PARTITION_STATE.write(operating_mode).unwrap();
+        PARTITION_STATE.write(&operating_mode).unwrap();
 
         if operating_mode == OperatingMode::Normal {
             // If we transition into Normal Mode, run the scheduler and never return
@@ -31,7 +32,9 @@ impl ApexProcess for Partition {
     fn create_process<L: Locked>(
         attributes: &ApexProcessAttribute,
     ) -> Result<ProcessId, ErrorReturnCode> {
-        todo!()
+        // TODO do not unwrap both
+        let attr = (*attributes).try_into().unwrap();
+        Ok(LinuxProcess::create(attr).unwrap())
     }
 
     fn set_priority<L: Locked>(

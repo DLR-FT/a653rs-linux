@@ -27,7 +27,7 @@ pub struct Args {
 }
 
 fn main() {
-    log_panics::init();
+    //log_panics::init();
 
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());
@@ -41,6 +41,7 @@ fn main() {
         .init();
 
     // Register Handler for SIGINT
+    // Maybe use https://crates.io/crates/signal-hook instead
     let sig_action = SigAction::new(
         SigHandler::Handler(unwind),
         SaFlags::empty(),

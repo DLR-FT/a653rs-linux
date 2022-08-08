@@ -6,7 +6,7 @@ use std::process::Command;
 use anyhow::Result;
 use apex_hal::prelude::OperatingMode;
 use clone3::Clone3;
-use linux_apex_core::cgroup::DomainCGroup;
+use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::{get_fd, TempFile};
 use linux_apex_core::partition::{
     HEALTH_STATE_FILE, NAME_ENV, PARTITION_STATE_FILE, SYSTEM_TIME_FILE,
@@ -19,7 +19,7 @@ use tempfile::{tempdir, TempDir};
 //#[derive(Debug)]
 pub(crate) struct Partition {
     name: String,
-    cg: DomainCGroup,
+    cg: CGroup,
     wd: TempDir,
     hm: TempFile<u8>,
     state: TempFile<OperatingMode>,
@@ -34,15 +34,13 @@ impl Partition {
         bin: P2,
     ) -> Result<Self> {
         // Todo implement drop for cgroup? (in error case)
-        let cg = DomainCGroup::new(cgroup_root, name)?;
+        let cg = CGroup::new(cgroup_root, name)?;
 
         let wd = tempdir()?;
         trace!("CGroup Working directory: {:?}", wd.path());
 
         let hm = TempFile::new(HEALTH_STATE_FILE)?;
-        hm.lock_trunc()?;
         let state = TempFile::new(PARTITION_STATE_FILE)?;
-        state.lock_trunc()?;
 
         Ok(Self {
             name: name.to_string(),
@@ -122,13 +120,12 @@ impl Partition {
 
                 let sys_time = get_fd(SYSTEM_TIME_FILE).unwrap();
 
-                Self::release_fds(&[sys_time, self.hm.get_fd(), self.state.get_fd()]).unwrap();
+                Self::release_fds(&[sys_time, self.hm.fd(), self.state.fd()]).unwrap();
 
-                Self::print_fds();
-                debug!("Stdout fd: {}", std::io::stdout().as_raw_fd());
+                //Self::print_fds();
 
                 // Set to cold_start
-                self.state.write(OperatingMode::ColdStart).unwrap();
+                self.state.write(&OperatingMode::ColdStart).unwrap();
 
                 // Mount working directory as tmpfs (TODO with size?)
                 mount::<str, _, _, str>(

@@ -1,127 +1,130 @@
 // TODO remove this
 #![allow(dead_code)]
 
+use std::fs::File;
+use std::mem::forget;
+use std::os::unix::prelude::{FromRawFd, IntoRawFd};
 use std::process::exit;
+use std::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use apex_hal::bindings::ProcessState;
-use apex_hal::prelude::{Priority, ProcessAttribute, SystemTime};
-use bytemuck::{Pod, Zeroable};
-use linux_apex_core::cgroup::{CGroup, DomainCGroup};
+use apex_hal::prelude::{Priority, ProcessAttribute, ProcessId, SystemTime};
+use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::TempFile;
-use memmap2::{Mmap, MmapMut, MmapOptions};
+use linux_apex_core::shmem::TypedMmapMut;
+use memmap2::MmapOptions;
 use nix::sched::CloneFlags;
-use nix::sys::mman::{mmap, munmap, MapFlags, ProtFlags};
 use nix::unistd::{getpid, Pid};
 
-use crate::PROCESSES;
+use crate::{ProcessesType, PROCESSES};
 
 #[repr(C)]
-//#[derive(Pod, Zeroable, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Process {
-    name: String,
-    stack: MmapMut,
-    //stack_size: usize,
-    cg: DomainCGroup,
+    // This pointer is only valid inside the main process of a partition
+    stack: &'static [u8],
     attr: ProcessAttribute,
-    deadline: TempFile<SystemTime>, // Key 0
-    priority: TempFile<Priority>,   // Key 1
-    state: TempFile<ProcessState>,  // Key 2
-    pid: TempFile<Pid>,             // Key 3
+    deadline: TempFile<SystemTime>,
+    priority: TempFile<Priority>,
+    state: TempFile<ProcessState>,
+    pid: TempFile<Pid>,
+}
+
+lazy_static! {
+    // Sync mutex
+    static ref SYNC: Mutex<u8> = Mutex::new(0);
 }
 
 impl Process {
-    pub fn new(attr: ProcessAttribute) -> Result<Self> {
-        // munmap if Err
+    pub fn create(attr: ProcessAttribute) -> Result<ProcessId> {
         let name = attr.name.to_str()?.to_string();
         debug!("Create New Process: {name:?}");
         let stack_size = attr.stack_size.try_into()?;
-        //let stack_ptr = unsafe {
-        //    AtomicPtr::new(mmap(
-        //        null_mut(),
-        //        stack_size,
-        //        ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
-        //        MapFlags::MAP_PRIVATE
-        //            | MapFlags::MAP_ANONYMOUS
-        //            | MapFlags::MAP_GROWSDOWN
-        //            | MapFlags::MAP_STACK,
-        //        -1,
-        //        0,
-        //    )?)
-        //};
         let stack = MmapOptions::new().stack().len(stack_size).map_anon()?;
 
-        let cg = DomainCGroup::new(CGroup::mount_point()?, &name)?;
-        let deadline = TempFile::new(&format!("deadline_{name}"))?;
-        let priority = TempFile::new(&format!("priority_{name}"))?;
-        let state = TempFile::new(&format!("state_{name}"))?;
-        let pid = TempFile::new(&format!("pid_{name}"))?;
+        // Create Cgroup
+        CGroup::new(CGroup::mount_point()?, &name)?;
 
-        Ok(Self {
-            name,
-            stack,
-            //stack_size,
-            cg,
+        // Files for dropping fd
+        let mut files = Vec::new();
+
+        let deadline = TempFile::new(&format!("deadline_{name}"))?;
+        files.push(unsafe { File::from_raw_fd(deadline.fd()) });
+        let priority = TempFile::new(&format!("priority_{name}"))?;
+        files.push(unsafe { File::from_raw_fd(priority.fd()) });
+        let state = TempFile::new(&format!("state_{name}"))?;
+        files.push(unsafe { File::from_raw_fd(state.fd()) });
+        let pid = TempFile::new(&format!("pid_{name}"))?;
+        files.push(unsafe { File::from_raw_fd(pid.fd()) });
+
+        let process = Self {
+            // TODO this is disgusting
+            stack: unsafe { (stack.as_ref() as *const [u8]).as_ref::<'static>().unwrap() },
             attr,
             deadline,
             priority,
             state,
             pid,
-        })
+        };
+
+        let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
+        let mut procs: TypedMmapMut<ProcessesType> =
+            (&PROCESSES as &TempFile<ProcessesType>).try_into()?;
+        //Get Index of process in array
+        let process_id = procs.as_ref().len().try_into()?;
+        //Insert into array
+        procs.as_mut().try_push(Some(process));
+        drop(guard);
+
+        // dissolve files into fds
+        for f in files {
+            f.into_raw_fd();
+        }
+        // dissolve stack ptr
+        forget(stack);
+
+        Ok(process_id)
+    }
+
+    pub fn name(&self) -> Result<&str> {
+        Ok(self.attr.name.to_str()?)
+    }
+
+    fn cg(&self) -> Result<CGroup> {
+        Ok(CGroup::from(CGroup::mount_point()?.join(self.name()?)))
     }
 
     pub fn freeze(&mut self) -> Result<()> {
-        self.cg.freeze()
+        self.cg()?.freeze()
     }
 
     pub fn unfreeze(&mut self) -> Result<()> {
-        self.cg.unfreeze()
+        self.cg()?.unfreeze()
     }
 
-    pub fn init(&mut self) -> Result<()> {
-        self.cg.kill_all().unwrap();
+    pub fn start(&mut self) -> Result<()> {
+        let mut cg = self.cg()?;
+        cg.kill_all().unwrap();
 
         self.freeze().unwrap();
 
-        self.priority.write(self.attr.base_priority)?;
+        self.priority.write(&self.attr.base_priority)?;
 
-        // This makes sure that lazy_static triggers at least once before a process was created
-        PROCESSES.get_fd();
+        // TODO this is disgusting (but is somehow keeps information on slice length)
+        let stack = unsafe { (self.stack as *const _ as *mut [u8]).as_mut() }.unwrap();
 
-        safemem::write_bytes(&mut self.stack, 0);
+        safemem::write_bytes(stack, 0);
         let cbk = Box::new(|| {
-            self.cg.add_process(getpid()).unwrap();
+            cg.add_process(getpid()).unwrap();
             (self.attr.entry_point)();
             exit(0);
         });
-        let child = nix::sched::clone(cbk, &mut self.stack, CloneFlags::empty(), None)?;
+        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), None)?;
 
-        //let child = match unsafe {
-        //     Clone3::default()
-        //     .flag_into_cgroup(&self.cg.get_fd()?)
-        //    .flag_vm(stack)
-        //    .call().unwrap()
-        //} {
-        //    0 => {
-        //        (self.attr.entry_point)();
-        //        exit(0);
-        //    },
-        //    child => child,
-        //};
+        self.pid.write(&child)?;
 
-        self.pid.write(child)?;
-        //self.pid.write(Pid::from_raw(child))?;
-        debug!("Created process \"{}\" with id: {}", self.name, child);
+        debug!("Created process \"{}\" with id: {}", self.name()?, child);
         Ok(())
     }
 }
-
-//impl Drop for Process {
-//    fn drop(&mut self) {
-//        unsafe {
-//            //// TODO check for other potential memory leaks in other locations
-//            //munmap(self.stack_ptr.swap(null_mut(), Ordering::Relaxed), self.attr.stack_size.try_into().unwrap()).unwrap();
-//            //self.attr.stack_size = 0;
-//        }
-//    }
-//}

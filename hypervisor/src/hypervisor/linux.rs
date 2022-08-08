@@ -4,7 +4,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use linux_apex_core::cgroup::{CGroup, DomainCGroup};
+use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::TempFile;
 use linux_apex_core::partition::SYSTEM_TIME_FILE;
 use procfs::process::Process;
@@ -17,7 +17,7 @@ use super::{
 
 //#[derive(Debug)]
 pub struct Hypervisor {
-    cg: DomainCGroup,
+    cg: CGroup,
     major_frame: Duration,
     schedule: Vec<(Duration, String, bool)>,
     partitions: HashMap<String, Partition>,
@@ -34,7 +34,7 @@ impl Hypervisor {
         let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
 
         let schedule = config.generate_schedule();
-        let cg = DomainCGroup::new(
+        let cg = CGroup::new(
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )?;
@@ -86,8 +86,9 @@ impl Hypervisor {
         }
 
         let mut frame_start = Instant::now();
-        self.start_time.write(frame_start).unwrap();
-        self.start_time.lock_all().unwrap();
+
+        self.start_time.write(&frame_start).unwrap();
+        self.start_time.seal_read_only().unwrap();
         loop {
             for (target_time, partition_name, start) in &self.schedule {
                 sleep(target_time.saturating_sub(frame_start.elapsed()));
