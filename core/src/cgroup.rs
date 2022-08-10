@@ -32,7 +32,7 @@ impl CGroup {
             .ok_or_else(|| anyhow!("no cgroup2 mount found"))
             .map(|m| m.mount_point.clone());
 
-        trace!("cgroups mount point is {mnt:?}");
+        //trace!("cgroups mount point is {mnt:?}");
         mnt
     }
 
@@ -66,12 +66,24 @@ impl CGroup {
         Ok(())
     }
 
-    pub fn kill_all(&self) -> Result<()> {
-        self.kill_all_with_file(Self::MEMBER_FILE)
+    pub fn kill_all_wait(&self) -> Result<()> {
+        let pid_path = self.path.join(Self::MEMBER_FILE);
+        //let mut notify = Inotify::init()?;
+        //notify.add_watch(&pid_path, WatchMask::MODIFY)?;
+        //let poller = Poller::new()?;
+        //poller.add(notify.as_raw_fd(), Event::readable(0))?;
+
+        std::fs::write(self.path.join("cgroup.kill"), "1").unwrap();
+        while !read_to_string(&pid_path)?.is_empty() {
+            //poller.wait(Vec::new().as_mut(), Some(Duration::from_millis(500)))?;
+            //poller.modify(notify.as_raw_fd(), Event::readable(0))?;
+        }
+
+        Ok(())
     }
 
     pub fn delete(&self) -> Result<()> {
-        self.kill_all()?;
+        self.kill_all_wait()?;
         for d in WalkDir::new(&self.path)
             .into_iter()
             .flatten()
@@ -100,23 +112,6 @@ impl CGroup {
 
     pub fn get_fd(&self) -> Result<File> {
         Ok(File::open(&self.path)?)
-    }
-
-    // TODO Add timeout ?
-    fn kill_all_with_file(&self, file: &str) -> Result<()> {
-        let pid_path = self.path.join(file);
-        let mut notify = Inotify::init()?;
-        notify.add_watch(&pid_path, WatchMask::MODIFY)?;
-        let poller = Poller::new()?;
-        poller.add(notify.as_raw_fd(), Event::readable(0))?;
-
-        std::fs::write(self.path.join("cgroup.kill"), "1").unwrap();
-        while !read_to_string(&pid_path)?.is_empty() {
-            poller.wait(Vec::new().as_mut(), Some(Duration::from_millis(500)))?;
-            poller.modify(notify.as_raw_fd(), Event::readable(0))?;
-        }
-
-        Ok(())
     }
 }
 

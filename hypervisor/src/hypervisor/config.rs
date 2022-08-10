@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub major_frame: Duration,
@@ -15,7 +15,7 @@ pub struct Config {
     pub channel: Vec<Channel>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Partition {
     pub name: String,
     #[serde(with = "humantime_serde")]
@@ -25,7 +25,7 @@ pub struct Partition {
     pub image: PathBuf,
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize, Clone)]
 pub enum Channel {
     //Queuing(QueuingChannel),
     //Sampling(SamplingChannel),

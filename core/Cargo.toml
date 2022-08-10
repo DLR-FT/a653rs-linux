@@ -6,11 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#apex-hal = { git = "ssh://git@gitlab.dlr.de/ft-ssy-aes/g115r105/apex_rs.git" }
-apex-hal = { path = "../../apex_rs" }
 nix = "0.24"
 anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
 procfs = "0.13"
 itertools = "0.10"
 log = "0"
@@ -19,6 +16,4 @@ polling = "2.2"
 inotify = "0.10"
 pretty_env_logger = "0.4"
 memmap2 = "0.5.5"
-bytemuck = "1.11"
 memfd = "0.6"
-heapless = "0.7"

@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 #apex-hal = { git = "ssh://git@gitlab.dlr.de/ft-ssy-aes/g115r105/apex_rs.git" }
-apex-hal = { path = "../../apex_rs" }
+apex-hal = { path = "../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../core" }
 
 
@@ -19,16 +19,9 @@ clone3 = "0.2"
 ipc-channel = { version = "0.16", features = [ "memfd" ] }
 serde = { version = "1.0", features = ["derive"] }
 libc = "0.2"
-crossbeam = "0.8"
-#smol = "1.2"
-hotwatch = "0.4"
-fslock = "0.2"
-notify = "4.0"
 procfs = "0.13"
 raw_sync = "0.1"
 shared_memory = "0.12"
-libmount = "0.1"
-#futures = "0.3"
 itertools = "0.10"
 clap = { version = "3", features = [ "derive" ] }
 serde_yaml = "0"
@@ -37,4 +30,3 @@ log = "0"
 pretty_env_logger = "0.4"
 quit = "1.1"
 log-panics = "2"
-signal-hook = "0.3"

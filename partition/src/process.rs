@@ -1,39 +1,49 @@
 // TODO remove this
-#![allow(dead_code)]
+#![allow(dead_code, mutable_transmutes)]
 
+use std::cell::UnsafeCell;
 use std::fs::File;
-use std::mem::forget;
+use std::mem::{forget, transmute};
 use std::os::unix::prelude::{FromRawFd, IntoRawFd};
 use std::process::exit;
-use std::sync::Mutex;
+use std::ptr::slice_from_raw_parts_mut;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Once};
 
 use anyhow::{anyhow, Result};
-use apex_hal::bindings::ProcessState;
-use apex_hal::prelude::{Priority, ProcessAttribute, ProcessId, SystemTime};
+use apex_hal::bindings::*;
+use apex_hal::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::file::TempFile;
+use linux_apex_core::file::{get_fd, TempFile};
 use linux_apex_core::shmem::TypedMmapMut;
 use memmap2::MmapOptions;
 use nix::sched::CloneFlags;
 use nix::unistd::{getpid, Pid};
+use once_cell::sync::{Lazy, OnceCell};
 
-use crate::{ProcessesType, PROCESSES};
+use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
+
+//use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
+
+#[derive(Debug, Clone, Copy)]
+struct StackPtr(*mut [u8]);
+
+unsafe impl Sync for StackPtr {}
+unsafe impl Send for StackPtr {}
+
+static STACKS: [OnceCell<StackPtr>; 2] = [OnceCell::new(), OnceCell::new()];
+
+static SYNC: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(Default::default()));
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Process {
-    // This pointer is only valid inside the main process of a partition
-    stack: &'static [u8],
+    id: i32,
     attr: ProcessAttribute,
     deadline: TempFile<SystemTime>,
-    priority: TempFile<Priority>,
     state: TempFile<ProcessState>,
     pid: TempFile<Pid>,
-}
-
-lazy_static! {
-    // Sync mutex
-    static ref SYNC: Mutex<u8> = Mutex::new(0);
+    periodic: bool,
 }
 
 impl Process {
@@ -41,78 +51,108 @@ impl Process {
         let name = attr.name.to_str()?.to_string();
         debug!("Create New Process: {name:?}");
         let stack_size = attr.stack_size.try_into()?;
-        let stack = MmapOptions::new().stack().len(stack_size).map_anon()?;
+        let mut stack = MmapOptions::new().stack().len(stack_size).map_anon()?;
+
+        let periodic = attr.period != SystemTime::Infinite;
+        let id = periodic as i32 + 1;
 
         // Create Cgroup
-        CGroup::new(CGroup::mount_point()?, &name)?;
+        let mut cg = CGroup::new(CGroup::mount_point()?, &name)?;
+        cg.freeze().unwrap();
+
+        warn!("{}", stack.len());
+        let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
+
+        let proc_file = if periodic {
+            *PERIODIC_PROCESS
+        } else {
+            *APERIODIC_PROCESS
+        };
+        if proc_file.read()?.is_some() {
+            return Err(anyhow!("Process type already exists. Periodic: {periodic}"));
+        }
 
         // Files for dropping fd
         let mut files = Vec::new();
-
         let deadline = TempFile::new(&format!("deadline_{name}"))?;
         files.push(unsafe { File::from_raw_fd(deadline.fd()) });
-        let priority = TempFile::new(&format!("priority_{name}"))?;
-        files.push(unsafe { File::from_raw_fd(priority.fd()) });
         let state = TempFile::new(&format!("state_{name}"))?;
         files.push(unsafe { File::from_raw_fd(state.fd()) });
         let pid = TempFile::new(&format!("pid_{name}"))?;
         files.push(unsafe { File::from_raw_fd(pid.fd()) });
 
         let process = Self {
-            // TODO this is disgusting
-            stack: unsafe { (stack.as_ref() as *const [u8]).as_ref::<'static>().unwrap() },
+            id,
             attr,
             deadline,
-            priority,
             state,
             pid,
+            periodic,
         };
 
-        let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
-        let mut procs: TypedMmapMut<ProcessesType> =
-            (&PROCESSES as &TempFile<ProcessesType>).try_into()?;
-        //Get Index of process in array
-        let process_id = procs.as_ref().len().try_into()?;
-        //Insert into array
-        procs.as_mut().try_push(Some(process));
+        proc_file.write(&Some(process))?;
+
+        // We can unwrap because it was already checked that the cell is empty
+        STACKS[periodic as usize]
+            .set(StackPtr(stack.as_mut()))
+            .unwrap();
+
         drop(guard);
 
         // dissolve files into fds
         for f in files {
             f.into_raw_fd();
         }
-        // dissolve stack ptr
+        // forget stack ptr so we do not call munmap
         forget(stack);
 
-        Ok(process_id)
+        debug!("Created process \"{name}\" with id: {id}");
+        Ok(id)
+    }
+
+    pub(crate) fn get_self() -> Option<Self> {
+        if let Ok(Some(p)) = APERIODIC_PROCESS.read() {
+            if let Ok(id) = p.pid.read() {
+                if id == nix::unistd::getpid() {
+                    return Some(p);
+                }
+            }
+        }
+
+        if let Ok(Some(p)) = PERIODIC_PROCESS.read() {
+            if let Ok(id) = p.pid.read() {
+                if id == nix::unistd::getpid() {
+                    return Some(p);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn name(&self) -> Result<&str> {
         Ok(self.attr.name.to_str()?)
     }
 
-    fn cg(&self) -> Result<CGroup> {
-        Ok(CGroup::from(CGroup::mount_point()?.join(self.name()?)))
+    pub fn attr(&self) -> &ProcessAttribute {
+        &self.attr
     }
 
-    pub fn freeze(&mut self) -> Result<()> {
-        self.cg()?.freeze()
-    }
+    pub fn start(&self) -> Result<()> {
+        let name = self.name()?;
+        let mut cg = CGroup::new(CGroup::mount_point()?, name)?;
 
-    pub fn unfreeze(&mut self) -> Result<()> {
-        self.cg()?.unfreeze()
-    }
+        cg.freeze().unwrap();
+        cg.kill_all_wait()?;
 
-    pub fn start(&mut self) -> Result<()> {
-        let mut cg = self.cg()?;
-        cg.kill_all().unwrap();
-
-        self.freeze().unwrap();
-
-        self.priority.write(&self.attr.base_priority)?;
-
-        // TODO this is disgusting (but is somehow keeps information on slice length)
-        let stack = unsafe { (self.stack as *const _ as *mut [u8]).as_mut() }.unwrap();
+        let stack = unsafe {
+            STACKS[self.periodic as usize]
+                .get()
+                .expect("TODO: Do not expect here")
+                .0
+                .as_mut()
+                .expect("TODO: Do not expect here")
+        };
 
         safemem::write_bytes(stack, 0);
         let cbk = Box::new(|| {
@@ -121,10 +161,25 @@ impl Process {
             exit(0);
         });
         let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), None)?;
-
         self.pid.write(&child)?;
 
-        debug!("Created process \"{}\" with id: {}", self.name()?, child);
+        trace!("Started process \"{name}\" with pid: {child}");
         Ok(())
+    }
+
+    fn cg(&self) -> Result<CGroup> {
+        Ok(CGroup::from(CGroup::mount_point()?.join(self.name()?)))
+    }
+
+    pub fn periodic(&self) -> bool {
+        self.periodic
+    }
+
+    pub fn freeze(&mut self) -> Result<()> {
+        self.cg()?.freeze()
+    }
+
+    pub fn unfreeze(&mut self) -> Result<()> {
+        self.cg()?.unfreeze()
     }
 }

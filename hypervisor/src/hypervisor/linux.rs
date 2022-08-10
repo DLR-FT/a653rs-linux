@@ -4,11 +4,13 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use apex_hal::prelude::StartCondition;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::TempFile;
 use linux_apex_core::partition::SYSTEM_TIME_FILE;
 use procfs::process::Process;
 
+use super::partition::PartitionStartArgs;
 //TODO add better errors than anyhow?
 use super::{
     config::{Channel, Config},
@@ -23,6 +25,7 @@ pub struct Hypervisor {
     partitions: HashMap<String, Partition>,
     prev_cg: PathBuf,
     start_time: TempFile<Instant>,
+    config: Config,
 }
 
 impl Hypervisor {
@@ -48,26 +51,27 @@ impl Hypervisor {
             partitions: Default::default(),
             prev_cg,
             start_time,
+            config: config.clone(),
         };
 
         for c in config.channel {
             hv.add_channel(c)?;
         }
 
-        for p in config.partitions {
-            hv.add_partition(&p.name, p.image)?;
+        for (i, p) in config.partitions.iter().enumerate() {
+            hv.add_partition(&p.name, i + 1, p.image.clone())?;
         }
 
         Ok(hv)
     }
 
-    fn add_partition<P: AsRef<Path>>(&mut self, name: &str, bin: P) -> Result<()> {
+    fn add_partition<P: AsRef<Path>>(&mut self, name: &str, id: usize, bin: P) -> Result<()> {
         if self.partitions.contains_key(name) {
             return Err(anyhow!("Partition {name} already exists"));
         }
         self.partitions.insert(
             name.to_string(),
-            Partition::from_cgroup(self.cg.path(), name, bin)?,
+            Partition::from_cgroup(self.cg.path(), name, id, bin)?,
         );
 
         Ok(())
@@ -82,7 +86,15 @@ impl Hypervisor {
         self.cg.add_process(nix::unistd::getpid()).unwrap();
 
         for p in self.partitions.values_mut() {
-            p.initialize()
+            let part = &self.config.partitions[p.id() - 1];
+            let args = PartitionStartArgs {
+                condition: StartCondition::NormalStart,
+                duration: part.duration,
+                // use period aswell
+                period: Duration::default(),
+            };
+
+            p.restart(args)
         }
 
         let mut frame_start = Instant::now();

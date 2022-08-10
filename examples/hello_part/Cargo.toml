@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-hal = { path = "../../../apex_rs" }
+apex-hal = { path = "../../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../../core" }
 linux-apex-partition = { path = "../../partition" }
 procfs = "0.13"

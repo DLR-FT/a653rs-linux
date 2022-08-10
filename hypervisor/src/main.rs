@@ -27,7 +27,7 @@ pub struct Args {
 }
 
 fn main() {
-    //log_panics::init();
+    log_panics::init();
 
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());

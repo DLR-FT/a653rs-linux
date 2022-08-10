@@ -2,14 +2,16 @@ use std::fs::File;
 use std::os::unix::prelude::{AsRawFd, CommandExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use anyhow::Result;
-use apex_hal::prelude::OperatingMode;
+use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::{get_fd, TempFile};
 use linux_apex_core::partition::{
-    HEALTH_STATE_FILE, NAME_ENV, PARTITION_STATE_FILE, SYSTEM_TIME_FILE,
+    DURATION_ENV, HEALTH_STATE_FILE, IDENTIFIER_ENV, NAME_ENV, PARTITION_STATE_FILE, PERIOD_ENV,
+    START_CONDITION_ENV, SYSTEM_TIME_FILE,
 };
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Uid};
@@ -19,6 +21,7 @@ use tempfile::{tempdir, TempDir};
 //#[derive(Debug)]
 pub(crate) struct Partition {
     name: String,
+    id: usize,
     cg: CGroup,
     wd: TempDir,
     hm: TempFile<u8>,
@@ -31,6 +34,7 @@ impl Partition {
     pub fn from_cgroup<P1: AsRef<Path>, P2: AsRef<Path>>(
         cgroup_root: P1,
         name: &str,
+        id: usize,
         bin: P2,
     ) -> Result<Self> {
         // Todo implement drop for cgroup? (in error case)
@@ -44,6 +48,7 @@ impl Partition {
 
         Ok(Self {
             name: name.to_string(),
+            id,
             cg,
             wd,
             hm,
@@ -96,8 +101,13 @@ impl Partition {
         self.cg.delete()
     }
 
-    pub fn initialize(&mut self) {
-        self.cg.kill_all().unwrap();
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    // TODO Declare cpus differently and add effect to this variable
+    pub fn restart(&mut self, args: PartitionStartArgs) {
+        self.cg.kill_all_wait().unwrap();
 
         self.freeze().unwrap();
 
@@ -187,6 +197,10 @@ impl Partition {
                 let err = Command::new("/bin")
                     // Set Partition Name Env
                     .env(NAME_ENV, &self.name)
+                    .env(PERIOD_ENV, args.period.as_nanos().to_string())
+                    .env(DURATION_ENV, args.duration.as_nanos().to_string())
+                    .env(IDENTIFIER_ENV, self.id.to_string())
+                    .env(START_CONDITION_ENV, (args.condition as u32).to_string())
                     .exec();
                 error!("{err:?}");
 
@@ -214,4 +228,11 @@ impl Partition {
         .unwrap();
         //forget(client);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PartitionStartArgs {
+    pub condition: StartCondition,
+    pub duration: Duration,
+    pub period: Duration,
 }

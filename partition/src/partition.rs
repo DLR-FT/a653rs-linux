@@ -4,9 +4,9 @@
 use crate::PART_NAME;
 
 /// Static functions for within a partition
-pub struct Partition;
+pub struct ApexLinuxPartition;
 
-impl Partition {
+impl ApexLinuxPartition {
     pub fn get_partition_name() -> String {
         PART_NAME.clone()
     }

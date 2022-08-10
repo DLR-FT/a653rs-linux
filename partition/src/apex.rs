@@ -1,24 +1,29 @@
 // TODO remove this
 #![allow(unused_variables)]
-use std::process::exit;
 
 use apex_hal::bindings::*;
-use nix::sys::signal::{self, Signal};
-use nix::unistd::Pid;
 
-use crate::partition::Partition;
+use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
-use crate::{scheduler, PARTITION_STATE, SYSTEM_TIME};
+use crate::*;
 
-impl ApexPartition for Partition {
+impl ApexPartition for ApexLinuxPartition {
     fn get_partition_status<L: Locked>() -> ApexPartitionStatus {
-        todo!()
+        ApexPartitionStatus {
+            period: PART_PERIOD.as_nanos() as i64,
+            duration: PART_DURATION.as_nanos() as i64,
+            identifier: *PART_IDENTIFIER,
+            lock_level: 0,
+            operating_mode: PART_OPERATION_MODE.read().unwrap(),
+            start_condition: *PART_START_CONDITION,
+            num_assigned_cores: 1,
+        }
     }
 
     fn set_partition_mode<L: Locked>(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
         // TODO: Handle transitions
-        // TODO: Max error
-        PARTITION_STATE.write(&operating_mode).unwrap();
+        // TODO: Do not unwrap error
+        PART_OPERATION_MODE.write(&operating_mode).unwrap();
 
         if operating_mode == OperatingMode::Normal {
             // If we transition into Normal Mode, run the scheduler and never return
@@ -28,104 +33,40 @@ impl ApexPartition for Partition {
     }
 }
 
-impl ApexProcess for Partition {
+impl ApexProcess for ApexLinuxPartition {
     fn create_process<L: Locked>(
         attributes: &ApexProcessAttribute,
     ) -> Result<ProcessId, ErrorReturnCode> {
         // TODO do not unwrap both
+        // Check current State (only allowed in warm and cold start)
         let attr = (*attributes).try_into().unwrap();
         Ok(LinuxProcess::create(attr).unwrap())
     }
 
-    fn set_priority<L: Locked>(
-        process_id: ProcessId,
-        priority: Priority,
-    ) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn suspend_self<L: Locked>(time_out: ApexSystemTime) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn suspend<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn resume<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn stop_self<L: Locked>() {
-        // TODO Root process needs to notice this somehow
-        exit(0)
-    }
-
-    fn stop<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
-        // TODO Root process needs to notice this somehow
-        // What to do if raise fails?
-        // Max error to NO_ACTION if target process is in DORMANT State
-        signal::kill(Pid::from_raw(process_id), Signal::SIGKILL)
-            .map_err(|_e| ErrorReturnCode::InvalidParam)
-    }
-
     fn start<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
         // This more like a reset function for dormant processes
-        todo!()
-    }
+        // TODO check for correct partition operating state
+        let file = match process_id {
+            0 => *APERIODIC_PROCESS,
+            1 => *PERIODIC_PROCESS,
+            _ => todo!("Return error"),
+        };
+        // TODO do not unwrap
+        let proc = file.read().unwrap().unwrap();
+        proc.start().unwrap();
 
-    fn delayed_start<L: Locked>(
-        process_id: ProcessId,
-        delay_time: ApexSystemTime,
-    ) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn lock_preemption<L: Locked>() -> Result<LockLevel, ErrorReturnCode> {
-        todo!()
-    }
-
-    fn unlock_preemption<L: Locked>() -> Result<LockLevel, ErrorReturnCode> {
-        todo!()
-    }
-
-    fn get_my_id<L: Locked>() -> Result<ProcessId, ErrorReturnCode> {
-        Ok(nix::unistd::getpid().as_raw())
-    }
-
-    fn get_process_id<L: Locked>(process_name: ProcessName) -> Result<ProcessId, ErrorReturnCode> {
-        todo!()
-    }
-
-    fn get_process_status<L: Locked>(
-        process_id: ProcessId,
-    ) -> Result<ApexProcessStatus, ErrorReturnCode> {
-        todo!()
-    }
-
-    fn initialize_process_core_affinity<L: Locked>(
-        process_id: ProcessId,
-        processor_core_id: ProcessorCoreId,
-    ) -> Result<(), ErrorReturnCode> {
-        todo!()
-    }
-
-    fn get_my_processor_core_id<L: Locked>() -> ProcessorCoreId {
-        todo!()
-    }
-
-    fn get_my_index<L: Locked>() -> Result<ProcessIndex, ErrorReturnCode> {
-        todo!()
+        Ok(())
     }
 }
 
-impl ApexTime for Partition {
-    fn timed_wait<L: Locked>(delay_time: ApexSystemTime) {
-        todo!()
-    }
-
+impl ApexTime for ApexLinuxPartition {
     fn periodic_wait<L: Locked>() -> Result<(), ErrorReturnCode> {
-        todo!()
+        // TODO do not unwrap() (Maybe raise an error?);
+        let proc = LinuxProcess::get_self().unwrap();
+        if !proc.periodic() {
+            return Err(ErrorReturnCode::InvalidMode);
+        }
+        todo!("Handle periodic wait")
     }
 
     fn get_time<L: Locked>() -> ApexSystemTime {
@@ -133,9 +74,5 @@ impl ApexTime for Partition {
             .elapsed()
             .as_nanos()
             .clamp(0, ApexSystemTime::MAX as u128) as ApexSystemTime
-    }
-
-    fn replenish<L: Locked>(budget_time: ApexSystemTime) -> Result<(), ErrorReturnCode> {
-        todo!()
     }
 }
