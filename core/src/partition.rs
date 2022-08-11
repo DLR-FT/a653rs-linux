@@ -1,5 +1,4 @@
 pub const SYSTEM_TIME_FILE: &str = "start_time";
-pub const HEALTH_STATE_FILE: &str = "health_state";
 pub const PARTITION_STATE_FILE: &str = "part_state";
 pub const APERIODIC_PROCESS_FILE: &str = "aperiodic";
 pub const PERIODIC_PROCESS_FILE: &str = "periodic";

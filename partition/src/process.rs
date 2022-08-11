@@ -1,21 +1,13 @@
-// TODO remove this
-#![allow(dead_code, mutable_transmutes)]
-
-use std::cell::UnsafeCell;
-use std::fs::File;
-use std::mem::{forget, transmute};
-use std::os::unix::prelude::{FromRawFd, IntoRawFd};
+use std::mem::forget;
 use std::process::exit;
-use std::ptr::slice_from_raw_parts_mut;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use apex_hal::bindings::*;
 use apex_hal::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::file::{get_fd, TempFile};
-use linux_apex_core::shmem::TypedMmapMut;
+use linux_apex_core::fd::{Fd, PidFd};
+use linux_apex_core::file::TempFile;
 use memmap2::MmapOptions;
 use nix::sched::CloneFlags;
 use nix::unistd::{getpid, Pid};
@@ -41,7 +33,7 @@ pub struct Process {
     id: i32,
     attr: ProcessAttribute,
     deadline: TempFile<SystemTime>,
-    state: TempFile<ProcessState>,
+    activated: TempFile<bool>,
     pid: TempFile<Pid>,
     periodic: bool,
 }
@@ -60,7 +52,6 @@ impl Process {
         let mut cg = CGroup::new(CGroup::mount_point()?, &name)?;
         cg.freeze().unwrap();
 
-        warn!("{}", stack.len());
         let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
 
         let proc_file = if periodic {
@@ -68,24 +59,26 @@ impl Process {
         } else {
             *APERIODIC_PROCESS
         };
+
         if proc_file.read()?.is_some() {
             return Err(anyhow!("Process type already exists. Periodic: {periodic}"));
         }
 
         // Files for dropping fd
-        let mut files = Vec::new();
+        let mut fds = Vec::new();
         let deadline = TempFile::new(&format!("deadline_{name}"))?;
-        files.push(unsafe { File::from_raw_fd(deadline.fd()) });
-        let state = TempFile::new(&format!("state_{name}"))?;
-        files.push(unsafe { File::from_raw_fd(state.fd()) });
+        fds.push(Fd::try_from(deadline.fd())?);
+        let activated = TempFile::new(&format!("state_{name}"))?;
+        fds.push(Fd::try_from(activated.fd())?);
+        activated.write(&false)?;
         let pid = TempFile::new(&format!("pid_{name}"))?;
-        files.push(unsafe { File::from_raw_fd(pid.fd()) });
+        fds.push(Fd::try_from(pid.fd())?);
 
         let process = Self {
             id,
             attr,
             deadline,
-            state,
+            activated,
             pid,
             periodic,
         };
@@ -100,8 +93,8 @@ impl Process {
         drop(guard);
 
         // dissolve files into fds
-        for f in files {
-            f.into_raw_fd();
+        for f in fds {
+            f.forget();
         }
         // forget stack ptr so we do not call munmap
         forget(stack);
@@ -130,6 +123,10 @@ impl Process {
         None
     }
 
+    pub fn kill(&self) -> Result<()> {
+        self.cg()?.kill_all_wait()
+    }
+
     pub fn name(&self) -> Result<&str> {
         Ok(self.attr.name.to_str()?)
     }
@@ -138,7 +135,15 @@ impl Process {
         &self.attr
     }
 
-    pub fn start(&self) -> Result<()> {
+    pub(crate) fn activate(&self) -> Result<()> {
+        self.activated.write(&true)
+    }
+
+    pub fn activated(&self) -> Result<bool> {
+        self.activated.read()
+    }
+
+    pub fn start(&self) -> Result<PidFd> {
         let name = self.name()?;
         let mut cg = CGroup::new(CGroup::mount_point()?, name)?;
 
@@ -163,8 +168,10 @@ impl Process {
         let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), None)?;
         self.pid.write(&child)?;
 
+        let pidfd = PidFd::try_from(child)?;
+
         trace!("Started process \"{name}\" with pid: {child}");
-        Ok(())
+        Ok(pidfd)
     }
 
     fn cg(&self) -> Result<CGroup> {

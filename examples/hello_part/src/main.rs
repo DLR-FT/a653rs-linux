@@ -1,20 +1,14 @@
-#![allow(mutable_transmutes)]
-
 #[macro_use]
 extern crate log;
 
-use std::fs::read_to_string;
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
 
 use apex_hal::prelude::*;
-use linux_apex_core::cgroup::CGroup;
+use humantime::format_duration;
 use linux_apex_partition::partition::ApexLinuxPartition;
-use linux_apex_partition::process::Process as LinuxProcess;
-use linux_apex_partition::APERIODIC_PROCESS;
 use log::LevelFilter;
-use nix::unistd::getpid;
 
 fn main() {
     log_panics::init();
@@ -26,68 +20,67 @@ fn main() {
         .format_timestamp_secs()
         .init();
 
-    //println!("Uid Child: {}", nix::unistd::getuid());
-    //trace!(
-    //    "Pid Child: {:?}",
-    //    Process::<ApexLinuxPartition>::get_self().unwrap().id()
-    //);
+    Hello.run()
+}
 
-    let cg = CGroup::new(CGroup::mount_point().unwrap(), "process1").unwrap();
+struct Hello;
 
-    //debug!(
-    //    "Partition CGroup Type: {}",
-    //    read_to_string(cg.path().parent().unwrap().join("cgroup.type")).unwrap()
-    //);
-    //debug!(
-    //    "Partition Child CGroup Type: {}",
-    //    read_to_string(cg.path().join("cgroup.type")).unwrap()
-    //);
-    debug!(
-        "Partition CGroup Controllers: {}",
-        read_to_string(cg.path().parent().unwrap().join("cgroup.controllers")).unwrap()
-    );
+impl Partition<ApexLinuxPartition> for Hello {
+    fn cold_start(&self, ctx: &mut StartContext<ApexLinuxPartition>) {
+        ctx.create_process(ProcessAttribute {
+            period: apex_hal::prelude::SystemTime::Infinite,
+            time_capacity: apex_hal::prelude::SystemTime::Infinite,
+            entry_point: aperiodic_hello,
+            stack_size: 10000,
+            base_priority: 1,
+            deadline: apex_hal::prelude::Deadline::Soft,
+            name: Name::from_str("aperiodic_hello").unwrap(),
+        })
+        .unwrap()
+        .start()
+        .unwrap();
 
-    let test_proc_name = Name::from_str("test").unwrap();
-    let test_proc = LinuxProcess::create(ProcessAttribute {
-        period: apex_hal::prelude::SystemTime::Infinite,
-        time_capacity: apex_hal::prelude::SystemTime::Infinite,
-        entry_point: test,
-        stack_size: 1000000,
-        base_priority: 1,
-        deadline: apex_hal::prelude::Deadline::Soft,
-        name: test_proc_name,
-    })
-    .unwrap();
-    let mut test_proc = APERIODIC_PROCESS.read().unwrap().unwrap();
-    test_proc.start().unwrap();
-    test_proc.unfreeze().unwrap();
+        ctx.create_process(ProcessAttribute {
+            period: apex_hal::prelude::SystemTime::Normal(Duration::ZERO),
+            time_capacity: apex_hal::prelude::SystemTime::Infinite,
+            entry_point: periodic_hello,
+            stack_size: 10000,
+            base_priority: 1,
+            deadline: apex_hal::prelude::Deadline::Soft,
+            name: Name::from_str("periodic_hello").unwrap(),
+        })
+        .unwrap()
+        .start()
+        .unwrap();
+    }
 
-    loop {
-        //info!("Ping: {:?}", Time::<ApexLinuxPartition>::get_time());
-        //PartitionContext::send(15);
-        //println!("{:?}", PartitionContext::recv());
-        //info!("Ping Main: {:?}", Time::<ApexLinuxPartition>::get_time());
-        sleep(Duration::from_millis(500));
-        test_proc.start().unwrap();
-        test_proc.unfreeze().unwrap();
+    fn warm_start(&self, ctx: &mut StartContext<ApexLinuxPartition>) {
+        self.cold_start(ctx)
     }
 }
 
-fn test() {
-    //stdio_override::StdoutOverride::override_raw(1).unwrap();
-    info!(
-        "Hello from Process: {}",
-        //Process::<ApexLinuxPartition>::get_self().unwrap().id(),
-        getpid()
-    );
+fn aperiodic_hello() {
+    for i in 0..i32::MAX {
+        if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
+            let round = Duration::from_millis(time.as_millis() as u64);
+            info!(
+                "{:?}: Aperiodic: Hello {i}",
+                format_duration(round).to_string()
+            );
+        }
+        sleep(Duration::from_millis(1))
+    }
+}
 
-    //let mut map = unsafe { MmapOptions::default().map_mut(PROCESSES.get_fd()).unwrap() };
-    //let procs = map.as_mut_type::<ProcessesType>().unwrap();
-    //procs.push(1).unwrap();
-    //println!("{}", procs.len());
-
-    loop {
-        info!("Ping Proc: {:?}", Time::<ApexLinuxPartition>::get_time());
-        sleep(Duration::from_secs(1))
+fn periodic_hello() {
+    for i in 0..5 {
+        if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
+            let round = Duration::from_millis(time.as_millis() as u64);
+            info!(
+                "{:?}: Periodic: Hello {i}",
+                format_duration(round).to_string()
+            );
+        }
+        sleep(Duration::from_millis(1))
     }
 }

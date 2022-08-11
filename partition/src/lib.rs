@@ -2,14 +2,17 @@
 #[macro_use]
 extern crate log;
 
+use std::os::unix::prelude::AsRawFd;
 use std::time::{Duration, Instant};
 
-use apex_hal::bindings::ApexSystemTime;
-use apex_hal::prelude::{NumCores, OperatingMode, PartitionId, StartCondition, SystemTime};
-use linux_apex_core::file::{get_fd, TempFile};
+use apex_hal::prelude::{OperatingMode, PartitionId, StartCondition};
+use linux_apex_core::fd::Fd;
+use linux_apex_core::file::{get_memfd, TempFile};
 use linux_apex_core::partition::*;
-use once_cell::sync::{Lazy, OnceCell};
+use nix::sys::eventfd::{eventfd, EfdFlags};
+use once_cell::sync::Lazy;
 use process::Process;
+use procfs::process::{FDTarget, Process as Proc};
 
 pub mod apex;
 pub mod partition;
@@ -18,7 +21,7 @@ mod scheduler;
 pub mod process;
 
 pub(crate) static SYSTEM_TIME: Lazy<Instant> = Lazy::new(|| {
-    TempFile::<Instant>::from_fd(get_fd(SYSTEM_TIME_FILE).unwrap())
+    TempFile::<Instant>::from_fd(get_memfd(SYSTEM_TIME_FILE).unwrap())
         .unwrap()
         .read()
         .unwrap()
@@ -45,22 +48,8 @@ pub(crate) static PART_START_CONDITION: Lazy<StartCondition> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static HEALTH_MONITOR_STATE: Lazy<TempFile<u8>> =
-    Lazy::new(|| TempFile::from_fd(get_fd(HEALTH_STATE_FILE).unwrap()).unwrap());
-
-pub(crate) static PART_OPERATION_MODE: Lazy<TempFile<OperatingMode>> =
-    Lazy::new(|| TempFile::from_fd(get_fd(PARTITION_STATE_FILE).unwrap()).unwrap());
-
-pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
-    if let Ok(fd) = get_fd(PERIODIC_PROCESS_FILE) {
-        TempFile::from_fd(fd).unwrap()
-    } else {
-        TempFile::new(PERIODIC_PROCESS_FILE).unwrap()
-    }
-});
-
 pub static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
-    if let Ok(fd) = get_fd(APERIODIC_PROCESS_FILE) {
+    if let Ok(fd) = get_memfd(APERIODIC_PROCESS_FILE) {
         TempFile::from_fd(fd).unwrap()
     } else {
         let file: TempFile<Option<Process>> = TempFile::new(APERIODIC_PROCESS_FILE).unwrap();
@@ -68,3 +57,40 @@ pub static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
         file
     }
 });
+
+pub(crate) static PART_OPERATION_MODE: Lazy<TempFile<OperatingMode>> =
+    Lazy::new(|| TempFile::from_fd(get_memfd(PARTITION_STATE_FILE).unwrap()).unwrap());
+
+pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
+    if let Ok(fd) = get_memfd(PERIODIC_PROCESS_FILE) {
+        TempFile::from_fd(fd).unwrap()
+    } else {
+        let file: TempFile<Option<Process>> = TempFile::new(PERIODIC_PROCESS_FILE).unwrap();
+        file.write(&None).unwrap();
+        file
+    }
+});
+
+pub static EXTERNAL_HEALTH_EVENT_FILE: Lazy<Fd> = Lazy::new(|| {
+    let internal = INTERNAL_HEALTH_EVENT_FILE.as_raw_fd();
+
+    Proc::myself()
+        .unwrap()
+        .fd()
+        .unwrap()
+        .flatten()
+        .filter(|f| f.fd != internal)
+        .find_map(|f| {
+            if let FDTarget::AnonInode(_) = &f.target {
+                Some(f.fd)
+            } else {
+                None
+            }
+        })
+        .unwrap()
+        .try_into()
+        .unwrap()
+});
+
+pub static INTERNAL_HEALTH_EVENT_FILE: Lazy<Fd> =
+    Lazy::new(|| eventfd(0, EfdFlags::empty()).unwrap().try_into().unwrap());

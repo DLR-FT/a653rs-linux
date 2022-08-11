@@ -1,6 +1,8 @@
 // TODO remove this
 #![allow(unused_variables)]
 
+use std::process::exit;
+
 use apex_hal::bindings::*;
 
 use crate::partition::ApexLinuxPartition;
@@ -47,13 +49,13 @@ impl ApexProcess for ApexLinuxPartition {
         // This more like a reset function for dormant processes
         // TODO check for correct partition operating state
         let file = match process_id {
-            0 => *APERIODIC_PROCESS,
-            1 => *PERIODIC_PROCESS,
+            1 => *APERIODIC_PROCESS,
+            2 => *PERIODIC_PROCESS,
             _ => todo!("Return error"),
         };
         // TODO do not unwrap
         let proc = file.read().unwrap().unwrap();
-        proc.start().unwrap();
+        proc.activate().unwrap();
 
         Ok(())
     }
@@ -66,7 +68,7 @@ impl ApexTime for ApexLinuxPartition {
         if !proc.periodic() {
             return Err(ErrorReturnCode::InvalidMode);
         }
-        todo!("Handle periodic wait")
+        exit(0)
     }
 
     fn get_time<L: Locked>() -> ApexSystemTime {
@@ -74,5 +76,19 @@ impl ApexTime for ApexLinuxPartition {
             .elapsed()
             .as_nanos()
             .clamp(0, ApexSystemTime::MAX as u128) as ApexSystemTime
+    }
+}
+
+impl ApexError for ApexLinuxPartition {
+    fn report_application_message<L: Locked>(message: &[ApexByte]) -> Result<(), ErrorReturnCode> {
+        // According to 3.8.2.1 this may be used for logging purposes
+        todo!()
+    }
+
+    fn raise_application_error<L: Locked>(
+        error_code: ErrorCode,
+        message: &[ApexByte],
+    ) -> Result<(), ErrorReturnCode> {
+        todo!()
     }
 }

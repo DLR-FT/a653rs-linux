@@ -8,13 +8,15 @@ use anyhow::Result;
 use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::file::{get_fd, TempFile};
+use linux_apex_core::fd::{Fd, PidFd};
+use linux_apex_core::file::{get_memfd, TempFile};
 use linux_apex_core::partition::{
-    DURATION_ENV, HEALTH_STATE_FILE, IDENTIFIER_ENV, NAME_ENV, PARTITION_STATE_FILE, PERIOD_ENV,
-    START_CONDITION_ENV, SYSTEM_TIME_FILE,
+    DURATION_ENV, IDENTIFIER_ENV, NAME_ENV, PARTITION_STATE_FILE, PERIOD_ENV, START_CONDITION_ENV,
+    SYSTEM_TIME_FILE,
 };
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Uid};
+use nix::sys::eventfd::{eventfd, EfdFlags};
+use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
@@ -24,7 +26,7 @@ pub(crate) struct Partition {
     id: usize,
     cg: CGroup,
     wd: TempDir,
-    hm: TempFile<u8>,
+    he: Fd,
     state: TempFile<OperatingMode>,
     //shmem: Shmem<[u8; 2]>,
     bin: PathBuf,
@@ -43,7 +45,7 @@ impl Partition {
         let wd = tempdir()?;
         trace!("CGroup Working directory: {:?}", wd.path());
 
-        let hm = TempFile::new(HEALTH_STATE_FILE)?;
+        let he = eventfd(0, EfdFlags::empty())?.try_into()?;
         let state = TempFile::new(PARTITION_STATE_FILE)?;
 
         Ok(Self {
@@ -51,7 +53,7 @@ impl Partition {
             id,
             cg,
             wd,
-            hm,
+            he,
             state,
             //shmem,
             bin: PathBuf::from(bin.as_ref()),
@@ -106,10 +108,10 @@ impl Partition {
     }
 
     // TODO Declare cpus differently and add effect to this variable
-    pub fn restart(&mut self, args: PartitionStartArgs) {
-        self.cg.kill_all_wait().unwrap();
+    pub fn restart(&mut self, args: PartitionStartArgs) -> Result<PidFd> {
+        self.cg.kill_all_wait()?;
 
-        self.freeze().unwrap();
+        self.freeze()?;
 
         let pid = match unsafe {
             Clone3::default()
@@ -119,20 +121,17 @@ impl Partition {
                 .flag_newns()
                 .flag_newipc()
                 .flag_newnet()
-                .flag_into_cgroup(&self.cg.get_fd().unwrap().as_raw_fd())
+                .flag_into_cgroup(&self.cg.get_fd()?.as_raw_fd())
                 .call()
-        }
-        .unwrap()
-        {
+        }? {
             0 => {
                 setuid(Uid::from_raw(0)).unwrap();
                 setgid(Gid::from_raw(0)).unwrap();
 
-                let sys_time = get_fd(SYSTEM_TIME_FILE).unwrap();
+                let sys_time = get_memfd(SYSTEM_TIME_FILE).unwrap();
+                Self::print_fds();
 
-                Self::release_fds(&[sys_time, self.hm.fd(), self.state.fd()]).unwrap();
-
-                //Self::print_fds();
+                Self::release_fds(&[sys_time, self.he.as_raw_fd(), self.state.fd()]).unwrap();
 
                 // Set to cold_start
                 self.state.write(&OperatingMode::ColdStart).unwrap();
@@ -209,24 +208,23 @@ impl Partition {
             child => child,
         };
         debug!("Child Pid: {pid}");
+
         std::fs::write(
             PathBuf::from("/proc").join(pid.to_string()).join("uid_map"),
             format!("0 {} 1", nix::unistd::getuid().as_raw()),
-        )
-        .unwrap();
+        )?;
         std::fs::write(
             PathBuf::from("/proc")
                 .join(pid.to_string())
                 .join("setgroups"),
             b"deny",
-        )
-        .unwrap();
+        )?;
         std::fs::write(
             PathBuf::from("/proc").join(pid.to_string()).join("gid_map"),
             format!("0 {} 1", nix::unistd::getgid().as_raw()).as_bytes(),
-        )
-        .unwrap();
-        //forget(client);
+        )?;
+
+        PidFd::try_from(Pid::from_raw(pid))
     }
 }
 

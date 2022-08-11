@@ -1,13 +1,9 @@
 use std::fs::{read_to_string, File};
-use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use inotify::{Inotify, WatchMask};
 use itertools::Itertools;
 use nix::unistd::Pid;
-use polling::{Event, Poller};
 use walkdir::WalkDir;
 
 // TODO think about completely changing this.
@@ -38,7 +34,7 @@ impl CGroup {
 
     pub fn new<P: AsRef<Path>>(root: P, name: &str) -> Result<Self> {
         let path = PathBuf::from(root.as_ref()).join(name);
-        trace!("New CGroup: {path:?}");
+        //trace!("New CGroup: {path:?}");
 
         if !path.exists() {
             trace!("Creating Cgroup, {path:?}");
@@ -68,17 +64,8 @@ impl CGroup {
 
     pub fn kill_all_wait(&self) -> Result<()> {
         let pid_path = self.path.join(Self::MEMBER_FILE);
-        //let mut notify = Inotify::init()?;
-        //notify.add_watch(&pid_path, WatchMask::MODIFY)?;
-        //let poller = Poller::new()?;
-        //poller.add(notify.as_raw_fd(), Event::readable(0))?;
-
         std::fs::write(self.path.join("cgroup.kill"), "1").unwrap();
-        while !read_to_string(&pid_path)?.is_empty() {
-            //poller.wait(Vec::new().as_mut(), Some(Duration::from_millis(500)))?;
-            //poller.modify(notify.as_raw_fd(), Event::readable(0))?;
-        }
-
+        while !read_to_string(&pid_path)?.is_empty() {}
         Ok(())
     }
 

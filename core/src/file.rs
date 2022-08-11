@@ -98,13 +98,14 @@ impl<T: Send + Copy + Sized> TempFile<T> {
     // TODO Into Mmap
 }
 
-pub fn get_fd(name: &str) -> Result<i32> {
+pub fn get_memfd(name: &str) -> Result<i32> {
+    let name = format!("memfd:{name}");
     Process::myself()?
         .fd()?
         .flatten()
         .find_map(|f| {
             if let FDTarget::Path(p) = &f.target {
-                if p.to_str().unwrap().contains(name) {
+                if p.to_str().unwrap().contains(&name) {
                     Some(f.fd)
                 } else {
                     None

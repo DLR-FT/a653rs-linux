@@ -21,7 +21,7 @@ use super::{
 pub struct Hypervisor {
     cg: CGroup,
     major_frame: Duration,
-    schedule: Vec<(Duration, String, bool)>,
+    schedule: Vec<(Duration, Duration, String)>,
     partitions: HashMap<String, Partition>,
     prev_cg: PathBuf,
     start_time: TempFile<Instant>,
@@ -36,7 +36,7 @@ impl Hypervisor {
         //      This could be put into the CGroup struct
         let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
 
-        let schedule = config.generate_schedule();
+        let schedule = config.generate_schedule().unwrap();
         let cg = CGroup::new(
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
@@ -90,26 +90,25 @@ impl Hypervisor {
             let args = PartitionStartArgs {
                 condition: StartCondition::NormalStart,
                 duration: part.duration,
-                // use period aswell
-                period: Duration::default(),
+                period: part.period,
             };
 
-            p.restart(args)
+            p.restart(args).unwrap();
         }
 
         let mut frame_start = Instant::now();
 
         self.start_time.write(&frame_start).unwrap();
         self.start_time.seal_read_only().unwrap();
+        // TODO use period
+        // Partition scheduling is restricted to only one partition time window within the partition's period
         loop {
-            for (target_time, partition_name, start) in &self.schedule {
-                sleep(target_time.saturating_sub(frame_start.elapsed()));
+            for (target_start, target_stop, partition_name) in &self.schedule {
+                sleep(target_start.saturating_sub(frame_start.elapsed()));
                 let partition = self.partitions.get_mut(partition_name).unwrap();
-                if *start {
-                    partition.unfreeze().unwrap();
-                } else {
-                    partition.freeze().unwrap();
-                }
+                partition.unfreeze().unwrap();
+                sleep(target_stop.saturating_sub(frame_start.elapsed()));
+                partition.freeze().unwrap();
             }
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
