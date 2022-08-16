@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::os::unix::prelude::{AsRawFd, CommandExt};
+use std::os::unix::prelude::{AsRawFd, CommandExt, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -8,28 +8,27 @@ use anyhow::Result;
 use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::fd::{Fd, PidFd};
-use linux_apex_core::file::{get_memfd, TempFile};
+use linux_apex_core::fd::PidFd;
+use linux_apex_core::health_event::HealthEvent;
+use linux_apex_core::ipc::{IpcReceiver, IpcSender, channel_pair};
 use linux_apex_core::partition::{
-    DURATION_ENV, IDENTIFIER_ENV, NAME_ENV, PARTITION_STATE_FILE, PERIOD_ENV, START_CONDITION_ENV,
-    SYSTEM_TIME_FILE,
+    DURATION_ENV, IDENTIFIER_ENV, MODE_ENV, NAME_ENV, PERIOD_ENV, START_CONDITION_ENV, SYSTEM_TIME_FD_ENV, HEALTH_SENDER_FD_ENV,
 };
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
-use nix::sys::eventfd::{eventfd, EfdFlags};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
-use procfs::process::Process;
+use procfs::process::{FDTarget, Process};
 use tempfile::{tempdir, TempDir};
 
 //#[derive(Debug)]
 pub(crate) struct Partition {
     name: String,
     id: usize,
-    cg: CGroup,
-    wd: TempDir,
-    he: Fd,
-    state: TempFile<OperatingMode>,
-    //shmem: Shmem<[u8; 2]>,
+    cgroup: CGroup,
+    working_dir: TempDir,
+    
     bin: PathBuf,
+    health_rx: IpcReceiver<HealthEvent>,
+    health_tx: IpcSender<HealthEvent>,
 }
 
 impl Partition {
@@ -40,24 +39,30 @@ impl Partition {
         bin: P2,
     ) -> Result<Self> {
         // Todo implement drop for cgroup? (in error case)
-        let cg = CGroup::new(cgroup_root, name)?;
+        let cgroup = CGroup::new(cgroup_root, name)?;
 
-        let wd = tempdir()?;
-        trace!("CGroup Working directory: {:?}", wd.path());
+        let working_dir = tempdir()?;
+        trace!("CGroup Working directory: {:?}", working_dir.path());
 
-        let he = eventfd(0, EfdFlags::empty())?.try_into()?;
-        let state = TempFile::new(PARTITION_STATE_FILE)?;
+        //let health_event = unsafe { OwnedFd::from_raw_fd(eventfd(0, EfdFlags::empty())?) };
+
+        let (sender, receiver) = channel_pair::<HealthEvent>()?;
 
         Ok(Self {
             name: name.to_string(),
             id,
-            cg,
-            wd,
-            he,
-            state,
+            cgroup,
+            working_dir,
+            //health_event,
             //shmem,
             bin: PathBuf::from(bin.as_ref()),
+            health_rx: receiver,
+            health_tx: sender,
         })
+    }
+
+    pub fn wait_event_timeout(&self, timeout: Duration) -> Result<Option<HealthEvent>>{
+        self.health_rx.try_recv_timeout(timeout)
     }
 
     fn release_fds(keep: &[i32]) -> Result<()> {
@@ -92,15 +97,15 @@ impl Partition {
     }
 
     pub fn freeze(&mut self) -> Result<()> {
-        self.cg.freeze()
+        self.cgroup.freeze()
     }
 
     pub fn unfreeze(&mut self) -> Result<()> {
-        self.cg.unfreeze()
+        self.cgroup.unfreeze()
     }
 
     pub fn delete(self) -> Result<()> {
-        self.cg.delete()
+        self.cgroup.delete()
     }
 
     pub fn id(&self) -> usize {
@@ -109,9 +114,11 @@ impl Partition {
 
     // TODO Declare cpus differently and add effect to this variable
     pub fn restart(&mut self, args: PartitionStartArgs) -> Result<PidFd> {
-        self.cg.kill_all_wait()?;
+        self.cgroup.kill_all_wait()?;
 
         self.freeze()?;
+        let real_uid = nix::unistd::getuid();
+        let real_gid = nix::unistd::getgid();
 
         let pid = match unsafe {
             Clone3::default()
@@ -121,34 +128,48 @@ impl Partition {
                 .flag_newns()
                 .flag_newipc()
                 .flag_newnet()
-                .flag_into_cgroup(&self.cg.get_fd()?.as_raw_fd())
+                .flag_into_cgroup(&self.cgroup.get_fd()?.as_raw_fd())
                 .call()
         }? {
             0 => {
+                // Map User and user group (required for tmpfs mounts)
+                std::fs::write(
+                    PathBuf::from("/proc/self").join("uid_map"),
+                    format!("0 {} 1", real_uid.as_raw()),
+                )
+                .unwrap();
+                std::fs::write(PathBuf::from("/proc/self").join("setgroups"), b"deny").unwrap();
+                std::fs::write(
+                    PathBuf::from("/proc/self").join("gid_map"),
+                    format!("0 {} 1", real_gid.as_raw()).as_bytes(),
+                )
+                .unwrap();
+
+                // Set uid and gid to the map user above (0)
                 setuid(Uid::from_raw(0)).unwrap();
                 setgid(Gid::from_raw(0)).unwrap();
 
-                let sys_time = get_memfd(SYSTEM_TIME_FILE).unwrap();
-                Self::print_fds();
-
-                Self::release_fds(&[sys_time, self.he.as_raw_fd(), self.state.fd()]).unwrap();
-
-                // Set to cold_start
-                self.state.write(&OperatingMode::ColdStart).unwrap();
+                // Release all unneeded fd's
+                Self::release_fds(&[
+                    args.system_time,
+                    //self.health_event.as_raw_fd()
+                    self.health_tx.as_raw_fd()
+                ])
+                .unwrap();
 
                 // Mount working directory as tmpfs (TODO with size?)
                 mount::<str, _, _, str>(
                     None,
-                    self.wd.path(),
+                    self.working_dir.path(),
                     Some("tmpfs"),
                     MsFlags::empty(),
-                    //Some("mode=0700,uid=0,size=50000k"),
-                    None,
+                    Some("size=500k"),
+                    //None,
                 )
                 .unwrap();
 
                 // Mount binary
-                let bin = self.wd.path().join("bin");
+                let bin = self.working_dir.path().join("bin");
                 File::create(&bin).unwrap();
                 mount::<_, _, str, str>(
                     Some(&self.bin),
@@ -159,8 +180,10 @@ impl Partition {
                 )
                 .unwrap();
 
+                // TODO bind-mount requested devices
+
                 // Mount proc
-                let proc = self.wd.path().join("proc");
+                let proc = self.working_dir.path().join("proc");
                 std::fs::create_dir(proc.as_path()).unwrap();
                 mount::<str, _, str, str>(
                     Some("/proc"),
@@ -172,12 +195,10 @@ impl Partition {
                 .unwrap();
 
                 // Mount CGroup V2
-                let cgroup = self.wd.path().join("sys/fs/cgroup");
+                let cgroup = self.working_dir.path().join("sys/fs/cgroup");
                 std::fs::create_dir_all(&cgroup).unwrap();
                 mount::<str, _, str, str>(
-                    //Some(self.child_cg.path().to_str().unwrap()),
                     None,
-                    //Some("sys/fs/cgroup"),
                     cgroup.as_path(),
                     Some("cgroup2"),
                     MsFlags::empty(),
@@ -186,7 +207,7 @@ impl Partition {
                 .unwrap();
 
                 // Change working directory and root (unmount old root)
-                chdir(self.wd.path()).unwrap();
+                chdir(self.working_dir.path()).unwrap();
                 pivot_root(".", ".").unwrap();
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
                 chdir("/").unwrap();
@@ -200,6 +221,9 @@ impl Partition {
                     .env(DURATION_ENV, args.duration.as_nanos().to_string())
                     .env(IDENTIFIER_ENV, self.id.to_string())
                     .env(START_CONDITION_ENV, (args.condition as u32).to_string())
+                    .env(MODE_ENV, (args.mode as u32).to_string())
+                    .env(SYSTEM_TIME_FD_ENV, args.system_time.to_string())
+                    .env(HEALTH_SENDER_FD_ENV, self.health_tx.as_raw_fd().to_string())
                     .exec();
                 error!("{err:?}");
 
@@ -209,21 +233,6 @@ impl Partition {
         };
         debug!("Child Pid: {pid}");
 
-        std::fs::write(
-            PathBuf::from("/proc").join(pid.to_string()).join("uid_map"),
-            format!("0 {} 1", nix::unistd::getuid().as_raw()),
-        )?;
-        std::fs::write(
-            PathBuf::from("/proc")
-                .join(pid.to_string())
-                .join("setgroups"),
-            b"deny",
-        )?;
-        std::fs::write(
-            PathBuf::from("/proc").join(pid.to_string()).join("gid_map"),
-            format!("0 {} 1", nix::unistd::getgid().as_raw()).as_bytes(),
-        )?;
-
         PidFd::try_from(Pid::from_raw(pid))
     }
 }
@@ -231,6 +240,8 @@ impl Partition {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PartitionStartArgs {
     pub condition: StartCondition,
+    pub mode: OperatingMode,
     pub duration: Duration,
     pub period: Duration,
+    pub system_time: RawFd,
 }

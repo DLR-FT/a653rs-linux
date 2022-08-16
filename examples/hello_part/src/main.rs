@@ -7,11 +7,13 @@ use std::time::Duration;
 
 use apex_hal::prelude::*;
 use humantime::format_duration;
+use linux_apex_core::health_event::HealthEvent;
+use linux_apex_partition::HEALTH_EVENT_SENDER;
 use linux_apex_partition::partition::ApexLinuxPartition;
 use log::LevelFilter;
 
 fn main() {
-    log_panics::init();
+    //log_panics::init();
 
     pretty_env_logger::formatted_builder()
         .parse_filters(&std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
@@ -67,13 +69,19 @@ fn aperiodic_hello() {
                 "{:?}: Aperiodic: Hello {i}",
                 format_duration(round).to_string()
             );
+            HEALTH_EVENT_SENDER.try_send(&HealthEvent{
+                error: None,
+                msg: format!("Hello: {i}"),
+            }).unwrap();
         }
         sleep(Duration::from_millis(1))
     }
 }
 
 fn periodic_hello() {
-    for i in 0..5 {
+    sleep(Duration::from_millis(1));
+    //rec(0);
+    for i in 0..50 {
         if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
@@ -83,4 +91,9 @@ fn periodic_hello() {
         }
         sleep(Duration::from_millis(1))
     }
+}
+
+fn rec(i: usize) {
+    print!("\r{i}");
+    rec(i + 1)
 }

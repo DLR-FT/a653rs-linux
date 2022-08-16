@@ -1,51 +1,19 @@
 use std::io::ErrorKind;
-use std::mem::forget;
-use std::os::unix::prelude::{AsRawFd, RawFd};
+use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Error, Result};
 use nix::libc::{c_uint, syscall, SYS_pidfd_open};
-use nix::unistd::{close, Pid};
+use nix::unistd::Pid;
 use polling::{Event, Poller};
 
 #[derive(Debug)]
-pub struct Fd(RawFd);
-
-impl Fd {
-    pub fn forget(self) {
-        forget(self)
-    }
-}
-
-impl TryFrom<RawFd> for Fd {
-    type Error = Error;
-
-    fn try_from(value: RawFd) -> Result<Self, Self::Error> {
-        if value < 0 {
-            return Err(anyhow!("Invalid fd: {value}"));
-        }
-        Ok(Fd(value))
-    }
-}
-
-impl Drop for Fd {
-    fn drop(&mut self) {
-        close(self.0).ok();
-    }
-}
-
-impl AsRawFd for Fd {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0
-    }
-}
-
-#[derive(Debug)]
-pub struct PidFd(Fd);
+pub struct PidFd(OwnedFd);
 
 impl PidFd {
     pub fn wait_exited_timeout(&self, timeout: Duration) -> Result<bool> {
         let now = Instant::now();
+
         let poller = Poller::new()?;
         poller.add(self.0.as_raw_fd(), Event::readable(0)).unwrap();
 
@@ -69,14 +37,21 @@ impl PidFd {
     }
 }
 
+impl AsRawFd for PidFd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
 impl TryFrom<Pid> for PidFd {
     type Error = Error;
 
     fn try_from(value: Pid) -> Result<Self, Self::Error> {
         let pidfd: i32 =
             unsafe { syscall(SYS_pidfd_open, value.as_raw(), 0 as c_uint).try_into()? };
-        let fd =
-            Fd::try_from(pidfd).map_err(|e| anyhow!("Error getting pidfd from {value}. {e:#?}"))?;
-        Ok(PidFd(fd))
+        if pidfd < 0 {
+            return Err(anyhow!("Error getting pidfd from {value}. {pidfd}"));
+        }
+        Ok(PidFd(unsafe { OwnedFd::from_raw_fd(pidfd) }))
     }
 }

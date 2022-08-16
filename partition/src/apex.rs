@@ -11,12 +11,18 @@ use crate::*;
 
 impl ApexPartition for ApexLinuxPartition {
     fn get_partition_status<L: Locked>() -> ApexPartitionStatus {
+        let operating_mode = std::env::var(MODE_ENV)
+            .ok()
+            .and_then(|m| m.parse::<u32>().ok())
+            .and_then(|m| OperatingMode::try_from(m).ok())
+            .unwrap_or(OperatingMode::Normal);
+
         ApexPartitionStatus {
             period: PART_PERIOD.as_nanos() as i64,
             duration: PART_DURATION.as_nanos() as i64,
             identifier: *PART_IDENTIFIER,
             lock_level: 0,
-            operating_mode: PART_OPERATION_MODE.read().unwrap(),
+            operating_mode,
             start_condition: *PART_START_CONDITION,
             num_assigned_cores: 1,
         }
@@ -25,7 +31,7 @@ impl ApexPartition for ApexLinuxPartition {
     fn set_partition_mode<L: Locked>(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
         // TODO: Handle transitions
         // TODO: Do not unwrap error
-        PART_OPERATION_MODE.write(&operating_mode).unwrap();
+        std::env::set_var(MODE_ENV, (operating_mode as u32).to_string());
 
         if operating_mode == OperatingMode::Normal {
             // If we transition into Normal Mode, run the scheduler and never return
@@ -89,6 +95,8 @@ impl ApexError for ApexLinuxPartition {
         error_code: ErrorCode,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
+        // Error code is ignored in P4.
+        // Only pass the Message to the hm?
         todo!()
     }
 }

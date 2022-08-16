@@ -58,13 +58,13 @@ impl CGroup {
     }
 
     pub fn add_process_to<P: AsRef<Path>>(path: P, pid: Pid) -> Result<()> {
-        std::fs::write(path.as_ref().join(Self::MEMBER_FILE), pid.to_string()).unwrap();
+        std::fs::write(path.as_ref().join(Self::MEMBER_FILE), pid.to_string())?;
         Ok(())
     }
 
     pub fn kill_all_wait(&self) -> Result<()> {
         let pid_path = self.path.join(Self::MEMBER_FILE);
-        std::fs::write(self.path.join("cgroup.kill"), "1").unwrap();
+        std::fs::write(self.path.join("cgroup.kill"), "1")?;
         while !read_to_string(&pid_path)?.is_empty() {}
         Ok(())
     }

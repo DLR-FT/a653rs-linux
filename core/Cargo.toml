@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+apex-hal = { path = "../../apex_rs", features = ["p4", "serde"] }
 nix = "0.24"
 anyhow = "1.0"
 procfs = "0.13"
@@ -13,7 +14,9 @@ itertools = "0.10"
 log = "0"
 walkdir = "2.3"
 polling = "2.2"
+serde = { version = "1.0", features = ["derive"] }
 inotify = "0.10"
 pretty_env_logger = "0.4"
 memmap2 = "0.5.5"
 memfd = "0.6"
+bincode = "1.3"

@@ -1,11 +1,64 @@
-use std::thread::sleep;
+use std::{ptr::null_mut, thread::sleep};
+
+use memmap2::MmapOptions;
+use nix::{
+    libc::{exit, stack_t},
+    sys::{
+        signal::{
+            sigaction, SaFlags, SigAction, SigHandler,
+            Signal::{self, SIGCHLD},
+        },
+        signalfd::SigSet,
+        wait::wait,
+    },
+};
 
 use crate::*;
+
+extern "C" fn stop(_: i32) {
+    unsafe { exit(1) };
+}
 
 pub fn scheduler() -> ! {
     debug!("Started Scheduler");
 
     // TODO stop scheduling if we are back to cold/warm start
+
+    //Register alternate stack
+    let mut alt_stack = MmapOptions::new()
+        .stack()
+        .len(nix::libc::SIGSTKSZ)
+        .map_anon()
+        .unwrap();
+    unsafe {
+        let stack = stack_t {
+            ss_sp: alt_stack.as_mut_ptr() as *mut nix::libc::c_void,
+            ss_flags: 0,
+            ss_size: nix::libc::SIGSTKSZ,
+        };
+        nix::libc::sigaltstack(&stack, null_mut());
+
+        let stop_action = SigAction::new(
+            SigHandler::Handler(stop),
+            SaFlags::SA_ONSTACK,
+            SigSet::empty(),
+        );
+        sigaction(Signal::SIGSEGV, &stop_action).unwrap();
+
+        let child_info_action = SigAction::new(
+            SigHandler::Handler(handle_sigchld),
+            SaFlags::SA_ONSTACK,
+            SigSet::empty(),
+        );
+        sigaction(SIGCHLD, &child_info_action).unwrap();
+    }
+
+    //
+    //let _wait = std::thread::spawn(|| {
+    //    loop{
+    //        trace!("{:?}", waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WSTOPPED)))
+    //    }
+    //});
 
     let mut periodic = PERIODIC_PROCESS.read().unwrap().and_then(|p| {
         if p.activated().unwrap() {
@@ -58,6 +111,11 @@ pub fn scheduler() -> ! {
             p.freeze().unwrap();
             p.kill().unwrap();
 
+            //let res = waitpid(Pid::from_raw(-1), None);
+            //trace!("{res:?}");
+            //let res = waitpid(Pid::from_raw(-1), None);
+            //trace!("{res:?}");
+
             if let Some(ap) = aperiodic.as_mut() {
                 ap.unfreeze().unwrap();
             }
@@ -69,5 +127,12 @@ pub fn scheduler() -> ! {
         loop {
             sleep(Duration::from_secs(10000))
         }
+    }
+}
+
+extern "C" fn handle_sigchld(_: nix::libc::c_int) {
+    match wait() {
+        Ok(w) => trace!("Successfully waited on process: {w:?}"),
+        Err(e) => error!("Error waiting on process. {e}"),
     }
 }

@@ -2,14 +2,14 @@
 #[macro_use]
 extern crate log;
 
-use std::os::unix::prelude::AsRawFd;
+use std::os::unix::prelude::{FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use apex_hal::prelude::{OperatingMode, PartitionId, StartCondition};
-use linux_apex_core::fd::Fd;
-use linux_apex_core::file::{get_memfd, TempFile};
+use linux_apex_core::file::{TempFile, get_memfd};
+use linux_apex_core::health_event::HealthEvent;
+use linux_apex_core::ipc::IpcSender;
 use linux_apex_core::partition::*;
-use nix::sys::eventfd::{eventfd, EfdFlags};
 use once_cell::sync::Lazy;
 use process::Process;
 use procfs::process::{FDTarget, Process as Proc};
@@ -21,7 +21,8 @@ mod scheduler;
 pub mod process;
 
 pub(crate) static SYSTEM_TIME: Lazy<Instant> = Lazy::new(|| {
-    TempFile::<Instant>::from_fd(get_memfd(SYSTEM_TIME_FILE).unwrap())
+    let fd = std::env::var(SYSTEM_TIME_FD_ENV).unwrap().parse::<RawFd>().unwrap();
+    TempFile::<Instant>::from_fd(fd)
         .unwrap()
         .read()
         .unwrap()
@@ -49,17 +50,15 @@ pub(crate) static PART_START_CONDITION: Lazy<StartCondition> = Lazy::new(|| {
 });
 
 pub static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
+    // TODO Get rid of get_memfd? Use env instead?
     if let Ok(fd) = get_memfd(APERIODIC_PROCESS_FILE) {
         TempFile::from_fd(fd).unwrap()
     } else {
-        let file: TempFile<Option<Process>> = TempFile::new(APERIODIC_PROCESS_FILE).unwrap();
-        file.write(&None).unwrap();
-        file
+      let file: TempFile<Option<Process>> = TempFile::new(APERIODIC_PROCESS_FILE).unwrap();
+      file.write(&None).unwrap();
+      file
     }
 });
-
-pub(crate) static PART_OPERATION_MODE: Lazy<TempFile<OperatingMode>> =
-    Lazy::new(|| TempFile::from_fd(get_memfd(PARTITION_STATE_FILE).unwrap()).unwrap());
 
 pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     if let Ok(fd) = get_memfd(PERIODIC_PROCESS_FILE) {
@@ -71,26 +70,25 @@ pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     }
 });
 
-pub static EXTERNAL_HEALTH_EVENT_FILE: Lazy<Fd> = Lazy::new(|| {
-    let internal = INTERNAL_HEALTH_EVENT_FILE.as_raw_fd();
-
-    Proc::myself()
-        .unwrap()
-        .fd()
-        .unwrap()
-        .flatten()
-        .filter(|f| f.fd != internal)
-        .find_map(|f| {
-            if let FDTarget::AnonInode(_) = &f.target {
-                Some(f.fd)
-            } else {
-                None
-            }
-        })
-        .unwrap()
-        .try_into()
-        .unwrap()
+pub static HEALTH_EVENT_SENDER: Lazy<IpcSender<HealthEvent>> = Lazy::new(|| unsafe {
+    let fd = std::env::var(HEALTH_SENDER_FD_ENV).unwrap().parse::<RawFd>().unwrap();
+    IpcSender::from_raw_fd(fd)
 });
 
-pub static INTERNAL_HEALTH_EVENT_FILE: Lazy<Fd> =
-    Lazy::new(|| eventfd(0, EfdFlags::empty()).unwrap().try_into().unwrap());
+pub static EVENT_FILE: Lazy<OwnedFd> = Lazy::new(|| unsafe {
+    OwnedFd::from_raw_fd(
+        Proc::myself()
+            .unwrap()
+            .fd()
+            .unwrap()
+            .flatten()
+            .find_map(|f| {
+                if let FDTarget::AnonInode(_) = &f.target {
+                    Some(f.fd)
+                } else {
+                    None
+                }
+            })
+            .unwrap(),
+    )
+});

@@ -4,10 +4,9 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
-use apex_hal::prelude::StartCondition;
+use apex_hal::prelude::{OperatingMode, StartCondition};
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::file::TempFile;
-use linux_apex_core::partition::SYSTEM_TIME_FILE;
 use procfs::process::Process;
 
 use super::partition::PartitionStartArgs;
@@ -42,7 +41,7 @@ impl Hypervisor {
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )?;
 
-        let start_time = TempFile::new(SYSTEM_TIME_FILE)?;
+        let start_time = TempFile::new("system_time")?;
 
         let mut hv = Self {
             cg,
@@ -89,8 +88,10 @@ impl Hypervisor {
             let part = &self.config.partitions[p.id() - 1];
             let args = PartitionStartArgs {
                 condition: StartCondition::NormalStart,
+                mode: OperatingMode::ColdStart,
                 duration: part.duration,
                 period: part.period,
+                system_time: self.start_time.fd()
             };
 
             p.restart(args).unwrap();
@@ -100,14 +101,26 @@ impl Hypervisor {
 
         self.start_time.write(&frame_start).unwrap();
         self.start_time.seal_read_only().unwrap();
-        // TODO use period
-        // Partition scheduling is restricted to only one partition time window within the partition's period
         loop {
             for (target_start, target_stop, partition_name) in &self.schedule {
                 sleep(target_start.saturating_sub(frame_start.elapsed()));
                 let partition = self.partitions.get_mut(partition_name).unwrap();
                 partition.unfreeze().unwrap();
-                sleep(target_stop.saturating_sub(frame_start.elapsed()));
+
+
+
+                //sleep(target_stop.saturating_sub(frame_start.elapsed()));
+                let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
+                while leftover > Duration::ZERO{
+                    let res = partition.wait_event_timeout(leftover);
+
+                    debug!("{res:?}");
+
+                    leftover = target_stop.saturating_sub(frame_start.elapsed());
+                }
+
+
+
                 partition.freeze().unwrap();
             }
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));

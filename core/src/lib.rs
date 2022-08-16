@@ -7,3 +7,5 @@ pub mod file;
 pub mod log_helper;
 pub mod partition;
 pub mod shmem;
+pub mod health_event;
+pub mod ipc;

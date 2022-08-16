@@ -1,15 +1,17 @@
 use std::mem::forget;
-use std::process::exit;
+use std::os::unix::prelude::{FromRawFd, IntoRawFd, OwnedFd};
 use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use apex_hal::bindings::*;
 use apex_hal::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::fd::{Fd, PidFd};
+use linux_apex_core::fd::PidFd;
 use linux_apex_core::file::TempFile;
 use memmap2::MmapOptions;
+use nix::libc::SIGCHLD;
 use nix::sched::CloneFlags;
+use nix::sys::resource::{setrlimit, Resource};
 use nix::unistd::{getpid, Pid};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -67,12 +69,12 @@ impl Process {
         // Files for dropping fd
         let mut fds = Vec::new();
         let deadline = TempFile::new(&format!("deadline_{name}"))?;
-        fds.push(Fd::try_from(deadline.fd())?);
+        fds.push(unsafe { OwnedFd::from_raw_fd(deadline.fd()) });
         let activated = TempFile::new(&format!("state_{name}"))?;
-        fds.push(Fd::try_from(activated.fd())?);
+        fds.push(unsafe { OwnedFd::from_raw_fd(activated.fd()) });
         activated.write(&false)?;
         let pid = TempFile::new(&format!("pid_{name}"))?;
-        fds.push(Fd::try_from(pid.fd())?);
+        fds.push(unsafe { OwnedFd::from_raw_fd(pid.fd()) });
 
         let process = Self {
             id,
@@ -94,7 +96,7 @@ impl Process {
 
         // dissolve files into fds
         for f in fds {
-            f.forget();
+            f.into_raw_fd();
         }
         // forget stack ptr so we do not call munmap
         forget(stack);
@@ -121,6 +123,10 @@ impl Process {
         }
 
         None
+    }
+
+    pub fn pid(&self) -> Result<Pid> {
+        self.pid.read()
     }
 
     pub fn kill(&self) -> Result<()> {
@@ -159,13 +165,32 @@ impl Process {
                 .expect("TODO: Do not expect here")
         };
 
+        let stack_size = self.attr.stack_size as u64;
         safemem::write_bytes(stack, 0);
-        let cbk = Box::new(|| {
+        let cbk = Box::new(move || {
+            // TODO
+            //setrlimit(Resource::RLIMIT_STACK, stack_size - 2000, stack_size - 2000).unwrap();
+
             cg.add_process(getpid()).unwrap();
             (self.attr.entry_point)();
-            exit(0);
+            0
         });
-        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), None)?;
+
+        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))?;
+        //let stack = unsafe { malloc(10000) };
+
+        //let res = unsafe {
+        //    let ptr = stack.as_mut_ptr().add(stack.len());
+        //    let ptr_aligned = ptr.sub(ptr as usize % 16);
+        //    nix::libc::clone(
+        //        start,
+        //        ptr_aligned as *mut nix::libc::c_void,
+        //        0,
+        //        null_mut(),
+        //    )
+        //};
+        //let child = Pid::from_raw(res);
+
         self.pid.write(&child)?;
 
         let pidfd = PidFd::try_from(child)?;
