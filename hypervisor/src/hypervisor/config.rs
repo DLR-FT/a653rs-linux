@@ -68,19 +68,6 @@ pub enum ModuleStates {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum SystemErrors {
-    Config,
-    ModuleConfig,
-    PartitionConfig,
-    PartitionInit,
-    Segmentation,
-    TimeDurationExceeded,
-    InvalidOsCall,
-    DivideByZero,
-    FloatingPointError,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionHMTable {
     pub partition_init: ErrorLevel,
     pub segmentation: ErrorLevel,

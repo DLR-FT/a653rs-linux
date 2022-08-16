@@ -91,7 +91,7 @@ impl Hypervisor {
                 mode: OperatingMode::ColdStart,
                 duration: part.duration,
                 period: part.period,
-                system_time: self.start_time.fd()
+                system_time: self.start_time.fd(),
             };
 
             p.restart(args).unwrap();
@@ -107,19 +107,17 @@ impl Hypervisor {
                 let partition = self.partitions.get_mut(partition_name).unwrap();
                 partition.unfreeze().unwrap();
 
-
-
                 //sleep(target_stop.saturating_sub(frame_start.elapsed()));
                 let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
-                while leftover > Duration::ZERO{
+                while leftover > Duration::ZERO {
                     let res = partition.wait_event_timeout(leftover);
 
-                    debug!("{res:?}");
+                    if let Ok(Some(event)) = res {
+                        event.print_partition_log(partition_name)
+                    }
 
                     leftover = target_stop.saturating_sub(frame_start.elapsed());
                 }
-
-
 
                 partition.freeze().unwrap();
             }

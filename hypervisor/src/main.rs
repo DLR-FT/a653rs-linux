@@ -35,7 +35,7 @@ fn main() {
 
     pretty_env_logger::formatted_builder()
         .parse_filters(&level)
-        .format(linux_apex_core::log_helper::format)
+        //.format(linux_apex_core::log_helper::format)
         .filter_module("polling", LevelFilter::Off)
         .format_timestamp_secs()
         .init();

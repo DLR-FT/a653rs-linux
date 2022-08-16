@@ -7,20 +7,11 @@ use std::time::Duration;
 
 use apex_hal::prelude::*;
 use humantime::format_duration;
-use linux_apex_core::health_event::HealthEvent;
-use linux_apex_partition::HEALTH_EVENT_SENDER;
-use linux_apex_partition::partition::ApexLinuxPartition;
+use linux_apex_partition::partition::{ApexLinuxPartition, ApexLogger};
 use log::LevelFilter;
 
 fn main() {
-    //log_panics::init();
-
-    pretty_env_logger::formatted_builder()
-        .parse_filters(&std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
-        .format(linux_apex_core::log_helper::format)
-        .filter_module("polling", LevelFilter::Off)
-        .format_timestamp_secs()
-        .init();
+    ApexLogger::install(LevelFilter::Debug).unwrap();
 
     Hello.run()
 }
@@ -69,10 +60,6 @@ fn aperiodic_hello() {
                 "{:?}: Aperiodic: Hello {i}",
                 format_duration(round).to_string()
             );
-            HEALTH_EVENT_SENDER.try_send(&HealthEvent{
-                error: None,
-                msg: format!("Hello: {i}"),
-            }).unwrap();
         }
         sleep(Duration::from_millis(1))
     }

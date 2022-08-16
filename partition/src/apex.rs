@@ -87,16 +87,21 @@ impl ApexTime for ApexLinuxPartition {
 
 impl ApexError for ApexLinuxPartition {
     fn report_application_message<L: Locked>(message: &[ApexByte]) -> Result<(), ErrorReturnCode> {
-        // According to 3.8.2.1 this may be used for logging purposes
-        todo!()
+        if message.len() > MAX_ERROR_MESSAGE_SIZE {
+            return Err(ErrorReturnCode::InvalidParam);
+        }
+        if let Ok(msg) = std::str::from_utf8(message) {
+            HEALTH_EVENT_SENDER
+                .try_send(&PartitionEvent::Message(msg.to_string()))
+                .unwrap();
+        }
+        Ok(())
     }
 
     fn raise_application_error<L: Locked>(
         error_code: ErrorCode,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
-        // Error code is ignored in P4.
-        // Only pass the Message to the hm?
-        todo!()
+        Self::report_application_message::<L>(message)
     }
 }

@@ -9,10 +9,11 @@ use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::fd::PidFd;
-use linux_apex_core::health_event::HealthEvent;
-use linux_apex_core::ipc::{IpcReceiver, IpcSender, channel_pair};
+use linux_apex_core::health_event::PartitionEvent;
+use linux_apex_core::ipc::{channel_pair, IpcReceiver, IpcSender};
 use linux_apex_core::partition::{
-    DURATION_ENV, IDENTIFIER_ENV, MODE_ENV, NAME_ENV, PERIOD_ENV, START_CONDITION_ENV, SYSTEM_TIME_FD_ENV, HEALTH_SENDER_FD_ENV,
+    DURATION_ENV, HEALTH_SENDER_FD_ENV, IDENTIFIER_ENV, MODE_ENV, NAME_ENV, PERIOD_ENV,
+    START_CONDITION_ENV, SYSTEM_TIME_FD_ENV,
 };
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
@@ -25,10 +26,10 @@ pub(crate) struct Partition {
     id: usize,
     cgroup: CGroup,
     working_dir: TempDir,
-    
+
     bin: PathBuf,
-    health_rx: IpcReceiver<HealthEvent>,
-    health_tx: IpcSender<HealthEvent>,
+    health_rx: IpcReceiver<PartitionEvent>,
+    health_tx: IpcSender<PartitionEvent>,
 }
 
 impl Partition {
@@ -46,7 +47,7 @@ impl Partition {
 
         //let health_event = unsafe { OwnedFd::from_raw_fd(eventfd(0, EfdFlags::empty())?) };
 
-        let (sender, receiver) = channel_pair::<HealthEvent>()?;
+        let (sender, receiver) = channel_pair::<PartitionEvent>()?;
 
         Ok(Self {
             name: name.to_string(),
@@ -61,7 +62,7 @@ impl Partition {
         })
     }
 
-    pub fn wait_event_timeout(&self, timeout: Duration) -> Result<Option<HealthEvent>>{
+    pub fn wait_event_timeout(&self, timeout: Duration) -> Result<Option<PartitionEvent>> {
         self.health_rx.try_recv_timeout(timeout)
     }
 
@@ -149,11 +150,12 @@ impl Partition {
                 setuid(Uid::from_raw(0)).unwrap();
                 setgid(Gid::from_raw(0)).unwrap();
 
+                Self::print_fds();
                 // Release all unneeded fd's
                 Self::release_fds(&[
                     args.system_time,
                     //self.health_event.as_raw_fd()
-                    self.health_tx.as_raw_fd()
+                    self.health_tx.as_raw_fd(),
                 ])
                 .unwrap();
 

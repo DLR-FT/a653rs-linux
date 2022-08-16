@@ -1,4 +1,3 @@
-
 pub const APERIODIC_PROCESS_FILE: &str = "aperiodic";
 pub const PERIODIC_PROCESS_FILE: &str = "periodic";
 
