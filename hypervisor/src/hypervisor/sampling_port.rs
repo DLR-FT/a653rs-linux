@@ -31,7 +31,7 @@ pub struct SamplingPortDestination {
 
 /// TODO: Use a double buffered sharedmemory approach instead
 impl SamplingPort {
-    pub fn new<P: AsRef<Path>>(path: P, size: usize) -> Result<Self> {
+    pub(crate) fn new<P: AsRef<Path>>(path: P, size: usize) -> Result<Self> {
         let mutex_reserved = size_of::<libc::pthread_mutex_t>();
         let shm = ShmemConf::new()
             .size(mutex_reserved + size)

@@ -1,10 +1,14 @@
 use std::fs::{read_to_string, File};
+use std::os::unix::prelude::OwnedFd;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use nix::unistd::Pid;
 use walkdir::WalkDir;
+
+use crate::error::{TypedResult, ResultExt, SystemError, ErrorExt};
+
 
 // TODO think about completely changing this.
 // Because CGroups are a hierarchy and Parents need to consider their children,
@@ -19,26 +23,27 @@ pub struct CGroup {
 
 impl CGroup {
     const MEMBER_FILE: &'static str = "cgroup.procs";
+    const FREEZE_FILE: &'static str = "cgroup.freeze";
+    const EVENTS_FILE: &'static str = "cgroup.events";
 
-    pub fn mount_point() -> Result<PathBuf> {
-        let mnt = procfs::process::Process::myself()?
-            .mountinfo()?
+    pub fn mount_point() -> TypedResult<PathBuf> {
+        procfs::process::Process::myself()
+            .typ_res(SystemError::Panic)?
+            .mountinfo()
+            .typ_res(SystemError::Panic)?
             .iter()
             .find(|m| m.fs_type.eq("cgroup2"))
-            .ok_or_else(|| anyhow!("no cgroup2 mount found"))
-            .map(|m| m.mount_point.clone());
-
-        //trace!("cgroups mount point is {mnt:?}");
-        mnt
+            .ok_or_else(|| anyhow!("no cgroup2 mount found").typ_err(SystemError::Panic))
+            .map(|m| m.mount_point.clone())
     }
 
-    pub fn new<P: AsRef<Path>>(root: P, name: &str) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(root: P, name: &str) -> TypedResult<Self> {
         let path = PathBuf::from(root.as_ref()).join(name);
         //trace!("New CGroup: {path:?}");
 
         if !path.exists() {
             trace!("Creating Cgroup, {path:?}");
-            std::fs::create_dir(&path)?;
+            std::fs::create_dir(&path).typ_res(SystemError::CGroup)?;
         }
 
         // TODO use cpuset with feature opt in
@@ -52,14 +57,40 @@ impl CGroup {
         Ok(CGroup { path })
     }
 
-    pub fn add_process(&mut self, pid: Pid) -> Result<()> {
-        Self::add_process_to(&self.path, pid)?;
-        Ok(())
+    pub fn get_procs_fd(&self) -> TypedResult<OwnedFd> {
+        File::open(self.path.join(Self::MEMBER_FILE)).typ_res(SystemError::CGroup).map(OwnedFd::from)
     }
 
-    pub fn add_process_to<P: AsRef<Path>>(path: P, pid: Pid) -> Result<()> {
-        std::fs::write(path.as_ref().join(Self::MEMBER_FILE), pid.to_string())?;
-        Ok(())
+    pub fn add_process(&self, pid: Pid) -> TypedResult<()> {
+        Self::add_process_to(&self.path, pid).typ_res(SystemError::CGroup)
+    }
+
+    pub fn member(&self) -> TypedResult<Vec<Pid>> {
+        read_to_string(self.path().join(Self::MEMBER_FILE)).map(|s| {
+            s.lines()
+                .flat_map(|l| l.parse())
+                .map(Pid::from_raw)
+                .collect()
+        }).typ_res(SystemError::CGroup)
+    }
+
+    pub fn add_process_to<P: AsRef<Path>>(path: P, pid: Pid) -> TypedResult<()> {
+        std::fs::write(path.as_ref().join(Self::MEMBER_FILE), pid.to_string()).typ_res(SystemError::CGroup)
+    }
+
+    pub fn events_file(&self) -> TypedResult<OwnedFd> {
+        File::open(self.path().join(Self::EVENTS_FILE)).typ_res(SystemError::CGroup).map(OwnedFd::from)
+    }
+
+    // TODO continue
+    pub fn is_frozen(&self) -> Result<bool> {
+        let frozen = read_to_string(self.path().join(Self::FREEZE_FILE))?;
+        let frozen: usize = frozen.trim().parse()?;
+        match frozen {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(anyhow!("Unexpected Number")),
+        }
     }
 
     pub fn kill_all_wait(&self) -> Result<()> {
@@ -87,13 +118,14 @@ impl CGroup {
         self.path.clone()
     }
 
-    pub fn freeze(&mut self) -> Result<()> {
-        std::fs::write(self.path.join("cgroup.freeze"), "1")?;
+    pub fn freeze(&self) -> Result<()> {
+        // TODO remove debug
+        std::fs::write(self.path.join(Self::FREEZE_FILE), "1")?;
         Ok(())
     }
 
-    pub fn unfreeze(&mut self) -> Result<()> {
-        std::fs::write(self.path.join("cgroup.freeze"), "0")?;
+    pub fn unfreeze(&self) -> Result<()> {
+        std::fs::write(self.path.join(Self::FREEZE_FILE), "0")?;
         Ok(())
     }
 

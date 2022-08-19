@@ -2,8 +2,10 @@
 #![allow(unused_variables)]
 
 use std::process::exit;
+use std::thread::sleep;
 
 use apex_hal::bindings::*;
+use linux_apex_core::error::SystemError;
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
@@ -11,11 +13,7 @@ use crate::*;
 
 impl ApexPartition for ApexLinuxPartition {
     fn get_partition_status<L: Locked>() -> ApexPartitionStatus {
-        let operating_mode = std::env::var(MODE_ENV)
-            .ok()
-            .and_then(|m| m.parse::<u32>().ok())
-            .and_then(|m| OperatingMode::try_from(m).ok())
-            .unwrap_or(OperatingMode::Normal);
+        let operating_mode = PARTITION_MODE.read().unwrap();
 
         ApexPartitionStatus {
             period: PART_PERIOD.as_nanos() as i64,
@@ -29,15 +27,32 @@ impl ApexPartition for ApexLinuxPartition {
     }
 
     fn set_partition_mode<L: Locked>(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
-        // TODO: Handle transitions
-        // TODO: Do not unwrap error
-        std::env::set_var(MODE_ENV, (operating_mode as u32).to_string());
+        let current_mode = PARTITION_MODE.read().unwrap();
 
-        if operating_mode == OperatingMode::Normal {
-            // If we transition into Normal Mode, run the scheduler and never return
-            scheduler::scheduler();
+        if let OperatingMode::Idle = current_mode {
+            panic!()
         }
-        Ok(())
+
+        match (operating_mode, current_mode) {
+            (OperatingMode::Normal, OperatingMode::Normal) => Err(ErrorReturnCode::NoAction),
+            (OperatingMode::WarmStart, OperatingMode::ColdStart) => {
+                Err(ErrorReturnCode::InvalidMode)
+            }
+            (OperatingMode::Normal, _) => {
+                SENDER
+                    .try_send(&PartitionCall::Transition(operating_mode))
+                    .unwrap();
+                loop {
+                    sleep(Duration::from_secs(500))
+                }
+            }
+            (_, _) => {
+                SENDER
+                    .try_send(&PartitionCall::Transition(operating_mode))
+                    .unwrap();
+                exit(0)
+            }
+        }
     }
 }
 
@@ -52,16 +67,19 @@ impl ApexProcess for ApexLinuxPartition {
     }
 
     fn start<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
-        // This more like a reset function for dormant processes
-        // TODO check for correct partition operating state
-        let file = match process_id {
-            1 => *APERIODIC_PROCESS,
-            2 => *PERIODIC_PROCESS,
-            _ => todo!("Return error"),
+        let proc = match process_id {
+            1 => APERIODIC_PROCESS.read().unwrap(),
+            2 => PERIODIC_PROCESS.read().unwrap(),
+            _ => None,
         };
-        // TODO do not unwrap
-        let proc = file.read().unwrap().unwrap();
-        proc.activate().unwrap();
+
+        let proc = match proc {
+            Some(proc) => proc,
+            None => return Err(ErrorReturnCode::InvalidParam),
+        };
+
+        // TODO use a bigger result which contains both panic and non-panic errors
+        proc.start().unwrap();
 
         Ok(())
     }
@@ -74,7 +92,9 @@ impl ApexTime for ApexLinuxPartition {
         if !proc.periodic() {
             return Err(ErrorReturnCode::InvalidMode);
         }
-        exit(0)
+
+        proc.cg().unwrap().freeze().unwrap();
+        Ok(())
     }
 
     fn get_time<L: Locked>() -> ApexSystemTime {
@@ -91,8 +111,8 @@ impl ApexError for ApexLinuxPartition {
             return Err(ErrorReturnCode::InvalidParam);
         }
         if let Ok(msg) = std::str::from_utf8(message) {
-            HEALTH_EVENT_SENDER
-                .try_send(&PartitionEvent::Message(msg.to_string()))
+            SENDER
+                .try_send(&PartitionCall::Message(msg.to_string()))
                 .unwrap();
         }
         Ok(())
@@ -102,6 +122,12 @@ impl ApexError for ApexLinuxPartition {
         error_code: ErrorCode,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
-        Self::report_application_message::<L>(message)
+        if let ErrorCode::ApplicationError = error_code {
+            Self::report_application_message::<L>(message).unwrap();
+            Self::raise_system_error(SystemError::ApplicationError);
+            Ok(())
+        } else {
+            Err(ErrorReturnCode::InvalidParam)
+        }
     }
 }

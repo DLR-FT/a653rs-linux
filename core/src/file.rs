@@ -1,7 +1,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::os::unix::prelude::{IntoRawFd, RawFd};
+use std::os::unix::prelude::{AsRawFd, IntoRawFd, RawFd};
 
 use anyhow::{anyhow, Ok, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};
@@ -65,7 +65,7 @@ impl<T: Send + Copy + Sized> TempFile<T> {
         Ok(())
     }
 
-    pub fn seal_read_only(&mut self) -> Result<()> {
+    pub fn seal_read_only(&self) -> Result<()> {
         self.get_memfd()?
             .add_seals(&[FileSeal::SealWrite, FileSeal::SealSeal])?;
         Ok(())
@@ -96,6 +96,12 @@ impl<T: Send + Copy + Sized> TempFile<T> {
     }
 
     // TODO Into Mmap
+}
+
+impl<T: Send + Copy + Sized> AsRawFd for TempFile<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
 }
 
 pub fn get_memfd(name: &str) -> Result<i32> {

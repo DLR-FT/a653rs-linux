@@ -1,3 +1,6 @@
+#![allow(unconditional_panic, unconditional_recursion, dead_code)]
+
+
 #[macro_use]
 extern crate log;
 
@@ -11,7 +14,8 @@ use linux_apex_partition::partition::{ApexLinuxPartition, ApexLogger};
 use log::LevelFilter;
 
 fn main() {
-    ApexLogger::install(LevelFilter::Debug).unwrap();
+    ApexLogger::install_panic_hook();
+    ApexLogger::install_logger(LevelFilter::Debug).unwrap();
 
     Hello.run()
 }
@@ -24,7 +28,7 @@ impl Partition<ApexLinuxPartition> for Hello {
             period: apex_hal::prelude::SystemTime::Infinite,
             time_capacity: apex_hal::prelude::SystemTime::Infinite,
             entry_point: aperiodic_hello,
-            stack_size: 10000,
+            stack_size: 100000,
             base_priority: 1,
             deadline: apex_hal::prelude::Deadline::Soft,
             name: Name::from_str("aperiodic_hello").unwrap(),
@@ -37,7 +41,7 @@ impl Partition<ApexLinuxPartition> for Hello {
             period: apex_hal::prelude::SystemTime::Normal(Duration::ZERO),
             time_capacity: apex_hal::prelude::SystemTime::Infinite,
             entry_point: periodic_hello,
-            stack_size: 10000,
+            stack_size: 100000,
             base_priority: 1,
             deadline: apex_hal::prelude::Deadline::Soft,
             name: Name::from_str("periodic_hello").unwrap(),
@@ -66,9 +70,10 @@ fn aperiodic_hello() {
 }
 
 fn periodic_hello() {
-    sleep(Duration::from_millis(1));
+    //sleep(Duration::from_millis(1));
     //rec(0);
-    for i in 0..50 {
+
+    for i in 1..i32::MAX {
         if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
@@ -76,8 +81,16 @@ fn periodic_hello() {
                 format_duration(round).to_string()
             );
         }
-        sleep(Duration::from_millis(1))
+        sleep(Duration::from_millis(1));
+
+        if i % 5 == 0 {
+            Time::<ApexLinuxPartition>::periodic_wait().unwrap();
+        }
     }
+}
+
+extern "C" fn test() {
+    println!("Hello");
 }
 
 fn rec(i: usize) {

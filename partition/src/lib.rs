@@ -2,23 +2,28 @@
 #[macro_use]
 extern crate log;
 
+use std::cell::UnsafeCell;
 use std::os::unix::prelude::{FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use apex_hal::prelude::{OperatingMode, PartitionId, StartCondition};
 use linux_apex_core::file::{get_memfd, TempFile};
-use linux_apex_core::health_event::PartitionEvent;
+use linux_apex_core::health_event::PartitionCall;
 use linux_apex_core::ipc::IpcSender;
 use linux_apex_core::partition::*;
+use memmap2::{MmapMut, MmapOptions};
 use once_cell::sync::Lazy;
 use process::Process;
 use procfs::process::{FDTarget, Process as Proc};
 
-pub mod apex;
+pub(crate) mod apex;
 pub mod partition;
-mod scheduler;
+//mod scheduler;
 // TODO un-pub process
-pub mod process;
+pub(crate) mod process;
+
+pub const APERIODIC_PROCESS_FILE: &str = "aperiodic";
+pub const PERIODIC_PROCESS_FILE: &str = "periodic";
 
 pub(crate) static SYSTEM_TIME: Lazy<Instant> = Lazy::new(|| {
     let fd = std::env::var(SYSTEM_TIME_FD_ENV)
@@ -26,6 +31,14 @@ pub(crate) static SYSTEM_TIME: Lazy<Instant> = Lazy::new(|| {
         .parse::<RawFd>()
         .unwrap();
     TempFile::<Instant>::from_fd(fd).unwrap().read().unwrap()
+});
+
+pub(crate) static PARTITION_MODE: Lazy<TempFile<OperatingMode>> = Lazy::new(|| {
+    let fd = std::env::var(PARTITION_MODE_FD_ENV)
+        .unwrap()
+        .parse::<RawFd>()
+        .unwrap();
+    TempFile::<OperatingMode>::from_fd(fd).unwrap()
 });
 
 pub(crate) static PART_NAME: Lazy<String> = Lazy::new(|| std::env::var(NAME_ENV).unwrap());
@@ -49,7 +62,7 @@ pub(crate) static PART_START_CONDITION: Lazy<StartCondition> = Lazy::new(|| {
         .unwrap()
 });
 
-pub static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
+pub(crate) static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     // TODO Get rid of get_memfd? Use env instead?
     if let Ok(fd) = get_memfd(APERIODIC_PROCESS_FILE) {
         TempFile::from_fd(fd).unwrap()
@@ -60,7 +73,8 @@ pub static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     }
 });
 
-pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
+// TODO generate in hypervisor
+pub(crate) static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     if let Ok(fd) = get_memfd(PERIODIC_PROCESS_FILE) {
         TempFile::from_fd(fd).unwrap()
     } else {
@@ -70,10 +84,18 @@ pub static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
     }
 });
 
-pub static HEALTH_EVENT_SENDER: Lazy<IpcSender<PartitionEvent>> = Lazy::new(|| unsafe {
-    let fd = std::env::var(HEALTH_SENDER_FD_ENV)
+pub(crate) static SENDER: Lazy<IpcSender<PartitionCall>> = Lazy::new(|| unsafe {
+    let fd = std::env::var(SENDER_FD_ENV)
         .unwrap()
         .parse::<RawFd>()
         .unwrap();
     IpcSender::from_raw_fd(fd)
+});
+
+pub(crate) static SIGNAL_STACK: Lazy<MmapMut> = Lazy::new(|| {
+    MmapOptions::new()
+        .stack()
+        .len(nix::libc::SIGSTKSZ)
+        .map_anon()
+        .unwrap()
 });

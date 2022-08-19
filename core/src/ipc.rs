@@ -1,16 +1,13 @@
-use anyhow::{anyhow, Error, Result};
+use std::io::ErrorKind;
+use std::marker::PhantomData;
+use std::os::unix::net::UnixDatagram;
+use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
+use std::time::{Duration};
+
+use anyhow::{Error, Result};
 use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
 use polling::{Event, Poller};
 use serde::{Deserialize, Serialize};
-use std::{
-    io::ErrorKind,
-    marker::PhantomData,
-    os::unix::{
-        net::UnixDatagram,
-        prelude::{AsRawFd, FromRawFd, RawFd},
-    },
-    time::{Duration, Instant},
-};
 
 #[derive(Debug)]
 pub struct IpcSender<T> {
@@ -29,11 +26,11 @@ where
     T: Serialize,
 {
     pub fn try_send(&self, value: &T) -> Result<()> {
-        let len = self.socket.send(bincode::serialize(value)?.as_ref())?;
+        self.socket.send(bincode::serialize(value)?.as_ref())?;
         Ok(())
     }
 
-    pub fn try_send_timeout(&self, value: &T, duration: Duration) -> Result<bool> {
+    pub fn try_send_timeout(&self, _value: &T, _duration: Duration) -> Result<bool> {
         todo!()
     }
 
@@ -49,6 +46,19 @@ impl<T> IpcReceiver<T>
 where
     T: for<'de> Deserialize<'de> + Serialize,
 {
+    pub fn try_recv(&self) -> Result<Option<T>> {
+        let mut buffer = vec![0; 65507];
+        let len = match self.socket.recv(&mut buffer) {
+            Ok(len) => len,
+            Err(e) if e.kind() != ErrorKind::TimedOut => return Err(e.into()),
+            _ => return Ok(None),
+        };
+
+        bincode::deserialize(&buffer[0..len])
+            .map(|r| Some(r))
+            .map_err(Error::from)
+    }
+
     pub fn try_recv_timeout(&self, duration: Duration) -> Result<Option<T>> {
         let poller = Poller::new().unwrap();
         poller

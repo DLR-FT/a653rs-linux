@@ -1,32 +1,22 @@
-use apex_hal::prelude::ErrorCode;
+use apex_hal::prelude::{OperatingMode};
 use log::Level;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-pub enum SystemError {
-    Config,
-    ModuleConfig,
-    PartitionConfig,
-    PartitionInit,
-    Segmentation,
-    TimeDurationExceeded,
-    InvalidOsCall,
-    DivideByZero,
-    FloatingPointError,
-}
+use crate::error::SystemError;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub enum PartitionEvent {
+pub enum PartitionCall {
+    Transition(OperatingMode),
     Error(SystemError),
     Message(String),
 }
 
-impl PartitionEvent {
+impl PartitionCall {
     pub fn print_partition_log(&self, name: &str) {
         let name = &format!("Partition: {name}");
         match self {
-            PartitionEvent::Error(e) => warn!(target: name, "{e:?}"),
-            PartitionEvent::Message(msg) => {
+            PartitionCall::Error(e) => error!(target: name, "{e:?}"),
+            PartitionCall::Message(msg) => {
                 let mut msg_chars = msg.chars();
                 if let Some(level) = msg_chars.next() {
                     let msg = msg_chars.collect::<String>();
@@ -35,11 +25,15 @@ impl PartitionEvent {
                             l if l == Level::Debug as usize => debug!(target: name, "{msg}"),
                             l if l == Level::Warn as usize => warn!(target: name, "{msg}"),
                             l if l == Level::Trace as usize => trace!(target: name, "{msg}"),
+                            l if l == Level::Error as usize => error!(target: name, "{msg}"),
                             _ => info!(target: name, "{msg}"),
                         };
                     }
                 }
                 info!(target: name, "{msg}")
+            }
+            PartitionCall::Transition(mode) => {
+                debug!(target: name, "Transition Request: {mode:?}")
             }
         }
     }

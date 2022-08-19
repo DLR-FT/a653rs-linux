@@ -1,21 +1,28 @@
+use core::panic;
 use std::mem::forget;
-use std::os::unix::prelude::{FromRawFd, IntoRawFd, OwnedFd};
+use std::os::unix::prelude::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::ptr::null_mut;
 use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
 use apex_hal::bindings::*;
 use apex_hal::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
+use linux_apex_core::error::{SystemError, TypedResult};
 use linux_apex_core::fd::PidFd;
 use linux_apex_core::file::TempFile;
+use linux_apex_core::partition::{APERIODIC_PROCESS_CGROUP, PERIODIC_PROCESS_CGROUP};
 use memmap2::MmapOptions;
-use nix::libc::SIGCHLD;
+use nix::libc::{stack_t, SIGCHLD};
 use nix::sched::CloneFlags;
 use nix::sys::resource::{setrlimit, Resource};
+use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, Signal};
+use nix::sys::signalfd::SigSet;
 use nix::unistd::{getpid, Pid};
 use once_cell::sync::{Lazy, OnceCell};
 
-use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
+use crate::partition::ApexLinuxPartition;
+use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS, SIGNAL_STACK};
 
 //use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
 
@@ -31,10 +38,9 @@ static SYNC: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(Default::default()));
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct Process {
+pub(crate) struct Process {
     id: i32,
     attr: ProcessAttribute,
-    deadline: TempFile<SystemTime>,
     activated: TempFile<bool>,
     pid: TempFile<Pid>,
     periodic: bool,
@@ -44,15 +50,11 @@ impl Process {
     pub fn create(attr: ProcessAttribute) -> Result<ProcessId> {
         let name = attr.name.to_str()?.to_string();
         debug!("Create New Process: {name:?}");
-        let stack_size = attr.stack_size.try_into()?;
+        let stack_size: usize = attr.stack_size.try_into()?;
         let mut stack = MmapOptions::new().stack().len(stack_size).map_anon()?;
 
         let periodic = attr.period != SystemTime::Infinite;
         let id = periodic as i32 + 1;
-
-        // Create Cgroup
-        let mut cg = CGroup::new(CGroup::mount_point()?, &name)?;
-        cg.freeze().unwrap();
 
         let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
 
@@ -68,8 +70,6 @@ impl Process {
 
         // Files for dropping fd
         let mut fds = Vec::new();
-        let deadline = TempFile::new(&format!("deadline_{name}"))?;
-        fds.push(unsafe { OwnedFd::from_raw_fd(deadline.fd()) });
         let activated = TempFile::new(&format!("state_{name}"))?;
         fds.push(unsafe { OwnedFd::from_raw_fd(activated.fd()) });
         activated.write(&false)?;
@@ -79,7 +79,6 @@ impl Process {
         let process = Self {
             id,
             attr,
-            deadline,
             activated,
             pid,
             periodic,
@@ -125,36 +124,38 @@ impl Process {
         None
     }
 
-    pub fn pid(&self) -> Result<Pid> {
-        self.pid.read()
-    }
-
-    pub fn kill(&self) -> Result<()> {
-        self.cg()?.kill_all_wait()
-    }
-
     pub fn name(&self) -> Result<&str> {
         Ok(self.attr.name.to_str()?)
     }
 
-    pub fn attr(&self) -> &ProcessAttribute {
-        &self.attr
-    }
-
-    pub(crate) fn activate(&self) -> Result<()> {
-        self.activated.write(&true)
-    }
-
-    pub fn activated(&self) -> Result<bool> {
-        self.activated.read()
-    }
-
     pub fn start(&self) -> Result<PidFd> {
-        let name = self.name()?;
-        let mut cg = CGroup::new(CGroup::mount_point()?, name)?;
+        unsafe {
+            let stack = stack_t {
+                ss_sp: SIGNAL_STACK.as_ptr() as *mut nix::libc::c_void,
+                ss_flags: 0,
+                ss_size: nix::libc::SIGSTKSZ,
+            };
+            nix::libc::sigaltstack(&stack, null_mut());
 
-        cg.freeze().unwrap();
-        cg.kill_all_wait()?;
+            let report_sigsegv_action = SigAction::new(
+                SigHandler::Handler(handle_sigsegv),
+                SaFlags::SA_ONSTACK,
+                SigSet::empty(),
+            );
+            sigaction(Signal::SIGSEGV, &report_sigsegv_action).unwrap();
+
+            let report_sigfpe_action = SigAction::new(
+                SigHandler::Handler(handle_sigfpe),
+                SaFlags::SA_ONSTACK,
+                SigSet::empty(),
+            );
+            sigaction(Signal::SIGFPE, &report_sigfpe_action).unwrap();
+        }
+
+        let name = self.name()?;
+
+        let mut cg = self.cg()?;
+        cg.freeze()?;
 
         let stack = unsafe {
             STACKS[self.periodic as usize]
@@ -171,25 +172,15 @@ impl Process {
             // TODO
             //setrlimit(Resource::RLIMIT_STACK, stack_size - 2000, stack_size - 2000).unwrap();
 
+            let mut cg = self.cg().unwrap();
             cg.add_process(getpid()).unwrap();
             (self.attr.entry_point)();
             0
         });
 
+        // Make extra sure that the process is in the cgroup
         let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))?;
-        //let stack = unsafe { malloc(10000) };
-
-        //let res = unsafe {
-        //    let ptr = stack.as_mut_ptr().add(stack.len());
-        //    let ptr_aligned = ptr.sub(ptr as usize % 16);
-        //    nix::libc::clone(
-        //        start,
-        //        ptr_aligned as *mut nix::libc::c_void,
-        //        0,
-        //        null_mut(),
-        //    )
-        //};
-        //let child = Pid::from_raw(res);
+        cg.add_process(child).unwrap();
 
         self.pid.write(&child)?;
 
@@ -199,19 +190,24 @@ impl Process {
         Ok(pidfd)
     }
 
-    fn cg(&self) -> Result<CGroup> {
-        Ok(CGroup::from(CGroup::mount_point()?.join(self.name()?)))
+    pub(crate) fn cg(&self) -> TypedResult<CGroup> {
+        let cg_name = if self.periodic {
+            PERIODIC_PROCESS_CGROUP
+        } else {
+            APERIODIC_PROCESS_CGROUP
+        };
+        CGroup::new(CGroup::mount_point()?, cg_name)
     }
 
     pub fn periodic(&self) -> bool {
         self.periodic
     }
+}
 
-    pub fn freeze(&mut self) -> Result<()> {
-        self.cg()?.freeze()
-    }
+extern "C" fn handle_sigsegv(_: i32) {
+    ApexLinuxPartition::raise_system_error(SystemError::Segmentation);
+}
 
-    pub fn unfreeze(&mut self) -> Result<()> {
-        self.cg()?.unfreeze()
-    }
+extern "C" fn handle_sigfpe(_: i32) {
+    ApexLinuxPartition::raise_system_error(SystemError::FloatingPoint);
 }

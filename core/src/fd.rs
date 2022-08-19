@@ -8,13 +8,25 @@ use nix::unistd::Pid;
 use polling::{Event, Poller};
 
 #[derive(Debug)]
+pub enum PidWaitError {
+    Timeout,
+    Err(Error),
+}
+
+impl From<Error> for PidWaitError {
+    fn from(e: Error) -> Self {
+        Self::Err(e)
+    }
+}
+
+#[derive(Debug)]
 pub struct PidFd(OwnedFd);
 
 impl PidFd {
-    pub fn wait_exited_timeout(&self, timeout: Duration) -> Result<bool> {
+    pub fn wait_exited_timeout(&self, timeout: Duration) -> Result<(), PidWaitError> {
         let now = Instant::now();
 
-        let poller = Poller::new()?;
+        let poller = Poller::new().map_err(Error::from)?;
         poller.add(self.0.as_raw_fd(), Event::readable(0)).unwrap();
 
         loop {
@@ -23,10 +35,11 @@ impl PidFd {
                 Some(timeout.saturating_sub(now.elapsed())),
             );
             match poll_res {
-                Ok(events) => return Ok(events > 0),
+                Ok(0) => return Err(PidWaitError::Timeout),
+                Ok(_) => return Ok(()),
                 Err(e) => {
                     if e.kind() != ErrorKind::Interrupted {
-                        return Err(e.into());
+                        return Err(PidWaitError::Err(e.into()));
                     }
                 }
             }

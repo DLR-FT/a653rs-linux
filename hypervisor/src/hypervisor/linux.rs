@@ -3,18 +3,23 @@ use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Error, bail};
 use apex_hal::prelude::{OperatingMode, StartCondition};
 use linux_apex_core::cgroup::CGroup;
+use linux_apex_core::error::{ResultExt, ErrorLevel, SystemError};
 use linux_apex_core::file::TempFile;
+use once_cell::sync::Lazy;
 use procfs::process::Process;
 
-use super::partition::PartitionStartArgs;
+use super::scheduler::{PartitionTimeWindow, Timeout};
 //TODO add better errors than anyhow?
 use super::{
     config::{Channel, Config},
     partition::Partition,
 };
+
+pub static SYSTEM_START_TIME: Lazy<TempFile<Instant>> =
+    Lazy::new(|| TempFile::new("system_time").unwrap());
 
 //#[derive(Debug)]
 pub struct Hypervisor {
@@ -23,14 +28,13 @@ pub struct Hypervisor {
     schedule: Vec<(Duration, Duration, String)>,
     partitions: HashMap<String, Partition>,
     prev_cg: PathBuf,
-    start_time: TempFile<Instant>,
     config: Config,
 }
 
 impl Hypervisor {
-    pub fn new(config: Config) -> Result<Self> {
-        let proc = Process::myself()?;
-        let prev_cgroup = proc.cgroups()?.get(0).unwrap().pathname.clone();
+    pub fn new(config: Config) -> anyhow::Result<Self> {
+        let proc = Process::myself().lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?;
+        let prev_cgroup = proc.cgroups().lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?.get(0).unwrap().pathname.clone();
         //TODO use mountinfo in proc for /sys/fs/cgroup path
         //      This could be put into the CGroup struct
         let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
@@ -39,9 +43,7 @@ impl Hypervisor {
         let cg = CGroup::new(
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
-        )?;
-
-        let start_time = TempFile::new("system_time")?;
+        ).lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?;
 
         let mut hv = Self {
             cg,
@@ -49,7 +51,6 @@ impl Hypervisor {
             major_frame: config.major_frame,
             partitions: Default::default(),
             prev_cg,
-            start_time,
             config: config.clone(),
         };
 
@@ -57,26 +58,18 @@ impl Hypervisor {
             hv.add_channel(c)?;
         }
 
-        for (i, p) in config.partitions.iter().enumerate() {
-            hv.add_partition(&p.name, i + 1, p.image.clone())?;
+        for p in config.partitions.iter() {
+            if hv.partitions.contains_key(&p.name) {
+                bail!("Partition {} already exists", p.name);
+            }
+            hv.partitions
+                .insert(p.name.clone(), Partition::new(hv.cg.path(), p.clone())?);
         }
 
         Ok(hv)
     }
 
-    fn add_partition<P: AsRef<Path>>(&mut self, name: &str, id: usize, bin: P) -> Result<()> {
-        if self.partitions.contains_key(name) {
-            return Err(anyhow!("Partition {name} already exists"));
-        }
-        self.partitions.insert(
-            name.to_string(),
-            Partition::from_cgroup(self.cg.path(), name, id, bin)?,
-        );
-
-        Ok(())
-    }
-
-    fn add_channel(&mut self, _channel: Channel) -> Result<()> {
+    fn add_channel(&mut self, _channel: Channel) -> anyhow::Result<()> {
         // TODO Implement Channels first, then implement this
         Ok(())
     }
@@ -84,42 +77,54 @@ impl Hypervisor {
     pub fn run(mut self) -> ! {
         self.cg.add_process(nix::unistd::getpid()).unwrap();
 
-        for p in self.partitions.values_mut() {
-            let part = &self.config.partitions[p.id() - 1];
-            let args = PartitionStartArgs {
-                condition: StartCondition::NormalStart,
-                mode: OperatingMode::ColdStart,
-                duration: part.duration,
-                period: part.period,
-                system_time: self.start_time.fd(),
-            };
-
-            p.restart(args).unwrap();
-        }
+        //for p in self.partitions.values_mut() {
+        //    let part = &self.config.partitions[p.id() - 1];
+        //    //let args = PartitionStartArgs {
+        //    //    condition: StartCondition::NormalStart,
+        //    //    duration: part.duration,
+        //    //    period: part.period,
+        //    //    warm_start: false,
+        //    //};
+        //
+        //    p.init().unwrap();
+        //}
 
         let mut frame_start = Instant::now();
 
-        self.start_time.write(&frame_start).unwrap();
-        self.start_time.seal_read_only().unwrap();
+        SYSTEM_START_TIME.write(&frame_start).unwrap();
+        SYSTEM_START_TIME.seal_read_only().unwrap();
         loop {
             for (target_start, target_stop, partition_name) in &self.schedule {
                 sleep(target_start.saturating_sub(frame_start.elapsed()));
-                let partition = self.partitions.get_mut(partition_name).unwrap();
-                partition.unfreeze().unwrap();
+
+                self.partitions
+                    .get_mut(partition_name)
+                    .unwrap()
+                    .run(Timeout::new(frame_start, *target_stop))
+                    .unwrap();
 
                 //sleep(target_stop.saturating_sub(frame_start.elapsed()));
-                let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
-                while leftover > Duration::ZERO {
-                    let res = partition.wait_event_timeout(leftover);
+                //let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
+                //while leftover > Duration::ZERO {
+                //    let res = partition.wait_event_timeout(leftover);
 
-                    if let Ok(Some(event)) = res {
-                        event.print_partition_log(partition_name)
-                    }
+                //    // TODO What to do with errors?
+                //    if let Ok(Some(event)) = res {
+                //        match event{
+                //            linux_apex_core::health_event::PartitionCall::Transition(mode) => {
+                //                match partition.get_transition_action(mode){
+                //                    super::partition::TransitionAction::Stop => todo!(),
+                //                    super::partition::TransitionAction::Normal => todo!(),
+                //                    super::partition::TransitionAction::Restart => todo!(),
+                //                    super::partition::TransitionAction::Error => todo!(),
+                //                }
+                //            },
+                //            _ => event.print_partition_log(partition_name)
+                //        }
+                //    }
 
-                    leftover = target_stop.saturating_sub(frame_start.elapsed());
-                }
-
-                partition.freeze().unwrap();
+                //    leftover = target_stop.saturating_sub(frame_start.elapsed());
+                //}
             }
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
