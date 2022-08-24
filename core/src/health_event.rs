@@ -1,4 +1,4 @@
-use apex_hal::prelude::{OperatingMode};
+use apex_hal::prelude::OperatingMode;
 use log::Level;
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +33,7 @@ impl PartitionCall {
                 info!(target: name, "{msg}")
             }
             PartitionCall::Transition(mode) => {
-                debug!(target: name, "Transition Request: {mode:?}")
+                debug!(target: name, "Received Transition Request: {mode:?}")
             }
         }
     }

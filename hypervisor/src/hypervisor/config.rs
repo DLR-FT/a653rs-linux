@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{anyhow};
+use anyhow::anyhow;
 use itertools::Itertools;
-use linux_apex_core::error::{TypedResult, SystemError, ResultExt};
+use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
+use linux_apex_core::health::{ModuleInitHMTable, ModuleRunHMTable, PartitionHMTable};
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -25,7 +25,7 @@ pub struct Config {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Partition {
-    pub id: usize,
+    pub id: i32,
     pub name: String,
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
@@ -72,109 +72,19 @@ pub enum ModuleStates {
     Run,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PartitionHMTable {
-    pub partition_init: PartitionErrorLevel,
-    pub partition_main_panic: PartitionErrorLevel,
-    pub hypervisor_panic: PartitionErrorLevel,
-    pub segmentation: PartitionErrorLevel,
-    pub time_duration_exceeded: PartitionErrorLevel,
-    pub invalid_os_call: PartitionErrorLevel,
-    pub application_error: PartitionErrorLevel,
-    pub floating_point_error: PartitionErrorLevel,
-    pub bad_partition_state: PartitionErrorLevel,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ModuleInitHMTable {
-    pub config: ModuleRecoveryAction,
-    pub module_config: ModuleRecoveryAction,
-    pub partition_config: ModuleRecoveryAction,
-    pub partition_init: ModuleRecoveryAction,
-    pub hypervisor_panic: ModuleRecoveryAction,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ModuleRunHMTable {
-    pub partition_init: ModuleRecoveryAction,
-    pub hypervisor_panic: ModuleRecoveryAction,
-}
-
-impl Default for PartitionHMTable {
-    fn default() -> Self {
-        Self {
-            partition_init: PartitionErrorLevel::Module(ModuleRecoveryAction::Ignore),
-            segmentation: PartitionErrorLevel::Partition(PartitionRecoveryAction::WarmStart),
-            time_duration_exceeded: PartitionErrorLevel::Module(ModuleRecoveryAction::Ignore),
-            invalid_os_call: PartitionErrorLevel::Partition(PartitionRecoveryAction::WarmStart),
-            floating_point_error: PartitionErrorLevel::Partition(
-                PartitionRecoveryAction::WarmStart,
-            ),
-            partition_main_panic: PartitionErrorLevel::Partition(
-                PartitionRecoveryAction::WarmStart,
-            ),
-            application_error: PartitionErrorLevel::Partition(PartitionRecoveryAction::WarmStart),
-            hypervisor_panic: PartitionErrorLevel::Partition(PartitionRecoveryAction::WarmStart),
-            bad_partition_state: PartitionErrorLevel::Partition(PartitionRecoveryAction::WarmStart),
-        }
-    }
-}
-
-impl Default for ModuleInitHMTable {
-    fn default() -> Self {
-        Self {
-            config: ModuleRecoveryAction::Shutdown,
-            module_config: ModuleRecoveryAction::Shutdown,
-            partition_config: ModuleRecoveryAction::Shutdown,
-            partition_init: ModuleRecoveryAction::Shutdown,
-            hypervisor_panic: ModuleRecoveryAction::Shutdown,
-        }
-    }
-}
-
-impl Default for ModuleRunHMTable {
-    fn default() -> Self {
-        Self {
-            partition_init: ModuleRecoveryAction::Shutdown,
-            hypervisor_panic: ModuleRecoveryAction::Shutdown,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum PartitionErrorLevel {
-    Module(ModuleRecoveryAction),
-    Partition(PartitionRecoveryAction),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ModuleRecoveryAction {
-    Ignore,
-    Shutdown,
-    Reset,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum PartitionRecoveryAction {
-    Idle,
-    ColdStart,
-    WarmStart,
-}
-
 impl Config {
     pub(crate) fn generate_schedule(&self) -> TypedResult<Vec<(Duration, Duration, String)>> {
         // Verify Periods and Major Frame
-        if !self.partitions.is_empty() {
-            let lcm_periods = self
-                .partitions
-                .iter()
-                .map(|p| p.period.as_nanos())
-                .reduce(num::integer::lcm)
-                .unwrap();
+        let lcm_periods = self
+            .partitions
+            .iter()
+            .map(|p| p.period.as_nanos())
+            .reduce(num::integer::lcm);
+        if let Some(lcm_periods) = lcm_periods {
             if self.major_frame.as_nanos() % lcm_periods != 0 {
-                return anyhow!("major frame is not a multiple of the least-common-multiple of all partition periods.\n\
-                lcm: {:?}, major_frame: {:?}", Duration::from_nanos(lcm_periods as u64), self.major_frame)
-                    .typ_res(SystemError::Config);
+                return Err(anyhow!("major frame is not a multiple of the least-common-multiple of all partition periods.\n\
+                lcm: {:?}, major_frame: {:?}", Duration::from_nanos(lcm_periods as u64), self.major_frame))
+                    .typ(SystemError::Config);
             }
         }
 
@@ -195,8 +105,8 @@ impl Config {
         // Verify no overlaps
         for ((pstart, pend, pname), (nstart, nend, nname)) in s.iter().tuple_windows() {
             if pend > nstart {
-                return anyhow!("Overlapping Partition Windows: {pname} (start: {pstart:?}, end: {pend:?}). {nname} (start: {nstart:?}, end: {nend:?})")
-                    .typ_res(SystemError::PartitionConfig);
+                return Err(anyhow!("Overlapping Partition Windows: {pname} (start: {pstart:?}, end: {pend:?}). {nname} (start: {nstart:?}, end: {nend:?})"))
+                    .typ(SystemError::PartitionConfig);
             }
         }
 

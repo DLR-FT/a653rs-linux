@@ -2,19 +2,21 @@ use std::io::ErrorKind;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{anyhow, Result};
 use nix::libc::{c_uint, syscall, SYS_pidfd_open};
 use nix::unistd::Pid;
 use polling::{Event, Poller};
 
+use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
+
 #[derive(Debug)]
 pub enum PidWaitError {
     Timeout,
-    Err(Error),
+    Err(TypedError),
 }
 
-impl From<Error> for PidWaitError {
-    fn from(e: Error) -> Self {
+impl From<TypedError> for PidWaitError {
+    fn from(e: TypedError) -> Self {
         Self::Err(e)
     }
 }
@@ -26,8 +28,13 @@ impl PidFd {
     pub fn wait_exited_timeout(&self, timeout: Duration) -> Result<(), PidWaitError> {
         let now = Instant::now();
 
-        let poller = Poller::new().map_err(Error::from)?;
-        poller.add(self.0.as_raw_fd(), Event::readable(0)).unwrap();
+        let poller = Poller::new()
+            .map_err(anyhow::Error::from)
+            .typ(SystemError::Panic)?;
+        poller
+            .add(self.0.as_raw_fd(), Event::readable(0))
+            .map_err(anyhow::Error::from)
+            .typ(SystemError::Panic)?;
 
         loop {
             let poll_res = poller.wait(
@@ -39,13 +46,17 @@ impl PidFd {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     if e.kind() != ErrorKind::Interrupted {
-                        return Err(PidWaitError::Err(e.into()));
+                        return Err(e)
+                            .map_err(anyhow::Error::from)
+                            .typ(SystemError::Panic)
+                            .map_err(PidWaitError::Err);
                     }
                 }
             }
             poller
                 .modify(self.0.as_raw_fd(), Event::readable(0))
-                .unwrap();
+                .map_err(anyhow::Error::from)
+                .typ(SystemError::Panic)?;
         }
     }
 }
@@ -57,13 +68,17 @@ impl AsRawFd for PidFd {
 }
 
 impl TryFrom<Pid> for PidFd {
-    type Error = Error;
+    type Error = TypedError;
 
-    fn try_from(value: Pid) -> Result<Self, Self::Error> {
-        let pidfd: i32 =
-            unsafe { syscall(SYS_pidfd_open, value.as_raw(), 0 as c_uint).try_into()? };
+    fn try_from(value: Pid) -> TypedResult<Self> {
+        let pidfd: i32 = unsafe {
+            syscall(SYS_pidfd_open, value.as_raw(), 0 as c_uint)
+                .try_into()
+                .typ(SystemError::Panic)?
+        };
         if pidfd < 0 {
-            return Err(anyhow!("Error getting pidfd from {value}. {pidfd}"));
+            return Err(anyhow!("Error getting pidfd from {value}. {pidfd}"))
+                .typ(SystemError::Panic);
         }
         Ok(PidFd(unsafe { OwnedFd::from_raw_fd(pidfd) }))
     }

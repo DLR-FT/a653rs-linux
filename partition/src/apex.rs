@@ -16,12 +16,12 @@ impl ApexPartition for ApexLinuxPartition {
         let operating_mode = PARTITION_MODE.read().unwrap();
 
         ApexPartitionStatus {
-            period: PART_PERIOD.as_nanos() as i64,
-            duration: PART_DURATION.as_nanos() as i64,
-            identifier: *PART_IDENTIFIER,
+            period: CONSTANTS.period.as_nanos() as i64,
+            duration: CONSTANTS.duration.as_nanos() as i64,
+            identifier: CONSTANTS.identifier,
             lock_level: 0,
             operating_mode,
-            start_condition: *PART_START_CONDITION,
+            start_condition: CONSTANTS.start_condition,
             num_assigned_cores: 1,
         }
     }

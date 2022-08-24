@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 apex-hal = { path = "../../apex_rs", features = ["p4", "serde"] }
-nix = "0.24"
+nix = "0.25"
 anyhow = "1.0"
-procfs = "0.13"
+procfs = "0.14"
 itertools = "0.10"
 log = "0"
 walkdir = "2.3"

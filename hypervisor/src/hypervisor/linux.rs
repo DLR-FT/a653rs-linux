@@ -1,25 +1,23 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Error, bail};
-use apex_hal::prelude::{OperatingMode, StartCondition};
+use anyhow::anyhow;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{ResultExt, ErrorLevel, SystemError};
+use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
 use linux_apex_core::file::TempFile;
-use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use procfs::process::Process;
 
-use super::scheduler::{PartitionTimeWindow, Timeout};
+use super::scheduler::Timeout;
 //TODO add better errors than anyhow?
 use super::{
     config::{Channel, Config},
     partition::Partition,
 };
 
-pub static SYSTEM_START_TIME: Lazy<TempFile<Instant>> =
-    Lazy::new(|| TempFile::new("system_time").unwrap());
+pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 
 //#[derive(Debug)]
 pub struct Hypervisor {
@@ -28,22 +26,33 @@ pub struct Hypervisor {
     schedule: Vec<(Duration, Duration, String)>,
     partitions: HashMap<String, Partition>,
     prev_cg: PathBuf,
-    config: Config,
+    _config: Config,
 }
 
 impl Hypervisor {
-    pub fn new(config: Config) -> anyhow::Result<Self> {
-        let proc = Process::myself().lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?;
-        let prev_cgroup = proc.cgroups().lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?.get(0).unwrap().pathname.clone();
+    pub fn new(config: Config) -> LeveledResult<Self> {
+        // Init SystemTime
+        SYSTEM_START_TIME
+            .get_or_try_init(|| TempFile::create("system_time").lev(ErrorLevel::ModuleInit))?;
+
+        let proc = Process::myself().lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+        let prev_cgroup = proc
+            .cgroups()
+            .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?
+            .get(0)
+            .unwrap()
+            .pathname
+            .clone();
         //TODO use mountinfo in proc for /sys/fs/cgroup path
         //      This could be put into the CGroup struct
         let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
 
-        let schedule = config.generate_schedule().unwrap();
+        let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
         let cg = CGroup::new(
             config.cgroup.parent().unwrap(),
             config.cgroup.file_name().unwrap().to_str().unwrap(),
-        ).lev_res(SystemError::Panic, ErrorLevel::ModuleInit)?;
+        )
+        .lev(ErrorLevel::ModuleInit)?;
 
         let mut hv = Self {
             cg,
@@ -51,7 +60,7 @@ impl Hypervisor {
             major_frame: config.major_frame,
             partitions: Default::default(),
             prev_cg,
-            config: config.clone(),
+            _config: config.clone(),
         };
 
         for c in config.channel {
@@ -60,22 +69,27 @@ impl Hypervisor {
 
         for p in config.partitions.iter() {
             if hv.partitions.contains_key(&p.name) {
-                bail!("Partition {} already exists", p.name);
+                return Err(anyhow!("Partition {} already exists", p.name))
+                    .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
             }
-            hv.partitions
-                .insert(p.name.clone(), Partition::new(hv.cg.path(), p.clone())?);
+            hv.partitions.insert(
+                p.name.clone(),
+                Partition::new(hv.cg.path(), p.clone()).lev(ErrorLevel::ModuleInit)?,
+            );
         }
 
         Ok(hv)
     }
 
-    fn add_channel(&mut self, _channel: Channel) -> anyhow::Result<()> {
+    fn add_channel(&mut self, _channel: Channel) -> LeveledResult<()> {
         // TODO Implement Channels first, then implement this
         Ok(())
     }
 
-    pub fn run(mut self) -> ! {
-        self.cg.add_process(nix::unistd::getpid()).unwrap();
+    pub fn run(mut self) -> LeveledResult<()> {
+        self.cg
+            .add_process(nix::unistd::getpid())
+            .lev(ErrorLevel::ModuleInit)?;
 
         //for p in self.partitions.values_mut() {
         //    let part = &self.config.partitions[p.id() - 1];
@@ -91,8 +105,12 @@ impl Hypervisor {
 
         let mut frame_start = Instant::now();
 
-        SYSTEM_START_TIME.write(&frame_start).unwrap();
-        SYSTEM_START_TIME.seal_read_only().unwrap();
+        let sys_time = SYSTEM_START_TIME
+            .get()
+            .ok_or_else(|| anyhow!("SystemTime was not set"))
+            .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+        sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
+        sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
         loop {
             for (target_start, target_stop, partition_name) in &self.schedule {
                 sleep(target_start.saturating_sub(frame_start.elapsed()));
@@ -100,8 +118,7 @@ impl Hypervisor {
                 self.partitions
                     .get_mut(partition_name)
                     .unwrap()
-                    .run(Timeout::new(frame_start, *target_stop))
-                    .unwrap();
+                    .run(Timeout::new(frame_start, *target_stop))?;
 
                 //sleep(target_stop.saturating_sub(frame_start.elapsed()));
                 //let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
@@ -135,6 +152,7 @@ impl Hypervisor {
 
 impl Drop for Hypervisor {
     fn drop(&mut self) {
+        let now = Instant::now();
         for (_, m) in self.partitions.iter_mut() {
             if let Err(e) = m.freeze() {
                 error!("{e}")
@@ -144,12 +162,13 @@ impl Drop for Hypervisor {
             error!("{e}")
         }
         for (_, m) in self.partitions.drain() {
-            if let Err(e) = m.delete() {
+            if let Err(e) = m.delete(Duration::from_secs(2)) {
                 error!("{e}")
             }
         }
-        if let Err(e) = self.cg.delete() {
+        if let Err(e) = self.cg.delete(Duration::from_secs(2)) {
             error!("{e}")
         }
+        trace!("Hypervisor clean up took: {:?}", now.elapsed())
     }
 }

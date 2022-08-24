@@ -1,29 +1,24 @@
 use std::fs::File;
-use std::os::unix::prelude::{AsRawFd, CommandExt, OwnedFd};
+use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use anyhow::{anyhow, Ok, Result, bail};
+use anyhow::anyhow;
 use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
-use inotify::Inotify;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{LeveledResult, ResultExt, SystemError, TypedResult};
-use linux_apex_core::fd::PidFd;
-use linux_apex_core::file::TempFile;
-use linux_apex_core::health_event::PartitionCall;
-use linux_apex_core::ipc::{channel_pair, IpcReceiver, IpcSender};
-use linux_apex_core::partition::{
-    APERIODIC_PROCESS_CGROUP, DURATION_ENV, IDENTIFIER_ENV, NAME_ENV, PARTITION_MODE_FD_ENV,
-    PERIODIC_PROCESS_CGROUP, PERIOD_ENV, SENDER_FD_ENV, START_CONDITION_ENV, SYSTEM_TIME_FD_ENV,
+use linux_apex_core::error::{
+    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
 };
+use linux_apex_core::file::TempFile;
+use linux_apex_core::health::PartitionHMTable;
+use linux_apex_core::health_event::PartitionCall;
+use linux_apex_core::ipc::{channel_pair, IpcReceiver};
+use linux_apex_core::partition::{PartitionConstants, PARTITION_CONSTANTS_FD};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
-use once_cell::unsync::OnceCell;
-use polling::{Event, Poller};
-use procfs::process::{Process, FDTarget};
+use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
 use super::scheduler::{PartitionTimeWindow, Timeout};
@@ -50,25 +45,32 @@ pub(crate) struct Run {
     aperiodic: bool,
 
     mode: OperatingMode,
+    _mode_file_fd: OwnedFd,
     mode_file: TempFile<OperatingMode>,
     call_rx: IpcReceiver<PartitionCall>,
 }
 
 impl Run {
-    pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> Result<Run> {
+    pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         let cgroup_main = CGroup::new(&base.cgroup.path(), "main")?;
-        let cgroup_periodic = CGroup::new(&base.cgroup.path(), PERIODIC_PROCESS_CGROUP)?;
-        let cgroup_aperiodic = CGroup::new(&base.cgroup.path(), APERIODIC_PROCESS_CGROUP)?;
+        let cgroup_periodic = CGroup::new(&base.cgroup.path(), PartitionConstants::PERIODIC_PROCESS_CGROUP)?;
+        let cgroup_aperiodic = CGroup::new(&base.cgroup.path(), PartitionConstants::APERIODIC_PROCESS_CGROUP)?;
 
         let real_uid = nix::unistd::getuid();
         let real_gid = nix::unistd::getgid();
+
+        let sys_time = SYSTEM_START_TIME
+            .get()
+            .ok_or_else(|| anyhow!("SystemTime was not set"))
+            .typ(SystemError::Panic)?;
 
         let (call_tx, call_rx) = channel_pair::<PartitionCall>()?;
 
         let mode = warm_start
             .then_some(OperatingMode::WarmStart)
             .unwrap_or(OperatingMode::ColdStart);
-        let mode_file = TempFile::new("operation_mode")?;
+        let mode_file = TempFile::create("operation_mode")?;
+        let mode_file_fd = unsafe { OwnedFd::from_raw_fd(mode_file.as_raw_fd()) };
         mode_file.write(&mode)?;
 
         let pid = match unsafe {
@@ -81,7 +83,9 @@ impl Run {
                 .flag_newnet()
                 .flag_into_cgroup(&base.cgroup.get_fd()?.as_raw_fd())
                 .call()
-        }? {
+        }
+        .typ(SystemError::Panic)?
+        {
             0 => {
                 // Map User and user group (required for tmpfs mounts)
                 std::fs::write(
@@ -102,16 +106,15 @@ impl Run {
 
                 Partition::print_fds();
                 // Release all unneeded fd's
-                let system_start = SYSTEM_START_TIME.as_raw_fd();
                 Partition::release_fds(&[
-                    system_start,
+                    sys_time.as_raw_fd(),
                     //self.health_event.as_raw_fd()
                     call_tx.as_raw_fd(),
                     mode_file.as_raw_fd(),
                 ])
                 .unwrap();
 
-                // Mount working directory as tmpfs (TODO with size?)
+                // Mount working directory as tmpfs (TODO with ?)
                 mount::<str, _, _, str>(
                     None,
                     base.working_dir.path(),
@@ -166,31 +169,40 @@ impl Run {
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
                 chdir("/").unwrap();
 
+                let constants: RawFd = PartitionConstants{
+                    name: base.name.clone(),
+                    identifier: base.id,
+                    period: base.period,
+                    duration: base.duration,
+                    start_condition: condition,
+                    sender_fd: call_tx.as_raw_fd(),
+                    start_time_fd: sys_time.as_raw_fd(),
+                    partition_mode_fd: mode_file.as_raw_fd(),
+                    sampling: vec![],
+                }.try_into().unwrap();
+
                 // Run binary
                 // TODO detach stdio
-                let err = Command::new("/bin")
-                    //.stdout(Stdio::null())
-                    //.stdin(Stdio::null())
-                    //.stderr(Stdio::null())
+                let mut handle = Command::new("/bin")
+                    .stdout(Stdio::piped())
+                    .stdin(Stdio::piped())
+                    .stderr(Stdio::piped())
                     // Set Partition Name Env
-                    .env(NAME_ENV, &base.name)
-                    .env(PERIOD_ENV, base.period.as_nanos().to_string())
-                    .env(DURATION_ENV, base.duration.as_nanos().to_string())
-                    .env(IDENTIFIER_ENV, base.id.to_string())
-                    .env(START_CONDITION_ENV, (condition as u32).to_string())
-                    .env(PARTITION_MODE_FD_ENV, mode_file.as_raw_fd().to_string())
-                    .env(SYSTEM_TIME_FD_ENV, system_start.to_string())
-                    .env(SENDER_FD_ENV, call_tx.as_raw_fd().to_string())
-                    .exec();
-                error!("{err:?}");
+                    .env(PARTITION_CONSTANTS_FD, constants.to_string())
+                    .spawn()
+                    .unwrap();
+                handle.wait().unwrap();
 
                 unsafe { libc::_exit(0) };
             }
             child => child,
         };
-        debug!("Child Pid: {pid}");
+        debug!(
+            "Successfully created Partition {}. Main Pid: {pid}",
+            base.name()
+        );
 
-        let pid_fd = PidFd::try_from(Pid::from_raw(pid));
+        //let pid_fd = PidFd::try_from(Pid::from_raw(pid));
         let pid = Pid::from_raw(pid);
 
         Ok(Run {
@@ -203,6 +215,7 @@ impl Run {
             call_rx,
             periodic: false,
             aperiodic: false,
+            _mode_file_fd: mode_file_fd,
         })
     }
 
@@ -214,7 +227,7 @@ impl Run {
         &self.call_rx
     }
 
-    pub fn unfreeze_aperiodic(&self) -> Result<bool> {
+    pub fn unfreeze_aperiodic(&self) -> TypedResult<bool> {
         if self.aperiodic {
             self.cgroup_aperiodic.unfreeze()?;
             return Ok(true);
@@ -222,7 +235,7 @@ impl Run {
         Ok(false)
     }
 
-    pub fn freeze_aperiodic(&self) -> Result<bool> {
+    pub fn freeze_aperiodic(&self) -> TypedResult<bool> {
         if self.aperiodic {
             self.cgroup_aperiodic.freeze()?;
             return Ok(true);
@@ -230,7 +243,7 @@ impl Run {
         Ok(false)
     }
 
-    pub fn unfreeze_periodic(&self) -> Result<bool> {
+    pub fn unfreeze_periodic(&self) -> TypedResult<bool> {
         if self.periodic {
             self.cgroup_periodic.unfreeze()?;
             return Ok(true);
@@ -242,11 +255,11 @@ impl Run {
         self.cgroup_periodic.events_file()
     }
 
-    pub fn is_periodic_frozen(&self) -> Result<bool> {
+    pub fn is_periodic_frozen(&self) -> TypedResult<bool> {
         self.cgroup_periodic.is_frozen()
     }
 
-    pub fn freeze_periodic(&self) -> Result<bool> {
+    pub fn freeze_periodic(&self) -> TypedResult<bool> {
         if self.periodic {
             self.cgroup_periodic.freeze()?;
             return Ok(true);
@@ -268,31 +281,31 @@ impl Run {
             (OperatingMode::WarmStart, OperatingMode::ColdStart) => panic!(),
             (OperatingMode::Normal, OperatingMode::Normal) => TypedResult::Ok(None),
             (OperatingMode::Idle, _) => {
-                self.idle_transition(base).unwrap();
+                self.idle_transition(base)?;
                 TypedResult::Ok(Some(OperatingMode::Idle))
             }
             (OperatingMode::ColdStart, _) => {
-                self.start_transition(base, false).unwrap();
+                self.start_transition(base, false, StartCondition::PartitionRestart)?;
                 TypedResult::Ok(Some(OperatingMode::ColdStart))
             }
             (OperatingMode::WarmStart, _) => {
-                self.start_transition(base, true).unwrap();
+                self.start_transition(base, true, StartCondition::PartitionRestart)?;
                 TypedResult::Ok(Some(OperatingMode::WarmStart))
             }
             (OperatingMode::Normal, _) => {
-                self.normal_transition(base).unwrap();
-                    TypedResult::Ok(Some(OperatingMode::Normal))
+                self.normal_transition(base)?;
+                TypedResult::Ok(Some(OperatingMode::Normal))
             }
         }
     }
 
-    
-    fn normal_transition(&mut self, base: &Base) -> Result<()> {
-        if base.is_frozen().unwrap() {
-            bail!("May not transition while in a frozen state");
+    fn normal_transition(&mut self, base: &Base) -> TypedResult<()> {
+        if base.is_frozen()? {
+            return Err(anyhow!("May not transition while in a frozen state"))
+                .typ(SystemError::Panic);
         }
 
-        base.freeze().unwrap();
+        base.freeze()?;
 
         if !self.cgroup_aperiodic.member()?.is_empty() {
             self.aperiodic = true;
@@ -303,36 +316,47 @@ impl Run {
         }
 
         // Move main process to own cgroup
-        self.cgroup_main.freeze().unwrap();
+        self.cgroup_main.freeze()?;
         self.cgroup_main.add_process(self.main)?;
 
-        self.freeze_aperiodic().unwrap();
-        self.freeze_periodic().unwrap();
+        self.freeze_aperiodic()?;
+        self.freeze_periodic()?;
 
         self.mode = OperatingMode::Normal;
-        self.mode_file.write(&self.mode).unwrap();
+        self.mode_file.write(&self.mode)?;
 
-        self.cgroup_aperiodic.unfreeze().unwrap();
-        base.unfreeze().unwrap();
+        self.cgroup_aperiodic.unfreeze()?;
+        base.unfreeze()?;
         Ok(())
     }
 
-    fn start_transition(&mut self, base: &Base, warm_start: bool) -> Result<()> {
+    pub fn start_transition(
+        &mut self,
+        base: &Base,
+        warm_start: bool,
+        cond: StartCondition,
+    ) -> TypedResult<()> {
         if base.is_frozen()? {
-            return Err(anyhow!("May not transition while in a frozen state"));
+            return Err(anyhow!("May not transition while in a frozen state"))
+                .typ(SystemError::Panic);
         }
 
         base.freeze()?;
-        base.kill_all_wait()?;
+        // maybe do not wait for that long. Should only happen within a partition ime window
+        if !base.kill_all_timeout(Duration::from_millis(10))? {
+            return Err(anyhow!("Kill all in Start Transition took more than 10ms"))
+                .typ(SystemError::Panic);
+        }
 
-        *self = Run::new(base, StartCondition::PartitionRestart, warm_start)?;
+        *self = Run::new(base, cond, warm_start).typ(SystemError::PartitionInit)?;
 
         Ok(())
     }
 
-    fn idle_transition(&mut self, base: &Base) -> Result<()> {
+    pub fn idle_transition(&mut self, base: &Base) -> TypedResult<()> {
         if base.is_frozen()? {
-            return Err(anyhow!("May not transition while in a frozen state"));
+            return Err(anyhow!("May not transition while in a frozen state"))
+                .typ(SystemError::Panic);
         }
 
         base.freeze()?;
@@ -349,7 +373,8 @@ impl Run {
 #[derive(Debug)]
 pub(crate) struct Base {
     name: String,
-    id: usize,
+    hm: PartitionHMTable,
+    id: i32,
     bin: PathBuf,
     cgroup: CGroup,
     duration: Duration,
@@ -358,28 +383,28 @@ pub(crate) struct Base {
 }
 
 impl Base {
-    pub fn cgroup(&self) -> &CGroup {
-        &self.cgroup
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn unfreeze(&self) -> Result<()> {
+    pub fn unfreeze(&self) -> TypedResult<()> {
         self.cgroup.unfreeze()
     }
 
-    pub fn freeze(&self) -> Result<()> {
+    pub fn freeze(&self) -> TypedResult<()> {
         self.cgroup.freeze()
     }
 
-    pub fn is_frozen(&self) -> Result<bool> {
+    pub fn is_frozen(&self) -> TypedResult<bool> {
         self.cgroup.is_frozen()
     }
 
-    pub fn kill_all_wait(&self) -> Result<()> {
-        self.cgroup.kill_all_wait()
+    pub fn part_hm(&self) -> &PartitionHMTable {
+        &self.hm
+    }
+
+    pub fn kill_all_timeout(&self, timeout: Duration) -> TypedResult<bool> {
+        self.cgroup.kill_all_timeout(timeout)
     }
 }
 
@@ -390,45 +415,49 @@ impl Base {
 #[derive(Debug)]
 pub(crate) struct Partition {
     base: Base,
-    run: Option<Run>,
+    run: Run,
 }
 
 impl Partition {
-    pub(crate) fn new<P: AsRef<Path>>(cgroup_root: P, config: PartitionConfig) -> Result<Self> {
-        // Todo implement drop for cgroup? (in error case)
-        let cgroup = CGroup::new(cgroup_root, &config.name)?;
+    pub(crate) fn new<P: AsRef<Path>>(
+        cgroup_root: P,
+        config: PartitionConfig,
+    ) -> TypedResult<Self> {
+        // Todo implement drop for cgroup (in error case)
+        let cgroup = CGroup::new(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
 
-        let working_dir = tempdir()?;
+        let working_dir = tempdir().typ(SystemError::PartitionInit)?;
         trace!("CGroup Working directory: {:?}", working_dir.path());
 
-        //let health_event = unsafe { OwnedFd::from_raw_fd(eventfd(0, EfdFlags::empty())?) };
-        //let mode_file = TempFile::new("operation_mode")?;
+        let base = Base {
+            name: config.name,
+            id: config.id,
+            cgroup,
+            bin: config.image,
+            duration: config.duration,
+            period: config.period,
+            working_dir,
+            hm: config.hm_table,
+        };
+        // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
+        let run =
+            Run::new(&base, StartCondition::NormalStart, false).typ(SystemError::PartitionInit)?;
 
-        Ok(Self {
-            base: Base {
-                name: config.name,
-                id: config.id,
-                cgroup,
-                bin: config.image,
-                duration: config.duration,
-                period: config.period,
-                working_dir,
-            },
-            run: None,
-        })
+        Ok(Self { base, run })
     }
 
-    fn release_fds(keep: &[i32]) -> Result<()> {
-        let proc = Process::myself()?;
+    fn release_fds(keep: &[i32]) -> TypedResult<()> {
+        let proc = Process::myself().typ(SystemError::Panic)?;
         for fd in proc
-            .fd()?
+            .fd()
+            .typ(SystemError::Panic)?
             .skip(3)
             .flatten()
             .filter(|fd| !keep.contains(&fd.fd))
-            //TODO this fails in debug mode
+        //TODO this fails in debug mode
         {
             trace!("Close FD: {}", fd.fd);
-            close(fd.fd)?
+            close(fd.fd).typ(SystemError::Panic)?
         }
 
         Ok(())
@@ -436,24 +465,30 @@ impl Partition {
 
     #[allow(dead_code)]
     fn print_fds() {
-        let fds = Process::myself().unwrap().fd().unwrap();
-        for f in fds.flatten() {
-            debug!("Open File Descriptor: {f:#?}")
+        if let Ok(proc) = Process::myself() {
+            if let Ok(fds) = proc.fd() {
+                for fd in fds {
+                    trace!("Open FD: {fd:?}")
+                }
+            }
         }
     }
 
     #[allow(dead_code)]
     fn print_mountinfo() {
-        let mi = Process::myself().unwrap().mountinfo().unwrap();
-        for i in mi {
-            debug!("Existing MountInfo: {i:#?}")
+        if let Ok(proc) = Process::myself() {
+            if let Ok(mi) = proc.mountinfo() {
+                for i in mi {
+                    trace!("Existing MountInfo: {i:#?}")
+                }
+            }
         }
     }
 
-    pub fn run(&mut self, timeout: Timeout) -> Result<()> {
-        PartitionTimeWindow::new(&mut self.base, &mut self.run, timeout).run()?;
+    pub fn run(&mut self, timeout: Timeout) -> LeveledResult<()> {
+        PartitionTimeWindow::new(&self.base, &mut self.run, timeout).run()?;
         // TODO Error handling and freeze if err
-        self.base.freeze()
+        self.base.freeze().lev(ErrorLevel::Partition)
     }
 
     //fn idle_transition(mut self) -> Result<()> {
@@ -466,53 +501,15 @@ impl Partition {
     //    Ok(())
     //}
 
-    fn verify() -> Result<()> {
+    fn _verify() -> TypedResult<()> {
         todo!("Verify integrity of Partition")
     }
 
-    fn wait_event(&self) {}
-
-    //fn active_run(active: &mut Active, start: Instant, stop: Duration) -> Result<()>{
-
-    //    active.unfreeze()?;
-    //
-    //    let mut leftover = stop.saturating_sub(start.elapsed());
-    //    while leftover >= Duration::ZERO{
-    //        if let Some(call) = a.wait_event_timeout(leftover).map_err(|e| (self, e.into()))? {
-    //            match call {
-    //                PartitionCall::Transition(mode) => {active.handle_transition(mode);},
-    //                PartitionCall::Error(_) => {call.print_partition_log(&self.borrow_base().name); },
-    //                PartitionCall::Message(_) => {call.print_partition_log(&self.borrow_base().name);},
-    //            }
-    //        }
-
-    //        leftover = stop.saturating_sub(start.elapsed());
-    //    }
-    //
-    //    active.freeze()?;
-    //    todo!()
-    //}
-
-    fn stop(&mut self) -> Result<()> {
-        todo!()
-    }
-
-    pub(crate) fn freeze(&self) -> Result<()> {
+    pub(crate) fn freeze(&self) -> TypedResult<()> {
         self.base.cgroup.freeze()
     }
-    pub(crate) fn unfreeze(&self) -> Result<()> {
-        self.base.cgroup.unfreeze()
-    }
 
-    //fn start(&mut self, mode: OperatingMode) -> Result<()>{
-    //    todo!()
-    //}
-
-    pub(crate) fn delete(self) -> Result<()> {
-        self.base.cgroup.delete()
-    }
-
-    pub(crate) fn id(&self) -> usize {
-        self.base.id
+    pub(crate) fn delete(self, timeout: Duration) -> TypedResult<()> {
+        self.base.cgroup.delete(timeout)
     }
 }

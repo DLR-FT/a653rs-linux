@@ -1,21 +1,21 @@
-use core::panic;
 use std::mem::forget;
-use std::os::unix::prelude::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::os::unix::prelude::{FromRawFd, IntoRawFd, OwnedFd};
 use std::ptr::null_mut;
 use std::sync::Mutex;
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
 use apex_hal::bindings::*;
 use apex_hal::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{SystemError, TypedResult};
+use linux_apex_core::error::{
+    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
+};
 use linux_apex_core::fd::PidFd;
 use linux_apex_core::file::TempFile;
-use linux_apex_core::partition::{APERIODIC_PROCESS_CGROUP, PERIODIC_PROCESS_CGROUP};
+use linux_apex_core::partition::PartitionConstants;
 use memmap2::MmapOptions;
 use nix::libc::{stack_t, SIGCHLD};
 use nix::sched::CloneFlags;
-use nix::sys::resource::{setrlimit, Resource};
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, Signal};
 use nix::sys::signalfd::SigSet;
 use nix::unistd::{getpid, Pid};
@@ -47,16 +47,30 @@ pub(crate) struct Process {
 }
 
 impl Process {
-    pub fn create(attr: ProcessAttribute) -> Result<ProcessId> {
-        let name = attr.name.to_str()?.to_string();
-        debug!("Create New Process: {name:?}");
-        let stack_size: usize = attr.stack_size.try_into()?;
-        let mut stack = MmapOptions::new().stack().len(stack_size).map_anon()?;
+    pub fn create(attr: ProcessAttribute) -> LeveledResult<ProcessId> {
+        let name = attr
+            .name
+            .to_str()
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?
+            .to_string();
+        trace!("Create New Process: {name:?}");
+        let stack_size: usize = attr
+            .stack_size
+            .try_into()
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
+        let mut stack = MmapOptions::new()
+            .stack()
+            .len(stack_size)
+            .map_anon()
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
 
         let periodic = attr.period != SystemTime::Infinite;
         let id = periodic as i32 + 1;
 
-        let guard = SYNC.lock().map_err(|e| anyhow!("{e:?}"))?;
+        let guard = SYNC
+            .lock()
+            .map_err(|e| anyhow!("{e:?}"))
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
 
         let proc_file = if periodic {
             *PERIODIC_PROCESS
@@ -64,16 +78,17 @@ impl Process {
             *APERIODIC_PROCESS
         };
 
-        if proc_file.read()?.is_some() {
-            return Err(anyhow!("Process type already exists. Periodic: {periodic}"));
+        if proc_file.read().lev(ErrorLevel::Partition)?.is_some() {
+            return Err(anyhow!("Process type already exists. Periodic: {periodic}"))
+                .lev_typ(SystemError::Panic, ErrorLevel::Partition);
         }
 
         // Files for dropping fd
         let mut fds = Vec::new();
-        let activated = TempFile::new(&format!("state_{name}"))?;
+        let activated = TempFile::create(&format!("state_{name}")).lev(ErrorLevel::Partition)?;
         fds.push(unsafe { OwnedFd::from_raw_fd(activated.fd()) });
-        activated.write(&false)?;
-        let pid = TempFile::new(&format!("pid_{name}"))?;
+        activated.write(&false).lev(ErrorLevel::Partition)?;
+        let pid = TempFile::create(&format!("pid_{name}")).lev(ErrorLevel::Partition)?;
         fds.push(unsafe { OwnedFd::from_raw_fd(pid.fd()) });
 
         let process = Self {
@@ -84,7 +99,7 @@ impl Process {
             periodic,
         };
 
-        proc_file.write(&Some(process))?;
+        proc_file.write(&Some(process)).lev(ErrorLevel::Partition)?;
 
         // We can unwrap because it was already checked that the cell is empty
         STACKS[periodic as usize]
@@ -100,7 +115,7 @@ impl Process {
         // forget stack ptr so we do not call munmap
         forget(stack);
 
-        debug!("Created process \"{name}\" with id: {id}");
+        trace!("Created process \"{name}\" with id: {id}");
         Ok(id)
     }
 
@@ -124,11 +139,14 @@ impl Process {
         None
     }
 
-    pub fn name(&self) -> Result<&str> {
-        Ok(self.attr.name.to_str()?)
+    pub fn name(&self) -> LeveledResult<&str> {
+        self.attr
+            .name
+            .to_str()
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)
     }
 
-    pub fn start(&self) -> Result<PidFd> {
+    pub fn start(&self) -> LeveledResult<PidFd> {
         unsafe {
             let stack = stack_t {
                 ss_sp: SIGNAL_STACK.as_ptr() as *mut nix::libc::c_void,
@@ -154,8 +172,8 @@ impl Process {
 
         let name = self.name()?;
 
-        let mut cg = self.cg()?;
-        cg.freeze()?;
+        let cg = self.cg().lev(ErrorLevel::Partition)?;
+        cg.freeze().lev(ErrorLevel::Partition)?;
 
         let stack = unsafe {
             STACKS[self.periodic as usize]
@@ -166,25 +184,26 @@ impl Process {
                 .expect("TODO: Do not expect here")
         };
 
-        let stack_size = self.attr.stack_size as u64;
+        //let stack_size = self.attr.stack_size as u64;
         safemem::write_bytes(stack, 0);
         let cbk = Box::new(move || {
             // TODO
             //setrlimit(Resource::RLIMIT_STACK, stack_size - 2000, stack_size - 2000).unwrap();
 
-            let mut cg = self.cg().unwrap();
+            let cg = self.cg().unwrap();
             cg.add_process(getpid()).unwrap();
             (self.attr.entry_point)();
             0
         });
 
         // Make extra sure that the process is in the cgroup
-        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))?;
+        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))
+            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
         cg.add_process(child).unwrap();
 
-        self.pid.write(&child)?;
+        self.pid.write(&child).lev(ErrorLevel::Partition)?;
 
-        let pidfd = PidFd::try_from(child)?;
+        let pidfd = PidFd::try_from(child).lev(ErrorLevel::Partition)?;
 
         trace!("Started process \"{name}\" with pid: {child}");
         Ok(pidfd)
@@ -192,9 +211,9 @@ impl Process {
 
     pub(crate) fn cg(&self) -> TypedResult<CGroup> {
         let cg_name = if self.periodic {
-            PERIODIC_PROCESS_CGROUP
+           PartitionConstants::PERIODIC_PROCESS_CGROUP
         } else {
-            APERIODIC_PROCESS_CGROUP
+            PartitionConstants::APERIODIC_PROCESS_CGROUP
         };
         CGroup::new(CGroup::mount_point()?, cg_name)
     }

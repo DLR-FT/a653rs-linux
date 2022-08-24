@@ -2,12 +2,14 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
-use std::time::{Duration};
+use std::time::Duration;
 
-use anyhow::{Error, Result};
+use anyhow::Error;
 use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
 use polling::{Event, Poller};
 use serde::{Deserialize, Serialize};
+
+use crate::error::{ResultExt, SystemError, TypedResult};
 
 #[derive(Debug)]
 pub struct IpcSender<T> {
@@ -25,20 +27,15 @@ impl<T> IpcSender<T>
 where
     T: Serialize,
 {
-    pub fn try_send(&self, value: &T) -> Result<()> {
-        self.socket.send(bincode::serialize(value)?.as_ref())?;
+    pub fn try_send(&self, value: &T) -> TypedResult<()> {
+        self.socket
+            .send(bincode::serialize(value).typ(SystemError::Panic)?.as_ref())
+            .typ(SystemError::Panic)?;
         Ok(())
     }
 
-    pub fn try_send_timeout(&self, _value: &T, _duration: Duration) -> Result<bool> {
+    pub fn try_send_timeout(&self, _value: &T, _duration: Duration) -> TypedResult<bool> {
         todo!()
-    }
-
-    pub fn try_clone(&self) -> std::io::Result<Self> {
-        Ok(Self {
-            socket: self.socket.try_clone()?,
-            _p: PhantomData,
-        })
     }
 }
 
@@ -46,24 +43,26 @@ impl<T> IpcReceiver<T>
 where
     T: for<'de> Deserialize<'de> + Serialize,
 {
-    pub fn try_recv(&self) -> Result<Option<T>> {
+    pub fn try_recv(&self) -> TypedResult<Option<T>> {
         let mut buffer = vec![0; 65507];
         let len = match self.socket.recv(&mut buffer) {
             Ok(len) => len,
-            Err(e) if e.kind() != ErrorKind::TimedOut => return Err(e.into()),
+            Err(e) if e.kind() != ErrorKind::TimedOut => {
+                return Err(Error::from(e)).typ(SystemError::Panic)
+            }
             _ => return Ok(None),
         };
 
         bincode::deserialize(&buffer[0..len])
             .map(|r| Some(r))
-            .map_err(Error::from)
+            .typ(SystemError::Panic)
     }
 
-    pub fn try_recv_timeout(&self, duration: Duration) -> Result<Option<T>> {
-        let poller = Poller::new().unwrap();
+    pub fn try_recv_timeout(&self, duration: Duration) -> TypedResult<Option<T>> {
+        let poller = Poller::new().typ(SystemError::Panic)?;
         poller
             .add(self.socket.as_raw_fd(), Event::readable(0))
-            .unwrap();
+            .typ(SystemError::Panic)?;
 
         let poll_res = poller.wait(Vec::new().as_mut(), Some(duration));
         if let Err(_) | Ok(0) = poll_res {
@@ -73,17 +72,19 @@ where
         let mut buffer = vec![0; 65507];
         let len = match self.socket.recv(&mut buffer) {
             Ok(len) => len,
-            Err(e) if e.kind() != ErrorKind::TimedOut => return Err(e.into()),
+            Err(e) if e.kind() != ErrorKind::TimedOut => {
+                return Err(Error::from(e)).typ(SystemError::Panic)
+            }
             _ => return Ok(None),
         };
 
         bincode::deserialize(&buffer[0..len])
             .map(|r| Some(r))
-            .map_err(Error::from)
+            .typ(SystemError::Panic)
     }
 }
 
-pub fn channel_pair<T>() -> std::io::Result<(IpcSender<T>, IpcReceiver<T>)>
+pub fn channel_pair<T>() -> TypedResult<(IpcSender<T>, IpcReceiver<T>)>
 where
     T: for<'de> Deserialize<'de> + Serialize,
 {
@@ -92,7 +93,8 @@ where
         SockType::Datagram,
         None,
         SockFlag::SOCK_NONBLOCK,
-    )?;
+    )
+    .typ(SystemError::Panic)?;
 
     unsafe {
         let tx = IpcSender::from_raw_fd(tx);

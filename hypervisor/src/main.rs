@@ -5,9 +5,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use anyhow::anyhow;
 use clap::Parser;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::partition::NAME_ENV;
+use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
+use linux_apex_core::health::ModuleRecoveryAction;
 use linux_apex_hypervisor::hypervisor::config::Config;
 use linux_apex_hypervisor::hypervisor::linux::Hypervisor;
 use log::LevelFilter;
@@ -26,12 +28,9 @@ pub struct Args {
     cgroup: Option<PathBuf>,
 }
 
-fn main() {
-    //log_panics::init();
-
+fn main() -> LeveledResult<()> {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());
-    std::env::set_var(NAME_ENV, "Hypervisor");
 
     pretty_env_logger::formatted_builder()
         .parse_filters(&level)
@@ -47,16 +46,18 @@ fn main() {
         SaFlags::empty(),
         SigSet::empty(),
     );
-    unsafe { sigaction(SIGINT, &sig_action) }.unwrap();
+    unsafe { sigaction(SIGINT, &sig_action) }
+        .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
 
     trace!("parsing args");
     let mut args = Args::parse();
 
-    let my_pid = procfs::process::Process::myself().unwrap();
+    let my_pid =
+        procfs::process::Process::myself().lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
     trace!("My pid is {}", my_pid.pid);
 
     // assumes cgroupv2
-    let cgroups_mount_point = CGroup::mount_point().unwrap();
+    let cgroups_mount_point = CGroup::mount_point().lev(ErrorLevel::ModuleInit)?;
 
     let cgroup = args.cgroup.get_or_insert_with(|| {
         let cgroups = my_pid
@@ -69,17 +70,46 @@ fn main() {
     let cgroup = cgroup.join("linux-hypervisor");
 
     info!("parsing config");
-    let f = File::open(args.config_file).unwrap();
-    let mut config: Config = serde_yaml::from_reader(&f).unwrap();
+    let f = File::open(args.config_file).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
+    let mut config: Config =
+        serde_yaml::from_reader(&f).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
     config.cgroup = cgroup;
 
-    //trace!("{config:#?}");
+    info!("launching hypervisor loop");
 
-    info!("launching hypervisor");
-    Hypervisor::new(config).unwrap().run();
+    loop {
+        info!("Start Hypervisor");
+        match Hypervisor::new(config.clone())?.run() {
+            Ok(_) => {
+                return Err(anyhow!(
+                    "Hypervisor Run is not supposed to exit with an OK variant"
+                ))
+                .lev_typ(SystemError::Panic, ErrorLevel::ModuleRun)
+            }
+            Err(e) => {
+                let action = match e.level() {
+                    // Partition Level is not expected here
+                    ErrorLevel::Partition => return Err(e),
+                    ErrorLevel::ModuleInit => config
+                        .hm_init_table
+                        .try_action(e.err())
+                        .unwrap_or(config.hm_init_table.panic),
+                    ErrorLevel::ModuleRun => config
+                        .hm_run_table
+                        .try_action(e.err())
+                        .unwrap_or(config.hm_run_table.panic),
+                };
+                match action {
+                    ModuleRecoveryAction::Ignore => {}
+                    ModuleRecoveryAction::Shutdown => return Ok(()),
+                    ModuleRecoveryAction::Reset => {}
+                }
+            }
+        }
+    }
 }
 
-extern "C" fn unwind(_: i32) {
+pub extern "C" fn unwind(_: i32) {
     print!("\r");
     std::io::stdout().flush().unwrap();
     info!("Exiting");

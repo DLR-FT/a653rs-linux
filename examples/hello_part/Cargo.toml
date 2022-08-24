@@ -10,10 +10,10 @@ edition = "2021"
 apex-hal = { path = "../../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../../core" }
 linux-apex-partition = { path = "../../partition" }
-procfs = "0.13"
+procfs = "0.14"
 log = "0"
 pretty_env_logger = "0.4"
-nix = "0.24"
+nix = "0.25"
 log-panics = {version = "2.1", features = ["with-backtrace"]}
 memmap2 = "0.5.5"
 humantime = "2.1"

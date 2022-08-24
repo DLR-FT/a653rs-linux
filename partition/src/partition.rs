@@ -1,24 +1,25 @@
 //TODO remove this
 #![allow(dead_code)]
 
-use std::cmp::{max, min};
+use std::cmp::min;
 
-use apex_hal::prelude::{ApexError, ErrorHandler, Partition, MAX_ERROR_MESSAGE_SIZE};
-use linux_apex_core::{health_event::{PartitionCall}, error::SystemError};
+use apex_hal::prelude::{ErrorHandler, MAX_ERROR_MESSAGE_SIZE};
+use linux_apex_core::error::SystemError;
+use linux_apex_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
-use nix::NixPath;
 
-use crate::{PART_NAME, SENDER};
+use crate::{SENDER, CONSTANTS};
 
 /// Static functions for within a partition
 pub struct ApexLinuxPartition;
 
 impl ApexLinuxPartition {
     pub fn get_partition_name() -> String {
-        PART_NAME.clone()
+        CONSTANTS.name.clone()
     }
 
-    pub(crate) fn raise_system_error(error: SystemError) {
+    // TODO pub(crate)
+    pub fn raise_system_error(error: SystemError) {
         if let Err(e) = SENDER.try_send(&PartitionCall::Error(error)) {
             panic!("Could not send SystemError event {error:?}. {e:?}")
         };

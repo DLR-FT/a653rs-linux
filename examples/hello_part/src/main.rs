@@ -1,6 +1,5 @@
 #![allow(unconditional_panic, unconditional_recursion, dead_code)]
 
-
 #[macro_use]
 extern crate log;
 
@@ -15,7 +14,7 @@ use log::LevelFilter;
 
 fn main() {
     ApexLogger::install_panic_hook();
-    ApexLogger::install_logger(LevelFilter::Debug).unwrap();
+    ApexLogger::install_logger(LevelFilter::Trace).unwrap();
 
     Hello.run()
 }
@@ -71,6 +70,7 @@ fn aperiodic_hello() {
 
 fn periodic_hello() {
     //sleep(Duration::from_millis(1));
+    //ApexLinuxPartition::raise_system_error(SystemError::Segmentation);
     //rec(0);
 
     for i in 1..i32::MAX {
@@ -82,6 +82,10 @@ fn periodic_hello() {
             );
         }
         sleep(Duration::from_millis(1));
+
+        //if i % 4 == 0 {
+        //    rec(0);
+        //}
 
         if i % 5 == 0 {
             Time::<ApexLinuxPartition>::periodic_wait().unwrap();
