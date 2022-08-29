@@ -7,15 +7,13 @@ use anyhow::anyhow;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
 use linux_apex_core::file::TempFile;
+use linux_apex_core::sampling::Sampling;
 use once_cell::sync::OnceCell;
 use procfs::process::Process;
 
+use super::config::{Channel, Config};
+use super::partition::Partition;
 use super::scheduler::Timeout;
-//TODO add better errors than anyhow?
-use super::{
-    config::{Channel, Config},
-    partition::Partition,
-};
 
 pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 
@@ -25,6 +23,7 @@ pub struct Hypervisor {
     major_frame: Duration,
     schedule: Vec<(Duration, Duration, String)>,
     partitions: HashMap<String, Partition>,
+    sampling_channel: HashMap<String, Sampling>,
     prev_cg: PathBuf,
     _config: Config,
 }
@@ -61,6 +60,7 @@ impl Hypervisor {
             partitions: Default::default(),
             prev_cg,
             _config: config.clone(),
+            sampling_channel: Default::default(),
         };
 
         for c in config.channel {
@@ -69,20 +69,34 @@ impl Hypervisor {
 
         for p in config.partitions.iter() {
             if hv.partitions.contains_key(&p.name) {
-                return Err(anyhow!("Partition {} already exists", p.name))
+                return Err(anyhow!("Partition \"{}\" already exists", p.name))
                     .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
             }
             hv.partitions.insert(
                 p.name.clone(),
-                Partition::new(hv.cg.path(), p.clone()).lev(ErrorLevel::ModuleInit)?,
+                Partition::new(hv.cg.path(), p.clone(), &hv.sampling_channel)
+                    .lev(ErrorLevel::ModuleInit)?,
             );
         }
 
         Ok(hv)
     }
 
-    fn add_channel(&mut self, _channel: Channel) -> LeveledResult<()> {
-        // TODO Implement Channels first, then implement this
+    fn add_channel(&mut self, channel: Channel) -> LeveledResult<()> {
+        match channel {
+            Channel::Queuing(_) => todo!(),
+            Channel::Sampling(s) => {
+                if self.sampling_channel.contains_key(&s.name) {
+                    return Err(anyhow!("Sampling Channel \"{}\" already exists", s.name))
+                        .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
+                }
+
+                let sampling = Sampling::try_from(s).lev(ErrorLevel::ModuleInit)?;
+                self.sampling_channel
+                    .insert(sampling.name().to_string(), sampling);
+            }
+        }
+
         Ok(())
     }
 
@@ -115,33 +129,10 @@ impl Hypervisor {
             for (target_start, target_stop, partition_name) in &self.schedule {
                 sleep(target_start.saturating_sub(frame_start.elapsed()));
 
-                self.partitions
-                    .get_mut(partition_name)
-                    .unwrap()
-                    .run(Timeout::new(frame_start, *target_stop))?;
-
-                //sleep(target_stop.saturating_sub(frame_start.elapsed()));
-                //let mut leftover = target_stop.saturating_sub(frame_start.elapsed());
-                //while leftover > Duration::ZERO {
-                //    let res = partition.wait_event_timeout(leftover);
-
-                //    // TODO What to do with errors?
-                //    if let Ok(Some(event)) = res {
-                //        match event{
-                //            linux_apex_core::health_event::PartitionCall::Transition(mode) => {
-                //                match partition.get_transition_action(mode){
-                //                    super::partition::TransitionAction::Stop => todo!(),
-                //                    super::partition::TransitionAction::Normal => todo!(),
-                //                    super::partition::TransitionAction::Restart => todo!(),
-                //                    super::partition::TransitionAction::Error => todo!(),
-                //                }
-                //            },
-                //            _ => event.print_partition_log(partition_name)
-                //        }
-                //    }
-
-                //    leftover = target_stop.saturating_sub(frame_start.elapsed());
-                //}
+                self.partitions.get_mut(partition_name).unwrap().run(
+                    &mut self.sampling_channel,
+                    Timeout::new(frame_start, *target_stop),
+                )?;
             }
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 

@@ -1,9 +1,9 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use itertools::Itertools;
+use linux_apex_core::channel::{QueuingChannelConfig, SamplingChannelConfig};
 use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
 use linux_apex_core::health::{ModuleInitHMTable, ModuleRunHMTable, PartitionHMTable};
 use serde::{Deserialize, Serialize};
@@ -48,22 +48,24 @@ pub struct Device {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Channel {
-    Queuing(QueuingChannel),
-    Sampling(SamplingChannel),
+    Queuing(QueuingChannelConfig),
+    Sampling(SamplingChannelConfig),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SamplingChannel {
-    pub name: String,
-    pub source: String,
-    pub destination: HashSet<String>,
-}
+impl Channel {
+    pub fn queueing(&self) -> Option<QueuingChannelConfig> {
+        if let Self::Queuing(q) = self {
+            return Some(q.clone());
+        }
+        None
+    }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct QueuingChannel {
-    pub name: String,
-    pub source: String,
-    pub destination: String,
+    pub fn sampling(&self) -> Option<SamplingChannelConfig> {
+        if let Self::Sampling(s) = self {
+            return Some(s.clone());
+        }
+        None
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

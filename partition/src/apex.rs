@@ -1,11 +1,10 @@
-// TODO remove this
-#![allow(unused_variables)]
-
 use std::process::exit;
 use std::thread::sleep;
 
 use apex_hal::bindings::*;
+use apex_hal::prelude::{Name, SystemTime};
 use linux_apex_core::error::SystemError;
+use linux_apex_core::sampling::{SamplingDestination, SamplingSource};
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
@@ -82,6 +81,103 @@ impl ApexProcess for ApexLinuxPartition {
         proc.start().unwrap();
 
         Ok(())
+    }
+}
+
+impl ApexSamplingPort for ApexLinuxPartition {
+    fn create_sampling_port<L: Locked>(
+        sampling_port_name: SamplingPortName,
+        // TODO Return ErrorCode for wrong max message size
+        _max_message_size: MessageSize,
+        port_direction: PortDirection,
+        refresh_period: ApexSystemTime,
+    ) -> Result<SamplingPortId, ErrorReturnCode> {
+        if refresh_period <= 0 {
+            return Err(ErrorReturnCode::InvalidConfig);
+        }
+
+        let name = Name::new(sampling_port_name);
+        let name = name.to_str().map_err(|_| ErrorReturnCode::InvalidConfig)?;
+        if let Some((i, s)) = CONSTANTS
+            .sampling
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.name.eq(name))
+        {
+            if s.dir != port_direction {
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+
+            let refresh = SystemTime::new(refresh_period).unwrap_duration();
+            let ch = (i, refresh);
+
+            let mut channels = SAMPLING_PORTS.read().unwrap();
+            if channels.try_push(ch).is_some() {
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+            SAMPLING_PORTS.write(&channels).unwrap();
+
+            return Ok(channels.len() as i32);
+        }
+
+        Err(ErrorReturnCode::InvalidConfig)
+    }
+
+    fn write_sampling_message<L: Locked>(
+        sampling_port_id: SamplingPortId,
+        message: &[ApexByte],
+    ) -> Result<(), ErrorReturnCode> {
+        if let Some((port, _)) = SAMPLING_PORTS
+            .read()
+            .unwrap()
+            .get(sampling_port_id as usize - 1)
+        {
+            if let Some(port) = CONSTANTS.sampling.get(*port) {
+                if message.len() > port.msg_size {
+                    return Err(ErrorReturnCode::InvalidConfig);
+                } else if message.is_empty() {
+                    return Err(ErrorReturnCode::InvalidParam);
+                } else if port.dir != PortDirection::Source {
+                    return Err(ErrorReturnCode::InvalidMode);
+                }
+                SamplingSource::try_from(port.fd).unwrap().write(message);
+                return Ok(());
+            }
+        }
+
+        Err(ErrorReturnCode::InvalidParam)
+    }
+
+    unsafe fn read_sampling_message<L: Locked>(
+        sampling_port_id: SamplingPortId,
+        message: &mut [ApexByte],
+    ) -> Result<(Validity, MessageSize), ErrorReturnCode> {
+        if let Some((port, val)) = SAMPLING_PORTS
+            .read()
+            .unwrap()
+            .get(sampling_port_id as usize - 1)
+        {
+            if let Some(port) = CONSTANTS.sampling.get(*port) {
+                if message.is_empty() {
+                    return Err(ErrorReturnCode::InvalidParam);
+                } else if port.dir != PortDirection::Destination {
+                    return Err(ErrorReturnCode::InvalidMode);
+                }
+                let (msg_len, copied) = SamplingDestination::try_from(port.fd)
+                    .unwrap()
+                    .read(message);
+
+                let valid = if copied.elapsed() <= *val {
+                    Validity::Valid
+                } else {
+                    Validity::Invalid
+                };
+
+                return Ok((valid, msg_len as u32));
+            }
+        }
+
+        Err(ErrorReturnCode::InvalidParam)
     }
 }
 

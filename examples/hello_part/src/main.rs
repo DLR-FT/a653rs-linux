@@ -11,6 +11,11 @@ use apex_hal::prelude::*;
 use humantime::format_duration;
 use linux_apex_partition::partition::{ApexLinuxPartition, ApexLogger};
 use log::LevelFilter;
+use once_cell::sync::Lazy;
+
+static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
+static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);
+const HELLO_SAMPLING_PORT_SIZE: u32 = 10000;
 
 fn main() {
     ApexLogger::install_panic_hook();
@@ -23,6 +28,21 @@ struct Hello;
 
 impl Partition<ApexLinuxPartition> for Hello {
     fn cold_start(&self, ctx: &mut StartContext<ApexLinuxPartition>) {
+        if *FOO {
+            ctx.create_sampling_port_source(
+                Name::from_str("Hello").unwrap(),
+                HELLO_SAMPLING_PORT_SIZE,
+            )
+            .unwrap();
+        } else if *BAR {
+            ctx.create_sampling_port_destination(
+                Name::from_str("Hello").unwrap(),
+                HELLO_SAMPLING_PORT_SIZE,
+                Duration::from_millis(110),
+            )
+            .unwrap();
+        }
+
         ctx.create_process(ProcessAttribute {
             period: apex_hal::prelude::SystemTime::Infinite,
             time_capacity: apex_hal::prelude::SystemTime::Infinite,
@@ -57,7 +77,7 @@ impl Partition<ApexLinuxPartition> for Hello {
 
 fn aperiodic_hello() {
     for i in 0..i32::MAX {
-        if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
+        if let SystemTime::Normal(time) = get_time::<ApexLinuxPartition>() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
                 "{:?}: Aperiodic: Hello {i}",
@@ -74,7 +94,7 @@ fn periodic_hello() {
     //rec(0);
 
     for i in 1..i32::MAX {
-        if let SystemTime::Normal(time) = Time::<ApexLinuxPartition>::get_time() {
+        if let SystemTime::Normal(time) = get_time::<ApexLinuxPartition>() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
                 "{:?}: Periodic: Hello {i}",
@@ -88,7 +108,27 @@ fn periodic_hello() {
         //}
 
         if i % 5 == 0 {
-            Time::<ApexLinuxPartition>::periodic_wait().unwrap();
+            if *FOO {
+                SamplingPortSource::<ApexLinuxPartition>::send_unchecked(
+                    1,
+                    format!("Hello {}", i / 5).as_bytes(),
+                )
+                .unwrap()
+            } else if *BAR {
+                let mut buf = [0; HELLO_SAMPLING_PORT_SIZE as usize];
+                let (valid, data) = unsafe {
+                    SamplingPortDestination::<ApexLinuxPartition>::receive_unchecked(1, &mut buf)
+                        .unwrap()
+                };
+
+                info!(
+                    "Received via Sampling Port: {:?}, len {}, valid: {valid:?}",
+                    std::str::from_utf8(data),
+                    data.len()
+                )
+            }
+
+            periodic_wait::<ApexLinuxPartition>().unwrap();
         }
     }
 }

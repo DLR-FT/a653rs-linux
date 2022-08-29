@@ -2,6 +2,7 @@
 extern crate log;
 
 pub mod cgroup;
+pub mod channel;
 pub mod error;
 pub mod fd;
 pub mod file;

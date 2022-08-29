@@ -170,7 +170,7 @@ impl<'a> PartitionTimeWindow<'a> {
     fn run_periodic(&mut self) -> TypedResult<()> {
         self.run.unfreeze_periodic()?;
         let mut poller = PeriodicPoller::new(self.run)?;
-        // TODO add ? again
+
         self.base.unfreeze()?;
 
         let mut leftover = self.timeout.remaining_time();

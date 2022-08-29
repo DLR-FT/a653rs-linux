@@ -75,8 +75,6 @@ fn main() -> LeveledResult<()> {
         serde_yaml::from_reader(&f).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
     config.cgroup = cgroup;
 
-    info!("launching hypervisor loop");
-
     loop {
         info!("Start Hypervisor");
         match Hypervisor::new(config.clone())?.run() {

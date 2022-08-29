@@ -211,7 +211,7 @@ impl Process {
 
     pub(crate) fn cg(&self) -> TypedResult<CGroup> {
         let cg_name = if self.periodic {
-           PartitionConstants::PERIODIC_PROCESS_CGROUP
+            PartitionConstants::PERIODIC_PROCESS_CGROUP
         } else {
             PartitionConstants::APERIODIC_PROCESS_CGROUP
         };

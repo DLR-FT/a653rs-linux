@@ -1,27 +1,31 @@
+use std::collections::HashSet;
 use std::convert::AsRef;
 use std::os::unix::prelude::{AsRawFd, OwnedFd, RawFd};
 use std::time::Instant;
 
+use apex_hal::bindings::PortDirection;
 use memfd::{FileSeal, Memfd, MemfdOptions};
 use memmap2::{Mmap, MmapMut};
 
+use crate::channel::SamplingChannelConfig;
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
+use crate::partition::SamplingConstant;
 
 #[derive(Debug, Clone)]
-struct Datagram {
+struct Datagram<'a> {
     copied: Instant,
-    _len: u32,
-    data: Vec<u8>,
+    //_len: u32,
+    data: &'a [u8], //data: Vec<u8>,
 }
 
-impl Datagram {
+impl<'a> Datagram<'a> {
     const EXTRA_BYTES: usize = std::mem::size_of::<Instant>() + std::mem::size_of::<u32>();
 
     const fn size(msg_size: usize) -> u32 {
         (msg_size + Self::EXTRA_BYTES) as u32
     }
 
-    fn read(mmap: &Mmap) -> Datagram {
+    fn read(mmap: &Mmap, buf: &'a mut [u8]) -> Datagram<'a> {
         loop {
             let (copied_u8, rest) = mmap.as_ref().split_at(std::mem::size_of::<Instant>());
             let (len_u8, data_u8) = rest.split_at(std::mem::size_of::<u32>());
@@ -29,16 +33,16 @@ impl Datagram {
             let copied = unsafe { *(copied_u8.as_ptr() as *const Instant).as_ref().unwrap() };
             let len = unsafe { *(len_u8.as_ptr() as *const u32).as_ref().unwrap() };
 
-            let len = std::cmp::min(len as usize, data_u8.len());
-            let data = mmap.as_ref()[..len].to_vec();
+            let len = std::cmp::min(len as usize, std::cmp::min(data_u8.len(), buf.len()));
+            buf[..len].copy_from_slice(&data_u8[..len]);
 
             // Make sure that the underlying value didn't change
             let check = unsafe { *(copied_u8.as_ptr() as *const Instant).as_ref().unwrap() };
             if copied == check {
                 return Datagram {
                     copied,
-                    _len: len as u32,
-                    data,
+                    //_len: len as u32,
+                    data: &buf[..len],
                 };
             }
         }
@@ -67,27 +71,57 @@ pub struct Sampling {
     msg_size: usize,
     source_receiver: Mmap,
     source: OwnedFd,
+    source_partition: String,
     last: Instant,
     destination_sender: MmapMut,
     destination: OwnedFd,
+    destination_partitions: HashSet<String>,
 }
 
-impl Sampling {
-    pub fn new<T: AsRef<str>>(name: T, msg_size: usize) -> TypedResult<Sampling> {
-        let name = name.as_ref().to_string();
+impl TryFrom<SamplingChannelConfig> for Sampling {
+    type Error = TypedError;
+
+    fn try_from(config: SamplingChannelConfig) -> TypedResult<Self> {
+        let name = config.name;
+        let msg_size = config.msg_size.as_u64() as usize;
         let (source_receiver, source) = Self::source(format!("sampling_{name}_source"), msg_size)?;
         let (destination_sender, destination) =
-            Self::destination(format!("sampling_{name}_source"), msg_size)?;
+            Self::destination(format!("sampling_{name}_destination"), msg_size)?;
 
         Ok(Self {
             name,
             msg_size,
             source,
             source_receiver,
+            source_partition: config.source,
             last: Instant::now(),
             destination,
             destination_sender,
+            destination_partitions: config.destination,
         })
+    }
+}
+
+impl Sampling {
+    pub fn constant<T: AsRef<str>>(&self, part: T) -> Option<SamplingConstant> {
+        let (dir, fd) = if self.source_partition.eq(part.as_ref()) {
+            (PortDirection::Source, self.source_fd())
+        } else if self.destination_partitions.contains(part.as_ref()) {
+            (PortDirection::Destination, self.destination_fd())
+        } else {
+            return None;
+        };
+
+        Some(SamplingConstant {
+            name: self.name.clone(),
+            dir,
+            msg_size: self.msg_size,
+            fd,
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     fn memfd<T: AsRef<str>>(name: T, msg_size: usize) -> TypedResult<Memfd> {
@@ -129,13 +163,14 @@ impl Sampling {
 
     //// Returns whether a swap was performed or not
     pub fn swap(&mut self) -> bool {
-        let read = Datagram::read(&self.source_receiver);
+        let mut buf = vec![0; self.msg_size];
+        let read = Datagram::read(&self.source_receiver, &mut buf);
         if self.last == read.copied {
             return false;
         }
         self.last = read.copied;
 
-        Datagram::write(&mut self.destination_sender, &read.data);
+        Datagram::write(&mut self.destination_sender, read.data);
         true
     }
 
@@ -181,10 +216,10 @@ impl TryFrom<RawFd> for SamplingSource {
 pub struct SamplingDestination(Mmap);
 
 impl SamplingDestination {
-    pub fn read(&mut self) -> (Vec<u8>, Instant) {
-        let dat = Datagram::read(&self.0);
+    pub fn read(&mut self, data: &mut [u8]) -> (usize, Instant) {
+        let dat = Datagram::read(&self.0, data);
 
-        (dat.data, dat.copied)
+        (dat.data.len(), dat.copied)
     }
 }
 

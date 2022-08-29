@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
@@ -5,8 +6,10 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::anyhow;
+use apex_hal::bindings::PortDirection;
 use apex_hal::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
+use itertools::Itertools;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
@@ -15,7 +18,8 @@ use linux_apex_core::file::TempFile;
 use linux_apex_core::health::PartitionHMTable;
 use linux_apex_core::health_event::PartitionCall;
 use linux_apex_core::ipc::{channel_pair, IpcReceiver};
-use linux_apex_core::partition::{PartitionConstants, PARTITION_CONSTANTS_FD};
+use linux_apex_core::partition::{PartitionConstants, SamplingConstant};
+use linux_apex_core::sampling::Sampling;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
@@ -53,8 +57,14 @@ pub(crate) struct Run {
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         let cgroup_main = CGroup::new(&base.cgroup.path(), "main")?;
-        let cgroup_periodic = CGroup::new(&base.cgroup.path(), PartitionConstants::PERIODIC_PROCESS_CGROUP)?;
-        let cgroup_aperiodic = CGroup::new(&base.cgroup.path(), PartitionConstants::APERIODIC_PROCESS_CGROUP)?;
+        let cgroup_periodic = CGroup::new(
+            &base.cgroup.path(),
+            PartitionConstants::PERIODIC_PROCESS_CGROUP,
+        )?;
+        let cgroup_aperiodic = CGroup::new(
+            &base.cgroup.path(),
+            PartitionConstants::APERIODIC_PROCESS_CGROUP,
+        )?;
 
         let real_uid = nix::unistd::getuid();
         let real_gid = nix::unistd::getgid();
@@ -106,20 +116,21 @@ impl Run {
 
                 Partition::print_fds();
                 // Release all unneeded fd's
-                Partition::release_fds(&[
-                    sys_time.as_raw_fd(),
-                    //self.health_event.as_raw_fd()
-                    call_tx.as_raw_fd(),
-                    mode_file.as_raw_fd(),
-                ])
-                .unwrap();
 
-                // Mount working directory as tmpfs (TODO with ?)
+                let mut keep = base.sampling_fds();
+                keep.push(sys_time.as_raw_fd());
+                keep.push(call_tx.as_raw_fd());
+                keep.push(mode_file.as_raw_fd());
+
+                Partition::release_fds(&keep).unwrap();
+
+                // Mount working directory as tmpfs
                 mount::<str, _, _, str>(
                     None,
                     base.working_dir.path(),
                     Some("tmpfs"),
                     MsFlags::empty(),
+                    // TODO config size?
                     Some("size=500k"),
                     //None,
                 )
@@ -137,7 +148,21 @@ impl Run {
                 )
                 .unwrap();
 
+                let dev = base.working_dir.path().join("dev");
+                std::fs::create_dir_all(&dev).unwrap();
                 // TODO bind-mount requested devices
+
+                // Mount /dev/null (for stdio::null)
+                let null = dev.join("null");
+                File::create(&null).unwrap();
+                mount::<_, _, str, str>(
+                    Some("/dev/null"),
+                    &null,
+                    None,
+                    MsFlags::MS_RDONLY | MsFlags::MS_BIND,
+                    None,
+                )
+                .unwrap();
 
                 // Mount proc
                 let proc = base.working_dir.path().join("proc");
@@ -169,7 +194,7 @@ impl Run {
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
                 chdir("/").unwrap();
 
-                let constants: RawFd = PartitionConstants{
+                let constants: RawFd = PartitionConstants {
                     name: base.name.clone(),
                     identifier: base.id,
                     period: base.period,
@@ -178,17 +203,26 @@ impl Run {
                     sender_fd: call_tx.as_raw_fd(),
                     start_time_fd: sys_time.as_raw_fd(),
                     partition_mode_fd: mode_file.as_raw_fd(),
-                    sampling: vec![],
-                }.try_into().unwrap();
+                    sampling: base
+                        .sampling_channel
+                        .clone()
+                        .drain()
+                        .map(|(_, s)| s)
+                        .collect_vec(),
+                }
+                .try_into()
+                .unwrap();
 
                 // Run binary
-                // TODO detach stdio
                 let mut handle = Command::new("/bin")
-                    .stdout(Stdio::piped())
-                    .stdin(Stdio::piped())
-                    .stderr(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stdin(Stdio::null())
+                    .stderr(Stdio::null())
                     // Set Partition Name Env
-                    .env(PARTITION_CONSTANTS_FD, constants.to_string())
+                    .env(
+                        PartitionConstants::PARTITION_CONSTANTS_FD,
+                        constants.to_string(),
+                    )
                     .spawn()
                     .unwrap();
                 handle.wait().unwrap();
@@ -377,6 +411,7 @@ pub(crate) struct Base {
     id: i32,
     bin: PathBuf,
     cgroup: CGroup,
+    sampling_channel: HashMap<String, SamplingConstant>,
     duration: Duration,
     period: Duration,
     working_dir: TempDir,
@@ -389,6 +424,13 @@ impl Base {
 
     pub fn unfreeze(&self) -> TypedResult<()> {
         self.cgroup.unfreeze()
+    }
+
+    pub fn sampling_fds(&self) -> Vec<RawFd> {
+        self.sampling_channel
+            .iter()
+            .map(|(_, s)| s.fd)
+            .collect_vec()
     }
 
     pub fn freeze(&self) -> TypedResult<()> {
@@ -408,10 +450,6 @@ impl Base {
     }
 }
 
-//impl Base{
-//    // TODO Declare cpus differently and add effect to this variable
-//}
-
 #[derive(Debug)]
 pub(crate) struct Partition {
     base: Base,
@@ -422,9 +460,15 @@ impl Partition {
     pub(crate) fn new<P: AsRef<Path>>(
         cgroup_root: P,
         config: PartitionConfig,
+        sampling: &HashMap<String, Sampling>,
     ) -> TypedResult<Self> {
         // Todo implement drop for cgroup (in error case)
         let cgroup = CGroup::new(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
+
+        let sampling_channel = sampling
+            .iter()
+            .filter_map(|(n, s)| s.constant(&config.name).map(|s| (n.clone(), s)))
+            .collect();
 
         let working_dir = tempdir().typ(SystemError::PartitionInit)?;
         trace!("CGroup Working directory: {:?}", working_dir.path());
@@ -438,6 +482,7 @@ impl Partition {
             period: config.period,
             working_dir,
             hm: config.hm_table,
+            sampling_channel,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =
@@ -446,7 +491,7 @@ impl Partition {
         Ok(Self { base, run })
     }
 
-    fn release_fds(keep: &[i32]) -> TypedResult<()> {
+    fn release_fds(keep: &[RawFd]) -> TypedResult<()> {
         let proc = Process::myself().typ(SystemError::Panic)?;
         for fd in proc
             .fd()
@@ -485,10 +530,25 @@ impl Partition {
         }
     }
 
-    pub fn run(&mut self, timeout: Timeout) -> LeveledResult<()> {
+    pub fn run(
+        &mut self,
+        sampling: &mut HashMap<String, Sampling>,
+        timeout: Timeout,
+    ) -> LeveledResult<()> {
         PartitionTimeWindow::new(&self.base, &mut self.run, timeout).run()?;
         // TODO Error handling and freeze if err
-        self.base.freeze().lev(ErrorLevel::Partition)
+        self.base.freeze().lev(ErrorLevel::Partition)?;
+
+        for (name, _) in self
+            .base
+            .sampling_channel
+            .iter()
+            .filter(|(_, s)| s.dir == PortDirection::Source)
+        {
+            sampling.get_mut(name).unwrap().swap();
+        }
+
+        Ok(())
     }
 
     //fn idle_transition(mut self) -> Result<()> {

@@ -12,3 +12,10 @@ partitions:
     duration: 10ms
     image: target/x86_64-unknown-linux-musl/release/hello_part
     period: 1s
+channel:
+  - !Sampling
+    name: Hello
+    msg_size: 10KB
+    source: Foo
+    destination:
+      - Bar

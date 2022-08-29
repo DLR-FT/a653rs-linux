@@ -3,12 +3,12 @@
 
 use std::cmp::min;
 
-use apex_hal::prelude::{ErrorHandler, MAX_ERROR_MESSAGE_SIZE};
+use apex_hal::prelude::{report_message, MAX_ERROR_MESSAGE_SIZE};
 use linux_apex_core::error::SystemError;
 use linux_apex_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
 
-use crate::{SENDER, CONSTANTS};
+use crate::{CONSTANTS, SENDER};
 
 /// Static functions for within a partition
 pub struct ApexLinuxPartition;
@@ -18,8 +18,7 @@ impl ApexLinuxPartition {
         CONSTANTS.name.clone()
     }
 
-    // TODO pub(crate)
-    pub fn raise_system_error(error: SystemError) {
+    pub(crate) fn raise_system_error(error: SystemError) {
         if let Err(e) = SENDER.try_send(&PartitionCall::Error(error)) {
             panic!("Could not send SystemError event {error:?}. {e:?}")
         };
@@ -54,7 +53,7 @@ impl log::Log for ApexLogger {
                 format!("{level}{}..", &line[..(MAX_ERROR_MESSAGE_SIZE - 3)])
             };
             let max = min(MAX_ERROR_MESSAGE_SIZE, msg.len());
-            ErrorHandler::<ApexLinuxPartition>::report_message(&msg.as_bytes()[0..max]).ok();
+            report_message::<ApexLinuxPartition>(&msg.as_bytes()[0..max]).ok();
         }
     }
 
