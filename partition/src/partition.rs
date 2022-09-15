@@ -1,9 +1,6 @@
-//TODO remove this
-#![allow(dead_code)]
-
 use std::cmp::min;
 
-use apex_hal::prelude::{report_message, MAX_ERROR_MESSAGE_SIZE};
+use apex_hal::prelude::{ApexErrorExt, MAX_ERROR_MESSAGE_SIZE};
 use linux_apex_core::error::SystemError;
 use linux_apex_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
@@ -11,6 +8,7 @@ use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
 use crate::{CONSTANTS, SENDER};
 
 /// Static functions for within a partition
+#[derive(Debug, Clone, Copy)]
 pub struct ApexLinuxPartition;
 
 impl ApexLinuxPartition {
@@ -27,6 +25,7 @@ impl ApexLinuxPartition {
 
 static APEX_LOGGER: ApexLogger = ApexLogger();
 
+#[derive(Debug, Clone, Copy)]
 pub struct ApexLogger();
 
 impl ApexLogger {
@@ -53,7 +52,7 @@ impl log::Log for ApexLogger {
                 format!("{level}{}..", &line[..(MAX_ERROR_MESSAGE_SIZE - 3)])
             };
             let max = min(MAX_ERROR_MESSAGE_SIZE, msg.len());
-            report_message::<ApexLinuxPartition>(&msg.as_bytes()[0..max]).ok();
+            ApexLinuxPartition::report_message(&msg.as_bytes()[0..max]).ok();
         }
     }
 

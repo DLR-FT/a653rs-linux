@@ -182,7 +182,7 @@ impl ApexSamplingPort for ApexLinuxPartition {
 }
 
 impl ApexTime for ApexLinuxPartition {
-    fn periodic_wait<L: Locked>() -> Result<(), ErrorReturnCode> {
+    fn periodic_wait() -> Result<(), ErrorReturnCode> {
         // TODO do not unwrap() (Maybe raise an error?);
         let proc = LinuxProcess::get_self().unwrap();
         if !proc.periodic() {
@@ -193,7 +193,7 @@ impl ApexTime for ApexLinuxPartition {
         Ok(())
     }
 
-    fn get_time<L: Locked>() -> ApexSystemTime {
+    fn get_time() -> ApexSystemTime {
         SYSTEM_TIME
             .elapsed()
             .as_nanos()

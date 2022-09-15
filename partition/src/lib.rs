@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 #[macro_use]
 extern crate log;
 
@@ -23,7 +22,7 @@ pub(crate) mod process;
 const APERIODIC_PROCESS_FILE: &str = "aperiodic";
 const PERIODIC_PROCESS_FILE: &str = "periodic";
 const SAMPLING_PORTS_FILE: &str = "sampling_channels";
-const MAX_SAMPLING_PORTS: usize = 32;
+// const MAX_SAMPLING_PORTS: usize = 32;
 
 pub(crate) static CONSTANTS: Lazy<PartitionConstants> =
     Lazy::new(|| PartitionConstants::open().unwrap());

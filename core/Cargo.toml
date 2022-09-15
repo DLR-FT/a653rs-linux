@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-hal = { git = "ssh://git@gitlab.dlr.de/ft-ssy-aes/g115r105/apex_rs.git", features = ["p4"] }
+apex-hal = { git = "ssh://git@gitlab.dlr.de/ft-ssy-aes/ap/apex_rs.git", features = ["p4"] }
 #apex-hal = { path = "../../apex_rs", features = ["p4", "serde"] }
 nix = "0.25"
 anyhow = "1.0"

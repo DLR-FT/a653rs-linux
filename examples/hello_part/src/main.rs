@@ -9,12 +9,16 @@ use std::time::Duration;
 
 use apex_hal::prelude::*;
 use humantime::format_duration;
-use linux_apex_partition::partition::{ApexLinuxPartition, ApexLogger};
+use linux_apex_partition::partition::ApexLogger;
 use log::LevelFilter;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
+
+pub type Hypervisor = linux_apex_partition::partition::ApexLinuxPartition;
 
 static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
 static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);
+static SOURCE_HELLO: OnceCell<SamplingPortSource<Hypervisor>> = OnceCell::new();
+static DESTINATION_HELLO: OnceCell<SamplingPortDestination<Hypervisor>> = OnceCell::new();
 const HELLO_SAMPLING_PORT_SIZE: u32 = 10000;
 
 fn main() {
@@ -26,21 +30,25 @@ fn main() {
 
 struct Hello;
 
-impl Partition<ApexLinuxPartition> for Hello {
-    fn cold_start(&self, ctx: &mut StartContext<ApexLinuxPartition>) {
+impl Partition<Hypervisor> for Hello {
+    fn cold_start(&self, ctx: &mut StartContext<Hypervisor>) {
         if *FOO {
-            ctx.create_sampling_port_source(
-                Name::from_str("Hello").unwrap(),
-                HELLO_SAMPLING_PORT_SIZE,
-            )
-            .unwrap();
+            let source = ctx
+                .create_sampling_port_source(
+                    Name::from_str("Hello").unwrap(),
+                    HELLO_SAMPLING_PORT_SIZE,
+                )
+                .unwrap();
+            SOURCE_HELLO.set(source).unwrap();
         } else if *BAR {
-            ctx.create_sampling_port_destination(
-                Name::from_str("Hello").unwrap(),
-                HELLO_SAMPLING_PORT_SIZE,
-                Duration::from_millis(110),
-            )
-            .unwrap();
+            let destination = ctx
+                .create_sampling_port_destination(
+                    Name::from_str("Hello").unwrap(),
+                    HELLO_SAMPLING_PORT_SIZE,
+                    Duration::from_millis(110),
+                )
+                .unwrap();
+            DESTINATION_HELLO.set(destination).unwrap();
         }
 
         ctx.create_process(ProcessAttribute {
@@ -70,14 +78,14 @@ impl Partition<ApexLinuxPartition> for Hello {
         .unwrap();
     }
 
-    fn warm_start(&self, ctx: &mut StartContext<ApexLinuxPartition>) {
+    fn warm_start(&self, ctx: &mut StartContext<Hypervisor>) {
         self.cold_start(ctx)
     }
 }
 
-fn aperiodic_hello() {
+extern "C" fn aperiodic_hello() {
     for i in 0..i32::MAX {
-        if let SystemTime::Normal(time) = get_time::<ApexLinuxPartition>() {
+        if let SystemTime::Normal(time) = Hypervisor::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
                 "{:?}: Aperiodic: Hello {i}",
@@ -88,13 +96,12 @@ fn aperiodic_hello() {
     }
 }
 
-fn periodic_hello() {
+extern "C" fn periodic_hello() {
     //sleep(Duration::from_millis(1));
-    //ApexLinuxPartition::raise_system_error(SystemError::Segmentation);
     //rec(0);
 
     for i in 1..i32::MAX {
-        if let SystemTime::Normal(time) = get_time::<ApexLinuxPartition>() {
+        if let SystemTime::Normal(time) = Hypervisor::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!(
                 "{:?}: Periodic: Hello {i}",
@@ -109,17 +116,14 @@ fn periodic_hello() {
 
         if i % 5 == 0 {
             if *FOO {
-                SamplingPortSource::<ApexLinuxPartition>::send_unchecked(
-                    1,
-                    format!("Hello {}", i / 5).as_bytes(),
-                )
-                .unwrap()
+                SOURCE_HELLO
+                    .get()
+                    .unwrap()
+                    .send(format!("Hello {}", i / 5).as_bytes())
+                    .unwrap();
             } else if *BAR {
                 let mut buf = [0; HELLO_SAMPLING_PORT_SIZE as usize];
-                let (valid, data) = unsafe {
-                    SamplingPortDestination::<ApexLinuxPartition>::receive_unchecked(1, &mut buf)
-                        .unwrap()
-                };
+                let (valid, data) = DESTINATION_HELLO.get().unwrap().receive(&mut buf).unwrap();
 
                 info!(
                     "Received via Sampling Port: {:?}, len {}, valid: {valid:?}",
@@ -128,7 +132,7 @@ fn periodic_hello() {
                 )
             }
 
-            periodic_wait::<ApexLinuxPartition>().unwrap();
+            Hypervisor::periodic_wait().unwrap();
         }
     }
 }

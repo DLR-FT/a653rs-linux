@@ -135,6 +135,13 @@ impl Run {
                     //None,
                 )
                 .unwrap();
+                //mount::<_, _, str, str>(
+                //    Some(base.working_dir.path()),
+                //    base.working_dir.path(),
+                //    None,
+                //    MsFlags::MS_BIND,
+                //    None,
+                //).unwrap();
 
                 // Mount binary
                 let bin = base.working_dir.path().join("bin");
@@ -192,6 +199,7 @@ impl Run {
                 chdir(base.working_dir.path()).unwrap();
                 pivot_root(".", ".").unwrap();
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
+                //umount("old").unwrap();
                 chdir("/").unwrap();
 
                 let constants: RawFd = PartitionConstants {
