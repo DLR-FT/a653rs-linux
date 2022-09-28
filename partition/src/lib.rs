@@ -4,7 +4,7 @@ extern crate log;
 use std::os::unix::prelude::FromRawFd;
 use std::time::{Duration, Instant};
 
-use apex_hal::prelude::OperatingMode;
+use apex_rs::prelude::OperatingMode;
 use linux_apex_core::file::{get_memfd, TempFile};
 use linux_apex_core::health_event::PartitionCall;
 use linux_apex_core::ipc::IpcSender;

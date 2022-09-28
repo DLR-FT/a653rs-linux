@@ -1,8 +1,8 @@
 use std::process::exit;
 use std::thread::sleep;
 
-use apex_hal::bindings::*;
-use apex_hal::prelude::{Name, SystemTime};
+use apex_rs::bindings::*;
+use apex_rs::prelude::{Name, SystemTime};
 use linux_apex_core::error::SystemError;
 use linux_apex_core::sampling::{SamplingDestination, SamplingSource};
 
@@ -10,7 +10,7 @@ use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
 use crate::*;
 
-impl ApexPartition for ApexLinuxPartition {
+impl ApexPartitionP4 for ApexLinuxPartition {
     fn get_partition_status<L: Locked>() -> ApexPartitionStatus {
         let operating_mode = PARTITION_MODE.read().unwrap();
 
@@ -55,13 +55,13 @@ impl ApexPartition for ApexLinuxPartition {
     }
 }
 
-impl ApexProcess for ApexLinuxPartition {
+impl ApexProcessP4 for ApexLinuxPartition {
     fn create_process<L: Locked>(
         attributes: &ApexProcessAttribute,
     ) -> Result<ProcessId, ErrorReturnCode> {
         // TODO do not unwrap both
         // Check current State (only allowed in warm and cold start)
-        let attr = (*attributes).try_into().unwrap();
+        let attr = attributes.clone().try_into().unwrap();
         Ok(LinuxProcess::create(attr).unwrap())
     }
 
@@ -84,7 +84,7 @@ impl ApexProcess for ApexLinuxPartition {
     }
 }
 
-impl ApexSamplingPort for ApexLinuxPartition {
+impl ApexSamplingPortP4 for ApexLinuxPartition {
     fn create_sampling_port<L: Locked>(
         sampling_port_name: SamplingPortName,
         // TODO Return ErrorCode for wrong max message size
@@ -117,7 +117,7 @@ impl ApexSamplingPort for ApexLinuxPartition {
             }
             SAMPLING_PORTS.write(&channels).unwrap();
 
-            return Ok(channels.len() as i32);
+            return Ok(channels.len() as SamplingPortId);
         }
 
         Err(ErrorReturnCode::InvalidConfig)
@@ -181,7 +181,7 @@ impl ApexSamplingPort for ApexLinuxPartition {
     }
 }
 
-impl ApexTime for ApexLinuxPartition {
+impl ApexTimeP4 for ApexLinuxPartition {
     fn periodic_wait() -> Result<(), ErrorReturnCode> {
         // TODO do not unwrap() (Maybe raise an error?);
         let proc = LinuxProcess::get_self().unwrap();
@@ -201,7 +201,7 @@ impl ApexTime for ApexLinuxPartition {
     }
 }
 
-impl ApexError for ApexLinuxPartition {
+impl ApexErrorP4 for ApexLinuxPartition {
     fn report_application_message<L: Locked>(message: &[ApexByte]) -> Result<(), ErrorReturnCode> {
         if message.len() > MAX_ERROR_MESSAGE_SIZE {
             return Err(ErrorReturnCode::InvalidParam);

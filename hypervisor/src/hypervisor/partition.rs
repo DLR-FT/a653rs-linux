@@ -6,8 +6,8 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::anyhow;
-use apex_hal::bindings::PortDirection;
-use apex_hal::prelude::{OperatingMode, StartCondition};
+use apex_rs::bindings::PortDirection;
+use apex_rs::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use itertools::Itertools;
 use linux_apex_core::cgroup::CGroup;
@@ -416,7 +416,7 @@ impl Run {
 pub(crate) struct Base {
     name: String,
     hm: PartitionHMTable,
-    id: i32,
+    id: i64,
     bin: PathBuf,
     cgroup: CGroup,
     sampling_channel: HashMap<String, SamplingConstant>,

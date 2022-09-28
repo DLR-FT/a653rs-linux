@@ -3,7 +3,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
-use apex_hal::prelude::{OperatingMode, StartCondition};
+use apex_rs::prelude::{OperatingMode, StartCondition};
 use linux_apex_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
 };

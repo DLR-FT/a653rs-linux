@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use apex_hal::prelude::{ApexErrorExt, MAX_ERROR_MESSAGE_SIZE};
+use apex_rs::prelude::{ApexErrorP4Ext, MAX_ERROR_MESSAGE_SIZE};
 use linux_apex_core::error::SystemError;
 use linux_apex_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};

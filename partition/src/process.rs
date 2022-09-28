@@ -4,8 +4,8 @@ use std::ptr::null_mut;
 use std::sync::Mutex;
 
 use anyhow::anyhow;
-use apex_hal::bindings::*;
-use apex_hal::prelude::{ProcessAttribute, SystemTime};
+use apex_rs::bindings::*;
+use apex_rs::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
@@ -37,7 +37,7 @@ static STACKS: [OnceCell<StackPtr>; 2] = [OnceCell::new(), OnceCell::new()];
 static SYNC: Lazy<Mutex<u8>> = Lazy::new(|| Mutex::new(Default::default()));
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Process {
     id: i32,
     attr: ProcessAttribute,
@@ -73,9 +73,9 @@ impl Process {
             .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
 
         let proc_file = if periodic {
-            *PERIODIC_PROCESS
+            PERIODIC_PROCESS.clone()
         } else {
-            *APERIODIC_PROCESS
+            APERIODIC_PROCESS.clone()
         };
 
         if proc_file.read().lev(ErrorLevel::Partition)?.is_some() {
@@ -116,7 +116,7 @@ impl Process {
         forget(stack);
 
         trace!("Created process \"{name}\" with id: {id}");
-        Ok(id)
+        Ok(id as ProcessId)
     }
 
     pub(crate) fn get_self() -> Option<Self> {

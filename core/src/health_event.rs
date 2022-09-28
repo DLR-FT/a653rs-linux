@@ -1,4 +1,4 @@
-use apex_hal::prelude::OperatingMode;
+use apex_rs::prelude::OperatingMode;
 use log::Level;
 use serde::{Deserialize, Serialize};
 

@@ -7,12 +7,12 @@ use memmap2::{Mmap, MmapMut};
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
 #[derive(Debug)]
-pub struct TypedMmapMut<T: Send + Copy + Sized> {
+pub struct TypedMmapMut<T: Send + Sized> {
     mmap: MmapMut,
     _p: PhantomData<T>,
 }
 
-impl<T: Send + Copy + Sized> TypedMmapMut<T> {
+impl<T: Send + Sized> TypedMmapMut<T> {
     pub fn len(&self) -> usize {
         self.mmap.len()
     }
@@ -22,19 +22,19 @@ impl<T: Send + Copy + Sized> TypedMmapMut<T> {
     }
 }
 
-impl<T: Send + Copy + Sized> AsRef<T> for TypedMmapMut<T> {
+impl<T: Send + Sized> AsRef<T> for TypedMmapMut<T> {
     fn as_ref(&self) -> &T {
         unsafe { (self.mmap.as_ptr() as *const T).as_ref() }.unwrap()
     }
 }
 
-impl<T: Send + Copy + Sized> AsMut<T> for TypedMmapMut<T> {
+impl<T: Send + Sized> AsMut<T> for TypedMmapMut<T> {
     fn as_mut(&mut self) -> &mut T {
         unsafe { (self.mmap.as_mut_ptr() as *mut T).as_mut() }.unwrap()
     }
 }
 
-impl<T: Send + Copy + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
+impl<T: Send + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
     type Error = TypedError;
 
     fn try_from(mmap: MmapMut) -> TypedResult<Self> {
@@ -54,12 +54,12 @@ impl<T: Send + Copy + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
 }
 
 #[derive(Debug)]
-pub struct TypedMmap<T: Send + Copy + Sized> {
+pub struct TypedMmap<T: Send + Sized> {
     mmap: Mmap,
     _p: PhantomData<T>,
 }
 
-impl<T: Send + Copy + Sized> TypedMmap<T> {
+impl<T: Send + Sized> TypedMmap<T> {
     pub fn len(&self) -> usize {
         self.mmap.len()
     }
@@ -69,13 +69,13 @@ impl<T: Send + Copy + Sized> TypedMmap<T> {
     }
 }
 
-impl<T: Send + Copy + Sized> AsRef<T> for TypedMmap<T> {
+impl<T: Send + Sized> AsRef<T> for TypedMmap<T> {
     fn as_ref(&self) -> &T {
         unsafe { (self.mmap.as_ptr() as *const T).as_ref() }.unwrap()
     }
 }
 
-impl<T: Send + Copy + Sized> TryFrom<Mmap> for TypedMmap<T> {
+impl<T: Send + Sized> TryFrom<Mmap> for TypedMmap<T> {
     type Error = TypedError;
 
     fn try_from(mmap: Mmap) -> TypedResult<Self> {

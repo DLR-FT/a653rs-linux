@@ -62,7 +62,7 @@
           imports = [ "${devshell}/extra/git/hooks.nix" ];
           name = "linux-apex-dev-shell";
           packages = with pkgs; [
-            clang
+            gcc
             rust-toolchain
             rust-analyzer
             cargo-outdated
@@ -95,25 +95,28 @@
               command = ''
                 cargo watch -x "clippy -p hello_part --target x86_64-unknown-linux-musl"
               '';
-              help = "Continuesly clippy \"hello\" example";
+              help = ''Continuesly clippy "hello" example'';
               category = "dev";
             }
             {
               name = "run-hypervisor-hello-example-scoped";
-              command = "systemd-run --user --scope run-hypervisor-hello-example";
-              help = "Run Hypervisor with the \"hello\" example with systemd-run";
+              command =
+                "systemd-run --user --scope run-hypervisor-hello-example";
+              help =
+                ''Run Hypervisor with the "hello" example with systemd-run'';
               category = "dev";
             }
             {
               name = "run-hypervisor-hello-example";
               command = ''
                 cd $PRJ_ROOT
-                nix build .#hello-part
+                # nix build .#hello-part
+                cargo build -p hello_part --target x86_64-unknown-linux-musl --release
                 RUST_LOG=''${RUST_LOG:=trace} \
-                  nix run .#linux-apex-hypervisor \
-                  -- examples/hello_part/hypervisor_config.yaml
+                  cargo run -p linux-apex-hypervisor --release -- \
+                    examples/hello_part/hypervisor_config.yaml
               '';
-              help = "Run Hypervisor with the \"hello\" example";
+              help = ''Run Hypervisor with the "hello" example'';
               category = "dev";
             }
             {

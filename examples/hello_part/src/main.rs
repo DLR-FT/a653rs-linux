@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
 
-use apex_hal::prelude::*;
+use apex_rs::prelude::*;
 use humantime::format_duration;
 use linux_apex_partition::partition::ApexLogger;
 use log::LevelFilter;
@@ -17,8 +17,10 @@ pub type Hypervisor = linux_apex_partition::partition::ApexLinuxPartition;
 
 static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
 static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);
-static SOURCE_HELLO: OnceCell<SamplingPortSource<Hypervisor>> = OnceCell::new();
-static DESTINATION_HELLO: OnceCell<SamplingPortDestination<Hypervisor>> = OnceCell::new();
+static SOURCE_HELLO: OnceCell<SamplingPortSource<HELLO_SAMPLING_PORT_SIZE, Hypervisor>> =
+    OnceCell::new();
+static DESTINATION_HELLO: OnceCell<SamplingPortDestination<HELLO_SAMPLING_PORT_SIZE, Hypervisor>> =
+    OnceCell::new();
 const HELLO_SAMPLING_PORT_SIZE: u32 = 10000;
 
 fn main() {
@@ -34,17 +36,13 @@ impl Partition<Hypervisor> for Hello {
     fn cold_start(&self, ctx: &mut StartContext<Hypervisor>) {
         if *FOO {
             let source = ctx
-                .create_sampling_port_source(
-                    Name::from_str("Hello").unwrap(),
-                    HELLO_SAMPLING_PORT_SIZE,
-                )
+                .create_sampling_port_source(Name::from_str("Hello").unwrap())
                 .unwrap();
             SOURCE_HELLO.set(source).unwrap();
         } else if *BAR {
             let destination = ctx
                 .create_sampling_port_destination(
                     Name::from_str("Hello").unwrap(),
-                    HELLO_SAMPLING_PORT_SIZE,
                     Duration::from_millis(110),
                 )
                 .unwrap();
@@ -52,12 +50,12 @@ impl Partition<Hypervisor> for Hello {
         }
 
         ctx.create_process(ProcessAttribute {
-            period: apex_hal::prelude::SystemTime::Infinite,
-            time_capacity: apex_hal::prelude::SystemTime::Infinite,
+            period: apex_rs::prelude::SystemTime::Infinite,
+            time_capacity: apex_rs::prelude::SystemTime::Infinite,
             entry_point: aperiodic_hello,
             stack_size: 100000,
             base_priority: 1,
-            deadline: apex_hal::prelude::Deadline::Soft,
+            deadline: apex_rs::prelude::Deadline::Soft,
             name: Name::from_str("aperiodic_hello").unwrap(),
         })
         .unwrap()
@@ -65,12 +63,12 @@ impl Partition<Hypervisor> for Hello {
         .unwrap();
 
         ctx.create_process(ProcessAttribute {
-            period: apex_hal::prelude::SystemTime::Normal(Duration::ZERO),
-            time_capacity: apex_hal::prelude::SystemTime::Infinite,
+            period: apex_rs::prelude::SystemTime::Normal(Duration::ZERO),
+            time_capacity: apex_rs::prelude::SystemTime::Infinite,
             entry_point: periodic_hello,
             stack_size: 100000,
             base_priority: 1,
-            deadline: apex_hal::prelude::Deadline::Soft,
+            deadline: apex_rs::prelude::Deadline::Soft,
             name: Name::from_str("periodic_hello").unwrap(),
         })
         .unwrap()

@@ -25,7 +25,7 @@ pub struct Config {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Partition {
-    pub id: i32,
+    pub id: i64,
     pub name: String,
     #[serde(with = "humantime_serde")]
     pub duration: Duration,

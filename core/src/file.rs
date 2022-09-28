@@ -13,12 +13,12 @@ use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 use crate::shmem::{TypedMmap, TypedMmapMut};
 
 #[derive(Debug, Clone, Copy)]
-pub struct TempFile<T: Send + Copy + Sized> {
+pub struct TempFile<T: Send + Clone + Sized> {
     fd: RawFd,
     _p: PhantomData<T>,
 }
 
-impl<T: Send + Copy + Sized> TempFile<T> {
+impl<T: Send + Clone + Sized> TempFile<T> {
     pub fn create<N: AsRef<str>>(name: N) -> TypedResult<Self> {
         let mem = MemfdOptions::default()
             .close_on_exec(false)
@@ -90,7 +90,7 @@ impl<T: Send + Copy + Sized> TempFile<T> {
         let mut file = self.get_memfd()?.into_file();
         file.seek(SeekFrom::Start(0)).typ(SystemError::Panic)?;
         file.read_to_end(buf.as_mut()).typ(SystemError::Panic)?;
-        Ok(unsafe { buf.as_slice().align_to::<T>().1[0] })
+        Ok(unsafe { buf.as_slice().align_to::<T>().1[0].clone() })
     }
 
     pub fn get_typed_mmap_mut(&self) -> TypedResult<TypedMmapMut<T>> {
@@ -120,7 +120,7 @@ impl<T: Send + Copy + Sized> TempFile<T> {
     }
 }
 
-impl<T: Copy + Send> TryFrom<RawFd> for TempFile<T> {
+impl<T: Send + Clone> TryFrom<RawFd> for TempFile<T> {
     type Error = TypedError;
 
     fn try_from(fd: RawFd) -> Result<Self, Self::Error> {
@@ -134,7 +134,7 @@ impl<T: Copy + Send> TryFrom<RawFd> for TempFile<T> {
     }
 }
 
-impl<T: Send + Copy + Sized> AsRawFd for TempFile<T> {
+impl<T: Send + Clone + Sized> AsRawFd for TempFile<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }

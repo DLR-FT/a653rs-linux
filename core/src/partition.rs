@@ -3,8 +3,8 @@ use std::io::{Read, Write};
 use std::os::unix::prelude::{IntoRawFd, RawFd};
 use std::time::Duration;
 
-use apex_hal::bindings::PortDirection;
-use apex_hal::prelude::StartCondition;
+use apex_rs::bindings::PortDirection;
+use apex_rs::prelude::{PartitionId, StartCondition};
 use memfd::{FileSeal, MemfdOptions};
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +13,7 @@ use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PartitionConstants {
     pub name: String,
-    pub identifier: i32,
+    pub identifier: PartitionId,
     pub period: Duration,
     pub duration: Duration,
     pub start_condition: StartCondition,

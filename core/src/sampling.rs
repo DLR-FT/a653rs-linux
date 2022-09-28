@@ -3,7 +3,7 @@ use std::convert::AsRef;
 use std::os::unix::prelude::{AsRawFd, OwnedFd, RawFd};
 use std::time::Instant;
 
-use apex_hal::bindings::PortDirection;
+use apex_rs::bindings::PortDirection;
 use memfd::{FileSeal, Memfd, MemfdOptions};
 use memmap2::{Mmap, MmapMut};
 
