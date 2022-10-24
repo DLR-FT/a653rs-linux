@@ -8,9 +8,11 @@ edition = "2021"
 
 [dependencies]
 apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git" }
+apex-rs-postcard = { branch = "main", git = "https://github.com/aeronautical-informatics/apex-rs-postcard.git" }
 #apex-hal = { path = "../../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../../core" }
 linux-apex-partition = { path = "../../partition" }
+serde = "1.0"
 procfs = "0.14"
 log = "0"
 nix = "0.25"

@@ -25,11 +25,11 @@
 
         rust-toolchain = with fenix.packages.${system};
           combine [
-            stable.rustc
-            stable.cargo
-            stable.clippy
+            latest.rustc
+            latest.cargo
+            latest.clippy
             latest.rustfmt
-            targets.x86_64-unknown-linux-musl.stable.rust-std
+            targets.x86_64-unknown-linux-musl.latest.rust-std
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above

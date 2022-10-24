@@ -8,10 +8,12 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use apex_rs::prelude::*;
+use apex_rs_postcard::prelude::*;
 use humantime::format_duration;
 use linux_apex_partition::partition::ApexLogger;
 use log::LevelFilter;
 use once_cell::sync::{Lazy, OnceCell};
+use serde::{Deserialize, Serialize};
 
 pub type Hypervisor = linux_apex_partition::partition::ApexLinuxPartition;
 
@@ -85,13 +87,16 @@ extern "C" fn aperiodic_hello() {
     for i in 0..i32::MAX {
         if let SystemTime::Normal(time) = Hypervisor::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
-            info!(
-                "{:?}: Aperiodic: Hello {i}",
-                format_duration(round).to_string()
-            );
+            info!("{:?}: AP MSG {i}", format_duration(round).to_string());
         }
         sleep(Duration::from_millis(1))
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomMessage {
+    msg: String,
+    when: Duration,
 }
 
 extern "C" fn periodic_hello() {
@@ -101,10 +106,7 @@ extern "C" fn periodic_hello() {
     for i in 1..i32::MAX {
         if let SystemTime::Normal(time) = Hypervisor::get_time() {
             let round = Duration::from_millis(time.as_millis() as u64);
-            info!(
-                "{:?}: Periodic: Hello {i}",
-                format_duration(round).to_string()
-            );
+            info!("{:?}: P MSG {i}", format_duration(round).to_string());
         }
         sleep(Duration::from_millis(1));
 
@@ -117,17 +119,23 @@ extern "C" fn periodic_hello() {
                 SOURCE_HELLO
                     .get()
                     .unwrap()
-                    .send(format!("Hello {}", i / 5).as_bytes())
+                    // .send(format!("Hello {}", i / 5).as_bytes())
+                    .send_type(CustomMessage {
+                        msg: format!("Sampling MSG {}", i / 5),
+                        when: Hypervisor::get_time().unwrap_duration(),
+                    })
+                    .ok()
                     .unwrap();
             } else if *BAR {
-                let mut buf = [0; HELLO_SAMPLING_PORT_SIZE as usize];
-                let (valid, data) = DESTINATION_HELLO.get().unwrap().receive(&mut buf).unwrap();
+                // let mut buf = [0; HELLO_SAMPLING_PORT_SIZE as usize];
+                let (valid, data) = DESTINATION_HELLO
+                    .get()
+                    .unwrap()
+                    .recv_type::<CustomMessage>()
+                    .ok()
+                    .unwrap();
 
-                info!(
-                    "Received via Sampling Port: {:?}, len {}, valid: {valid:?}",
-                    std::str::from_utf8(data),
-                    data.len()
-                )
+                info!("Received via Sampling Port: {:?}, valid: {valid:?}", data)
             }
 
             Hypervisor::periodic_wait().unwrap();
