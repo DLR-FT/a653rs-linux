@@ -8,14 +8,14 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use apex_rs::prelude::*;
+use apex_rs_linux::partition::ApexLogger;
 use apex_rs_postcard::prelude::*;
 use humantime::format_duration;
-use linux_apex_partition::partition::ApexLogger;
 use log::LevelFilter;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 
-pub type Hypervisor = linux_apex_partition::partition::ApexLinuxPartition;
+pub type Hypervisor = apex_rs_linux::partition::ApexLinuxPartition;
 
 static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
 static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);

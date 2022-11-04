@@ -1,12 +1,12 @@
 [package]
-name = "linux-apex-partition"
+name = "apex-rs-linux"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git" }
+apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git", branch = "main" }
 #apex-hal = { path = "../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../core" }
 lazy_static = "1.4"

@@ -7,11 +7,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git" }
-apex-rs-postcard = { branch = "main", git = "https://github.com/aeronautical-informatics/apex-rs-postcard.git" }
+apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git", branch = "main" }
+apex-rs-postcard = { git = "https://github.com/aeronautical-informatics/apex-rs-postcard.git", branch = "main" }
 #apex-hal = { path = "../../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../../core" }
-linux-apex-partition = { path = "../../partition" }
+apex-rs-linux = { path = "../../partition" }
 serde = "1.0"
 procfs = "0.14"
 log = "0"
