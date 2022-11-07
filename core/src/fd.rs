@@ -78,7 +78,7 @@ impl TryFrom<Pid> for PidFd {
     type Error = TypedError;
 
     fn try_from(value: Pid) -> TypedResult<Self> {
-        let pidfd: i32 = unsafe {
+        let pidfd: std::os::raw::c_int = unsafe {
             syscall(SYS_pidfd_open, value.as_raw(), 0 as c_uint)
                 .try_into()
                 .typ(SystemError::Panic)?
