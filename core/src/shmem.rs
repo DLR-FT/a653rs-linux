@@ -1,3 +1,4 @@
+//! Implementation for shared memory
 use std::marker::PhantomData;
 use std::mem::size_of;
 
@@ -7,16 +8,19 @@ use memmap2::{Mmap, MmapMut};
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
 #[derive(Debug)]
+/// Internal data type for a mutable typed memory map
 pub struct TypedMmapMut<T: Send + Sized> {
     mmap: MmapMut,
     _p: PhantomData<T>,
 }
 
 impl<T: Send + Sized> TypedMmapMut<T> {
+    /// Returns the length of the memory map
     pub fn len(&self) -> usize {
         self.mmap.len()
     }
 
+    /// Checks if the memory map is empty
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -54,16 +58,19 @@ impl<T: Send + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
 }
 
 #[derive(Debug)]
+/// Internal data type for a mutable typed memory map
 pub struct TypedMmap<T: Send + Sized> {
     mmap: Mmap,
     _p: PhantomData<T>,
 }
 
 impl<T: Send + Sized> TypedMmap<T> {
+    /// Returns the length of the memory map
     pub fn len(&self) -> usize {
         self.mmap.len()
     }
 
+    /// Checks if the memory map is empty
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
