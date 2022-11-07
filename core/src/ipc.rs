@@ -77,18 +77,7 @@ where
             return Ok(None);
         }
 
-        let mut buffer = vec![0; 65507];
-        let len = match self.socket.recv(&mut buffer) {
-            Ok(len) => len,
-            Err(e) if e.kind() != ErrorKind::TimedOut => {
-                return Err(Error::from(e)).typ(SystemError::Panic)
-            }
-            _ => return Ok(None),
-        };
-
-        bincode::deserialize(&buffer[0..len])
-            .map(|r| Some(r))
-            .typ(SystemError::Panic)
+        self.try_recv()
     }
 }
 
