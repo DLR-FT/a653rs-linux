@@ -157,7 +157,7 @@ impl CGroup {
             .map_err(anyhow::Error::from)
             .typ(SystemError::Panic)?;
         poller
-            .add(event_file.as_raw_fd(), Event::readable(0))
+            .add(event_file.as_raw_fd(), Event::readable(42))
             .map_err(anyhow::Error::from)
             .typ(SystemError::Panic)?;
 
@@ -186,7 +186,7 @@ impl CGroup {
                 .wait(Vec::new().as_mut(), Some(leftover_time))
                 .typ(SystemError::Panic)?;
             poller
-                .modify(event_file.as_raw_fd(), Event::readable(0))
+                .modify(event_file.as_raw_fd(), Event::readable(42))
                 .map_err(anyhow::Error::from)
                 .typ(SystemError::Panic)?;
 

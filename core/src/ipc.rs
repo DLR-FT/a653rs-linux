@@ -69,7 +69,7 @@ where
     pub fn try_recv_timeout(&self, duration: Duration) -> TypedResult<Option<T>> {
         let poller = Poller::new().typ(SystemError::Panic)?;
         poller
-            .add(self.socket.as_raw_fd(), Event::readable(0))
+            .add(self.socket.as_raw_fd(), Event::readable(42))
             .typ(SystemError::Panic)?;
 
         let poll_res = poller.wait(Vec::new().as_mut(), Some(duration));
