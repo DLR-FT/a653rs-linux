@@ -41,12 +41,13 @@ impl PidFd {
         let poller = Poller::new()
             .map_err(anyhow::Error::from)
             .typ(SystemError::Panic)?;
-        poller
-            .add(self.0.as_raw_fd(), Event::readable(0))
-            .map_err(anyhow::Error::from)
-            .typ(SystemError::Panic)?;
 
         loop {
+            poller
+                .modify(self.0.as_raw_fd(), Event::readable(0))
+                .map_err(anyhow::Error::from)
+                .typ(SystemError::Panic)?;
+
             let poll_res = poller.wait(
                 Vec::new().as_mut(),
                 Some(timeout.saturating_sub(now.elapsed())),
@@ -63,10 +64,6 @@ impl PidFd {
                     }
                 }
             }
-            poller
-                .modify(self.0.as_raw_fd(), Event::readable(0))
-                .map_err(anyhow::Error::from)
-                .typ(SystemError::Panic)?;
         }
     }
 }
