@@ -2,10 +2,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::health::{
-    ModuleInitHMTable, ModuleRecoveryAction, ModuleRunHMTable, PartitionHMTable, RecoveryAction,
-};
-
 /// A Result containing a SystemError with its accompanying source
 pub type TypedResult<T> = Result<T, TypedError>;
 /// A Result containing a SystemError with its accompanying error and time window
@@ -161,25 +157,4 @@ impl<T, E: Into<anyhow::Error>> ResultExt<T> for Result<T, E> {
             }),
         }
     }
-
-    //fn rec_res(self, err: SystemError, level: ErrorLevel) -> RecoverableResult<T> {
-    //    match self {
-    //        Ok(t) => Ok(t),
-    //        Err(e) => e.into().rec_res(err, level),
-    //    }
-    //}
 }
-
-//impl<T> ResultExt<T> for anyhow::Error {
-//    fn typ(self, err: SystemError) -> TypedResult<T> {
-//        TypedResult::Err(self.typ(err))
-//    }
-//
-//    fn lev_typ(self, err: SystemError, level: ErrorLevel) -> LeveledResult<T> {
-//        todo!()
-//    }
-//
-//    //fn rec_res(self, err: SystemError, level: ErrorLevel) -> RecoverableResult<T> {
-//    //    Err(RecoverableError::new(err, level, self))
-//    //}
-//}
