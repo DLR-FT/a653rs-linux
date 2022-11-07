@@ -1,3 +1,4 @@
+//! Fetch information from a partition
 use apex_rs::prelude::OperatingMode;
 use log::Level;
 use serde::{Deserialize, Serialize};
@@ -5,13 +6,19 @@ use serde::{Deserialize, Serialize};
 use crate::error::SystemError;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// The core unit for communication in that module
 pub enum PartitionCall {
+    /// The status of the partition
     Transition(OperatingMode),
+    /// Potential errors
     Error(SystemError),
+    /// Potential messages
     Message(String),
 }
 
 impl PartitionCall {
+    /// Prints debugs, warnings, traces and errors to their accompanying streams
+    // TODO: Somehow comment what is going on inside this beast
     pub fn print_partition_log(&self, name: &str) {
         let name = &format!("Partition: {name}");
         match self {
