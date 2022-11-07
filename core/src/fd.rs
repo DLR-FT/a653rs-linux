@@ -43,8 +43,11 @@ impl PidFd {
             .typ(SystemError::Panic)?;
 
         loop {
+            // The second argument to Poller::modify() is totally valid and correct, due to
+            // epoll(2) internals, which demand providing a "user data variable" -- a feature
+            // that we make no use of.
             poller
-                .modify(self.0.as_raw_fd(), Event::readable(0))
+                .modify(self.0.as_raw_fd(), Event::readable(42))
                 .map_err(anyhow::Error::from)
                 .typ(SystemError::Panic)?;
 
