@@ -1,3 +1,4 @@
+//! Implementation of in-memory files
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -13,12 +14,15 @@ use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 use crate::shmem::{TypedMmap, TypedMmapMut};
 
 #[derive(Debug, Clone, Copy)]
+/// Internal struct for handling in-memory files
 pub struct TempFile<T: Send + Clone + Sized> {
+    // TODO: Consider storing a Memfd instead of a RawFd
     fd: RawFd,
     _p: PhantomData<T>,
 }
 
 impl<T: Send + Clone + Sized> TempFile<T> {
+    /// Creates an in-memory file
     pub fn create<N: AsRef<str>>(name: N) -> TypedResult<Self> {
         let mem = MemfdOptions::default()
             .close_on_exec(false)
@@ -41,7 +45,9 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         })
     }
 
+    /// Converts a FD to a Memfd without borrowing ownership
     fn get_memfd(&self) -> TypedResult<Memfd> {
+        // TODO: The call to dup(2) may be removed, because RawFd has no real ownership
         let fd = dup(self.fd).typ(SystemError::Panic)?;
         Memfd::try_from_fd(fd)
             .map_err(|e| {
@@ -51,16 +57,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
             .typ(SystemError::Panic)
     }
 
-    //fn verified_memfd(&self) -> Result<Memfd>{
-    //    let expected_len = size_of::<T>().try_into()?;
-    //    let mem = self.get_memfd()?;
-    //    let is_len = mem.as_file().metadata()?.len();
-    //    if is_len != expected_len{
-    //        return Err(anyhow!("Mismatch size. Expected: {is_len}, Is: {expected_len}"));
-    //    }
-    //    Ok(mem)
-    //}
-
+    /// Set the TempFile to read-only (prevents further seal modifications)
     pub fn seal_read_only(&self) -> TypedResult<TypedMmapMut<T>> {
         let mmap = self.get_typed_mmap_mut()?;
 
@@ -71,11 +68,15 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         Ok(mmap)
     }
 
+    /// Returns the raw FD of the TempFile
     pub fn fd(&self) -> RawFd {
         self.fd
     }
 
+    /// Writes value to the TempFile (overwrites existing data, but does not clean)
+    // TODO: Consider deleting the previous data?
     pub fn write(&self, value: &T) -> TypedResult<()> {
+        // TODO: Use an approach without unsafe
         let bytes =
             unsafe { std::slice::from_raw_parts(value as *const T as *const u8, size_of::<T>()) };
         let mut file = self.get_memfd()?.into_file();
@@ -85,14 +86,17 @@ impl<T: Send + Clone + Sized> TempFile<T> {
             .typ(SystemError::Panic)
     }
 
+    /// Returns all of the TempFile's data
     pub fn read(&self) -> TypedResult<T> {
         let mut buf = Vec::with_capacity(size_of::<T>());
         let mut file = self.get_memfd()?.into_file();
         file.seek(SeekFrom::Start(0)).typ(SystemError::Panic)?;
         file.read_to_end(buf.as_mut()).typ(SystemError::Panic)?;
+        // TODO: Use an approach without unsafe
         Ok(unsafe { buf.as_slice().align_to::<T>().1[0].clone() })
     }
 
+    /// Returns a mutable memory map from a TempFile
     pub fn get_typed_mmap_mut(&self) -> TypedResult<TypedMmapMut<T>> {
         let fd = dup(self.fd).typ(SystemError::Panic)?;
         unsafe {
@@ -106,6 +110,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         }
     }
 
+    /// Returns a memory map from a TemplFile
     pub fn get_typed_mmap(&self) -> TypedResult<TypedMmap<T>> {
         let fd = dup(self.fd).typ(SystemError::Panic)?;
         unsafe {
