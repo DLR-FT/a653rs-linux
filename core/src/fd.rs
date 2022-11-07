@@ -1,3 +1,7 @@
+//! Implementation of PID file descriptors
+// TODO: Consider renaming this module to "pidfd" for less ambiguity
+// TODO: Remove this, as soon as the following is available in stable Rust:
+// https://doc.rust-lang.org/stable/std/os/linux/process/struct.PidFd.html
 use std::io::ErrorKind;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
@@ -10,8 +14,12 @@ use polling::{Event, Poller};
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
 #[derive(Debug)]
+/// The fundamental error type for this crate
+// TODO: Consider replacing it with a normal TypedError and using TimeDurationExceeded instead
 pub enum PidWaitError {
+    /// A timeout has a occurred
     Timeout,
+    /// Another error has occurred
     Err(TypedError),
 }
 
@@ -22,9 +30,11 @@ impl From<TypedError> for PidWaitError {
 }
 
 #[derive(Debug)]
+/// The internal type of this module for handling PidFds.
 pub struct PidFd(OwnedFd);
 
 impl PidFd {
+    /// Returns when the PidFd is ready to be read or if timeout occurred
     pub fn wait_exited_timeout(&self, timeout: Duration) -> Result<(), PidWaitError> {
         let now = Instant::now();
 
@@ -77,6 +87,7 @@ impl TryFrom<Pid> for PidFd {
                 .typ(SystemError::Panic)?
         };
         if pidfd < 0 {
+            // TODO: pidfd will be -1 in that case. Printing this is not useful. Access errno instead.
             return Err(anyhow!("Error getting pidfd from {value}. {pidfd}"))
                 .typ(SystemError::Panic);
         }
