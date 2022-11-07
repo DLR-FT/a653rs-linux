@@ -138,23 +138,17 @@ impl<T> TypedResultExt<T> for TypedResult<T> {
 
 impl<T, E: Into<anyhow::Error>> ResultExt<T> for Result<T, E> {
     fn typ(self, err: SystemError) -> TypedResult<T> {
-        match self {
-            Ok(t) => Ok(t),
-            Err(e) => Err(TypedError {
-                err,
-                source: e.into(),
-            }),
-        }
+        self.map_err(|e| TypedError {
+            err,
+            source: e.into(),
+        })
     }
 
     fn lev_typ(self, err: SystemError, level: ErrorLevel) -> LeveledResult<T> {
-        match self {
-            Ok(t) => Ok(t),
-            Err(e) => Err(LeveledError {
-                err,
-                level,
-                source: e.into(),
-            }),
-        }
+        self.map_err(|e| LeveledError {
+            err,
+            level,
+            source: e.into(),
+        })
     }
 }
