@@ -128,13 +128,6 @@ pub trait TypedResultExt<T> {
     fn lev(self, level: ErrorLevel) -> LeveledResult<T>;
 }
 
-
-pub trait TypedErrorExt<T> {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<T>;
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<T>;
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<T>;
-}
-
 impl<T> TypedResultExt<T> for TypedResult<T> {
     fn lev(self, level: ErrorLevel) -> LeveledResult<T> {
         // This basically just creates a LeveledError with all fields tken even from
@@ -144,53 +137,6 @@ impl<T> TypedResultExt<T> for TypedResult<T> {
             level,
             source: e.source,
         })
-    }
-}
-
-impl TypedErrorExt<()> for TypedResult<()> {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_part(hm);
-        }
-        self.lev(ErrorLevel::Partition)
-    }
-
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_mod_init(hm);
-        }
-        self.lev(ErrorLevel::ModuleInit)
-    }
-
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_mod_run(hm);
-        }
-        self.lev(ErrorLevel::ModuleRun)
-    }
-}
-
-impl TypedErrorExt<()> for TypedError {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<()> {
-        if let Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) = hm.try_action(self.err)
-        {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::Partition)
-    }
-
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<()> {
-        if let Some(ModuleRecoveryAction::Ignore) = hm.try_action(self.err) {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::ModuleInit)
-    }
-
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<()> {
-        if let Some(ModuleRecoveryAction::Ignore) = hm.try_action(self.err) {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::ModuleRun)
     }
 }
 
