@@ -63,6 +63,7 @@
           name = "linux-apex-dev-shell";
           packages = with pkgs; [
             gcc
+            coreutils
             rust-toolchain
             rust-analyzer
             cargo-outdated

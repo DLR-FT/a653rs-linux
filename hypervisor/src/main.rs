@@ -28,6 +28,7 @@ pub struct Args {
     cgroup: Option<PathBuf>,
 }
 
+#[quit::main]
 fn main() -> LeveledResult<()> {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());
@@ -63,7 +64,14 @@ fn main() -> LeveledResult<()> {
         let cgroups = my_pid
             .cgroups()
             .expect("unable to retrieve my parent cgroup");
-        let cgroup_path = cgroups[0].pathname.strip_prefix('/').unwrap(); // this can't fail, the cgroup reported will always start with a leading '/'
+        let cgroup_path = cgroups
+            .iter()
+            .filter(|c| c.hierarchy == 0)
+            .next()
+            .unwrap()
+            .pathname
+            .strip_prefix('/')
+            .unwrap(); // this can't fail, the cgroup reported will always start with a leading '/'
         cgroups_mount_point.join(cgroup_path)
     });
     // Add Additional cgroup layer
