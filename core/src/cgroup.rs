@@ -1,238 +1,369 @@
-//! Implementation of the Linux *cgroup* feature
+//! Implementation of the Linux *cgroup* facility
 //!
-//! This mdoule itself assumes a good understanding of the relevant technology,
-//! meaning that certain concepts won't be explained here.
-//! For more information regarding cgroup, have a look at the accompanying
-//! man-page and [this](https://docs.kernel.org/admin-guide/cgroup-v2.html) resource.
-use std::collections::HashMap;
-use std::fs::{read_to_string, File};
-use std::os::unix::prelude::{AsRawFd, OwnedFd};
+//! This module provides an interface for the Linux cgroup facility.
+//! Interfacing applications either create or import a cgroup, which
+//! will then be used to build a tree to keep track of all following
+//! sub-cgroups.
+//!
+//! This approach makes it possible to only manage a certain sub-tree
+//! of cgroups, thereby saving resources. Alternatively, the root cgroup
+//! may be imported, keeping track of all cgroups existing on the host system.
+use std::fs;
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-use anyhow::anyhow;
-use itertools::Itertools;
+use anyhow::bail;
+use anyhow::Ok;
+
+use nix::sys::stat;
 use nix::unistd::Pid;
-use polling::{Event, Poller};
-use walkdir::WalkDir;
 
-use crate::error::{ResultExt, SystemError, TypedResult};
-
-/// An internal reference to a certain cgroup
-// TODO think about completely changing this.
-// Because CGroups are a hierarchy and Parents need to consider their children,
-// A different representation may be necessary, probably a tree with n children.
-// Also maybe we dont even need to delete the cgroups after we are done
-// We may need to verify "Domain" "Domain Threaded" and "Thread" state of CGroups
-// TODO it should be possible to use an already created cgroup incase the user provides us a group with cpuset-enabled
-#[derive(Debug, Clone)]
-pub struct CGroup {
+/// A single cgroup inside our tree of managed cgroups
+///
+/// The tree is not represented by a traditional tree data structure,
+/// as this is very complicated in Rust. Instead, the tree is "calculated"
+/// by the path alone.
+pub struct Cgroup {
     path: PathBuf,
 }
 
-impl CGroup {
-    const MEMBER_FILE: &'static str = "cgroup.procs";
-    const FREEZE_FILE: &'static str = "cgroup.freeze";
-    const EVENTS_FILE: &'static str = "cgroup.events";
+impl Cgroup {
+    /// Creates a new cgroup as the root of a sub-tree
+    ///
+    /// path must be the path of an already existing cgroup
+    pub fn new_root(path: &Path, name: &str) -> anyhow::Result<Self> {
+        let path = path.join(name);
 
-    /// Returns the first mount point on the host filesystem of the cgroup that this process belongs to
-    pub fn mount_point() -> TypedResult<PathBuf> {
-        procfs::process::Process::myself()
-            .typ(SystemError::Panic)?
-            .mountinfo()
-            .typ(SystemError::Panic)?
-            .iter()
-            .find(|m| m.fs_type.eq("cgroup2")) // TODO A process can have several cgroup mounts
-            .ok_or_else(|| anyhow!("no cgroup2 mount found"))
-            .typ(SystemError::Panic)
-            .map(|m| m.mount_point.clone())
+        // There is no need to check if the path already exists, as create_dir()
+        // will fail under this circumstance.
+        fs::create_dir(&path)?;
+
+        Self::import_root(&path)
     }
 
-    /// Create a cgroup inside another one
-    // TODO: Switch to a tree data structure for cgroups.
-    pub fn new<P: AsRef<Path>>(parent: P, child_name: &str) -> TypedResult<Self> {
-        let path = PathBuf::from(parent.as_ref()).join(child_name);
-        //trace!("New CGroup: {path:?}");
-
-        if !path.exists() {
-            trace!("Creating Cgroup, {path:?}");
-            std::fs::create_dir(&path).typ(SystemError::CGroup)?;
+    /// Imports an already existing cgroup as the root of a sub-tree
+    pub fn import_root(path: &Path) -> anyhow::Result<Self> {
+        if !is_cgroup(path)? {
+            bail!("{} is not a valid cgroup", path.to_str().unwrap());
         }
 
-        // TODO use cpuset with feature opt in
-        //let cont = path.join("cgroup.subtree_control");
-        //println!("{cont:?}");
-        //unsafe {exit(1)};
-        //std::fs::write(path.join("cgroup.subtree_control"), b"+pids")?;
-        //sleep(Duration::from_secs(1));
-        //sleep(Duration::from_secs(1));
-
-        Ok(CGroup { path })
+        Ok(Cgroup {
+            path: path.to_path_buf(),
+        })
     }
 
-    /// Returns a file descriptor to the list of the processes that belong to this cgroup
-    /// TODO: Does this need to be public?
-    pub fn get_procs_fd(&self) -> TypedResult<OwnedFd> {
-        File::open(self.path.join(Self::MEMBER_FILE))
-            .typ(SystemError::CGroup)
-            .map(OwnedFd::from)
+    /// Creates a sub-cgroup inside this one
+    pub fn new(&self, name: &str) -> anyhow::Result<Self> {
+        Self::new_root(&self.path, name)
     }
 
     /// Moves a process to this cgroup
-    pub fn add_process(&self, pid: Pid) -> TypedResult<()> {
-        Self::add_process_to(&self.path, pid)
-    }
-
-    /// Returns a Vec containing the PIDs of all processes beloning to this cgroup
-    pub fn member(&self) -> TypedResult<Vec<Pid>> {
-        read_to_string(self.path().join(Self::MEMBER_FILE))
-            .map(|s| {
-                s.lines()
-                    .flat_map(|l| l.parse())
-                    .map(Pid::from_raw)
-                    .collect()
-            })
-            .typ(SystemError::CGroup)
-    }
-
-    /// Moves a process to any cgroup
-    pub fn add_process_to<P: AsRef<Path>>(path: P, pid: Pid) -> TypedResult<()> {
-        std::fs::write(path.as_ref().join(Self::MEMBER_FILE), pid.to_string())
-            .typ(SystemError::CGroup)
-    }
-
-    /// Returns a file descriptor to the events file of this cgroup
-    // TODO: Does this need to be public?
-    pub fn events_file(&self) -> TypedResult<OwnedFd> {
-        File::open(self.path().join(Self::EVENTS_FILE))
-            .typ(SystemError::CGroup)
-            .map(OwnedFd::from)
-    }
-
-    /// Returns a Vec containing the events of this cgroup
-    // TODO: It's weird that member() and this function do a similar thing but have so different names.
-    pub fn read_event_file(&self) -> TypedResult<HashMap<String, bool>> {
-        let ctn = read_to_string(self.path().join(Self::EVENTS_FILE)).typ(SystemError::CGroup)?;
-        Ok(ctn
-            .lines()
-            .filter(|l| !l.is_empty())
-            .filter_map(|l| l.split_once(' '))
-            .map(|(k, b)| (k.to_string(), b.eq("1")))
-            .collect())
-    }
-
-    /// Checks if this cgroup is frozen
-    pub fn is_frozen(&self) -> TypedResult<bool> {
-        let event = self.read_event_file()?;
-        event
-            .get("frozen")
-            .ok_or_else(|| anyhow!("No \"frozen\" in event file"))
-            .typ(SystemError::CGroup)
-            .map(|b| *b)
-    }
-
-    /// Checks if this cgroup contains any active processes
-    pub fn is_populated(&self) -> TypedResult<bool> {
-        let event = self.read_event_file()?;
-        event
-            .get("populated")
-            .ok_or_else(|| anyhow!("No \"populated\" in event file"))
-            .typ(SystemError::CGroup)
-            .map(|b| *b)
-    }
-
-    /// Kills all processes in this cgroup with a given timeout
-    ///
-    /// Returns
-    /// Ok(true) in case of success
-    /// Ok(false) in case of a timeout
-    /// Err(_) in case an error
-    pub fn kill_all_timeout(&self, timeout: Duration) -> TypedResult<bool> {
-        let start = Instant::now();
-
-        std::fs::write(self.path.join("cgroup.kill"), "1").typ(SystemError::CGroup)?;
-
-        let event_file = self.events_file()?;
-        let poller = Poller::new()
-            .map_err(anyhow::Error::from)
-            .typ(SystemError::Panic)?;
-        poller
-            .add(event_file.as_raw_fd(), Event::readable(42))
-            .map_err(anyhow::Error::from)
-            .typ(SystemError::Panic)?;
-
-        // We cannot use timeout directly and pass it to poller, as it may report a change of the
-        // event file that is unrelated to the populated property.
-        let mut leftover_time = timeout.saturating_sub(start.elapsed());
-        loop {
-            // Stop loop if time is exceeded
-            if leftover_time <= Duration::ZERO {
-                return Ok(false);
-            };
-
-            // Check if cgroup is populated (check may take time)
-            if !self.is_populated()? {
-                return Ok(true);
-            }
-
-            // Check again if time is exceeded
-            leftover_time = timeout.saturating_sub(start.elapsed());
-            if leftover_time <= Duration::ZERO {
-                return Ok(false);
-            };
-
-            // Poll wait for event with given leftover time as timeout
-            poller
-                .wait(Vec::new().as_mut(), Some(leftover_time))
-                .typ(SystemError::Panic)?;
-            poller
-                .modify(event_file.as_raw_fd(), Event::readable(42))
-                .map_err(anyhow::Error::from)
-                .typ(SystemError::Panic)?;
-
-            // determine new leftover time
-            leftover_time = timeout.saturating_sub(start.elapsed());
+    pub fn mv(&self, pid: Pid) -> anyhow::Result<()> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
         }
-    }
 
-    /// Deletes a cgroup by killing it's processes and removing the directory afterwards
-    pub fn delete(&self, timeout: Duration) -> TypedResult<()> {
-        self.kill_all_timeout(timeout)?;
-        for d in WalkDir::new(&self.path)
-            .into_iter()
-            .flatten()
-            .filter(|e| e.file_type().is_dir())
-            .sorted_by(|a, b| a.depth().cmp(&b.depth()).reverse())
-        {
-            std::fs::remove_dir(&d.path()).typ(SystemError::CGroup)?;
-            trace!("Removed {:?}", d.path().as_os_str())
-        }
+        fs::write(self.path.join("cgroup.procs"), pid.to_string())?;
         Ok(())
     }
 
-    /// Returns the absolute path of this cgroup on the host file system
-    pub fn path(&self) -> PathBuf {
-        self.path.clone()
+    /// Returns all PIDs associated with this cgroup
+    pub fn get_pids(&self) -> anyhow::Result<Vec<Pid>> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // TODO: "Rustify" this
+        let data = fs::read(self.path.join("cgroup.procs"))?;
+        let mut pids: Vec<Pid> = Vec::new();
+        for line in data.lines() {
+            let line = line?;
+            pids.push(Pid::from_raw(line.parse()?));
+        }
+
+        Ok(pids)
     }
 
-    /// Freezes this cgroup
-    pub fn freeze(&self) -> TypedResult<()> {
-        std::fs::write(self.path.join(Self::FREEZE_FILE), "1").typ(SystemError::CGroup)
+    /// Checks whether this cgroup is populated
+    pub fn populated(&self) -> anyhow::Result<bool> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        Ok(!fs::read(self.path.join("cgroup.procs"))?.is_empty())
     }
 
-    /// Unfreezes this cgroup
-    pub fn unfreeze(&self) -> TypedResult<()> {
-        std::fs::write(self.path.join(Self::FREEZE_FILE), "0").typ(SystemError::CGroup)
+    /// Checks whether this cgroup is frozen
+    pub fn frozen(&self) -> anyhow::Result<bool> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // We need to check for the existance of cgroup.freeze, because
+        // this file does not exist on the root cgroup.
+        let path = self.path.join("cgroup.freeze");
+        if !path.exists() {
+            return Ok(false);
+        }
+
+        Ok(fs::read(&path)? == "1\n".as_bytes())
     }
 
-    /// Returns a directory file descriptor to this cgroup
-    pub fn get_fd(&self) -> TypedResult<File> {
-        File::open(&self.path).typ(SystemError::CGroup)
+    /// Freezes this cgroup (does nothing if already frozen)
+    pub fn freeze(&self) -> anyhow::Result<()> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // We need to check for the existance of cgroup.freeze, because
+        // this file does not exist on the root cgroup.
+        let path = self.path.join("cgroup.freeze");
+        if !path.exists() {
+            bail!("cannot freeze the root cgroup");
+        }
+
+        Ok(fs::write(path, "1")?)
+    }
+
+    /// Unfreezes this cgroup (does nothing if not frozen)
+    pub fn unfreeze(&self) -> anyhow::Result<()> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // We need to check for the existance of cgroup.freeze, because
+        // this file does not exist on the root cgroup.
+        let path = self.path.join("cgroup.freeze");
+        if !path.exists() {
+            bail!("cannot unfreeze the root cgroup");
+        }
+
+        Ok(fs::write(path, "0")?)
+    }
+
+    /// Kills all processes in this cgroup
+    pub fn kill(&self) -> anyhow::Result<()> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // We need to check for the existance of cgroup.kill, because
+        // this file does not exist on the root cgroup.
+        let path = self.path.join("cgroup.kill");
+        if !path.exists() {
+            bail!("cannot kill the root cgroup");
+        }
+
+        Ok(fs::write(path, "1")?)
+    }
+
+    // TODO: Implement functions to fetch the parents and children
+}
+
+// I personally think, that a Drop trait may be too aggresive for removing cgroups,
+// as this would make fetching children and parents in the tree of cgroups almost
+// impossible, because the Drop trait would delete them immediately afterwards.
+// Maybe it would be better to have a method such as rm(), which would delete
+// a cgroup (recursively). With an optional compile flag, it could also be made the
+// Drop trait.
+impl Drop for Cgroup {
+    fn drop(&mut self) {
+        if !is_cgroup(&self.path).unwrap() {
+            // TODO: Maybe this is WAAAY to strict?
+            panic!("{} is not a valid cgroup", self.path.to_str().unwrap());
+        }
+
+        // Recursively delete all sub cgroups
+        for entry in fs::read_dir(&self.path).unwrap() {
+            let entry = entry.unwrap();
+            let meta = entry.metadata().unwrap();
+
+            if meta.is_dir() {
+                // Each sub cgroup is deleted by calling the drop trait recursively (throug this)
+                let _child = Self::import_root(&entry.path()).unwrap();
+            }
+        }
+
+        // Remove the actual cgroup
+        self.kill().unwrap();
+        while self.populated().unwrap() {}
+        fs::remove_dir(&self.path).unwrap();
     }
 }
 
-impl From<PathBuf> for CGroup {
-    fn from(path: PathBuf) -> Self {
-        Self { path }
+/// Checks if path is a valid cgroup by comparing the device id
+fn is_cgroup(path: &Path) -> anyhow::Result<bool> {
+    let st = stat::stat(path)?;
+    Ok(st.st_dev == 26) // 26 is the magic number indicating a cgroup mount
+}
+
+#[cfg(test)]
+mod tests {
+    // The tests must be run as root with --test-threads=1
+
+    use super::*;
+    use std::io;
+    use std::process;
+
+    const CGROUP_MOUNT: &'static str = "/sys/fs/cgroup";
+
+    #[test]
+    fn new_root() {
+        let path = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        assert!(!path.exists()); // Ensure, that it does not already exist
+
+        {
+            let _cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+            assert!(path.exists() && path.is_dir());
+        }
+
+        assert!(!path.exists()); // Test the Drop trait
+    }
+
+    #[test]
+    fn import_root() {
+        let path = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        assert!(!path.exists()); // Ensure, that it does not already exist
+        fs::create_dir(&path).unwrap();
+
+        {
+            let _cg = Cgroup::import_root(&path).unwrap();
+        }
+
+        assert!(!path.exists()); // Test the Drop trait
+    }
+
+    #[test]
+    fn new() {
+        let path_cg1 = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        let path_cg2 = path_cg1.join("cgroup_test2");
+        assert!(!path_cg1.exists()); // Ensure, that it does not already exist
+
+        {
+            let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+            assert!(path_cg1.exists() && path_cg1.is_dir());
+            assert!(!path_cg2.exists());
+
+            {
+                let _cg2 = cg1.new("cgroup_test2").unwrap();
+                assert!(path_cg2.exists() && path_cg2.is_dir());
+            }
+
+            assert!(!path_cg2.exists()); // Test the Drop trait
+        }
+
+        assert!(!path_cg1.exists()); // Test the Drop trait
+    }
+
+    #[test]
+    fn mv() {
+        let mut proc = spawn_proc().unwrap();
+        let pid = Pid::from_raw(proc.id() as i32);
+
+        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg2 = cg1.new("cgroup_test2").unwrap();
+
+        cg1.mv(pid).unwrap();
+        cg2.mv(pid).unwrap();
+        proc.kill().unwrap();
+    }
+
+    #[test]
+    fn get_pids() {
+        let mut proc = spawn_proc().unwrap();
+        let pid = Pid::from_raw(proc.id() as i32);
+
+        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg2 = cg1.new("cgroup_test2").unwrap();
+
+        assert!(cg1.get_pids().unwrap().is_empty());
+        assert!(cg2.get_pids().unwrap().is_empty());
+
+        cg1.mv(pid).unwrap();
+        let pids = cg1.get_pids().unwrap();
+        assert!(!pids.is_empty());
+        assert!(cg2.get_pids().unwrap().is_empty());
+        assert_eq!(pids.len(), 1);
+        assert_eq!(pids[0], pid);
+
+        cg2.mv(pid).unwrap();
+        let pids = cg2.get_pids().unwrap();
+        assert!(!pids.is_empty());
+        assert!(cg1.get_pids().unwrap().is_empty());
+        assert_eq!(pids.len(), 1);
+        assert_eq!(pids[0], pid);
+
+        proc.kill().unwrap();
+    }
+
+    #[test]
+    fn populated() {
+        let mut proc = spawn_proc().unwrap();
+        let pid = Pid::from_raw(proc.id() as i32);
+        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+
+        assert!(!cg.populated().unwrap());
+        assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
+
+        cg.mv(pid).unwrap();
+        assert!(cg.populated().unwrap());
+        assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
+
+        proc.kill().unwrap();
+    }
+
+    #[test]
+    fn frozen() {
+        let mut proc = spawn_proc().unwrap();
+        let pid = Pid::from_raw(proc.id() as i32);
+        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+
+        // Freeze an empty cgroup
+        assert!(!cg.frozen().unwrap());
+        cg.freeze().unwrap();
+        assert!(cg.frozen().unwrap());
+
+        // Unfreeze the empty cgroup
+        cg.unfreeze().unwrap();
+        assert!(!cg.frozen().unwrap());
+
+        // Do the same with a non-empty cgroup
+        cg.mv(pid).unwrap();
+        cg.freeze().unwrap();
+        assert!(cg.frozen().unwrap());
+        cg.unfreeze().unwrap();
+        assert!(!cg.frozen().unwrap());
+
+        proc.kill().unwrap();
+    }
+
+    #[test]
+    fn kill() {
+        let proc = spawn_proc().unwrap();
+        let pid = Pid::from_raw(proc.id() as i32);
+        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+
+        // Kill an empty cgroup
+        cg.kill().unwrap();
+
+        // Do the same with a non-empty cgroup
+        cg.mv(pid).unwrap();
+        assert!(cg.populated().unwrap());
+        cg.kill().unwrap();
+
+        // TODO: Check if the previous PID still exists (although unstable because the OS may re-assign)
+    }
+
+    #[test]
+    fn is_cgroup() {
+        assert!(super::is_cgroup(Path::new(CGROUP_MOUNT)).unwrap());
+        assert!(!super::is_cgroup(Path::new("/tmp")).unwrap());
+    }
+
+    /// Spawns a child process of yes(1)
+    fn spawn_proc() -> io::Result<process::Child> {
+        process::Command::new("yes")
+            .stdout(process::Stdio::null())
+            .spawn()
     }
 }
