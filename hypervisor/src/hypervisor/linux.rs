@@ -9,7 +9,6 @@ use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, 
 use linux_apex_core::file::TempFile;
 use linux_apex_core::sampling::Sampling;
 use once_cell::sync::OnceCell;
-use procfs::process::Process;
 
 use super::config::{Channel, Config};
 use super::partition::Partition;
@@ -36,21 +35,11 @@ impl Hypervisor {
         SYSTEM_START_TIME
             .get_or_try_init(|| TempFile::create("system_time").lev(ErrorLevel::ModuleInit))?;
 
-        let proc = Process::myself().lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
-        let prev_cgroup = proc
-            .cgroups()
-            .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?
-            .get(0)
-            .unwrap()
-            .pathname
-            .clone();
-        //TODO use mountinfo in proc for /sys/fs/cgroup path
-        //      This could be put into the CGroup struct
-        let prev_cg = PathBuf::from(format!("/sys/fs/cgroup{prev_cgroup}"));
+        let prev_cg = PathBuf::from(config.cgroup.parent().unwrap());
 
         let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
         let cg = CGroup::new(
-            config.cgroup.parent().unwrap(),
+            &prev_cg,
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )
         .lev(ErrorLevel::ModuleInit)?;
@@ -165,19 +154,29 @@ impl Hypervisor {
 impl Drop for Hypervisor {
     fn drop(&mut self) {
         let now = Instant::now();
-        for (_, m) in self.partitions.iter_mut() {
+        for (p, m) in self.partitions.iter_mut() {
+            trace!("freezing partition {p}");
             if let Err(e) = m.freeze() {
                 error!("{e}")
             }
         }
+
+        trace!(
+            "moving own process to previous cgroup {:?}",
+            self.prev_cg.as_path()
+        );
         if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()) {
             error!("{e}")
         }
-        for (_, m) in self.partitions.drain() {
+
+        for (p, m) in self.partitions.drain() {
+            trace!("deleting partition {p}");
             if let Err(e) = m.delete(Duration::from_secs(2)) {
                 error!("{e}")
             }
         }
+
+        trace!("deleting former own cgroup");
         if let Err(e) = self.cg.delete(Duration::from_secs(2)) {
             error!("{e}")
         }
