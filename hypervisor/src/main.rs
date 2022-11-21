@@ -26,6 +26,13 @@ pub struct Args {
     /// Target cgroup to use
     #[clap(short = 'g', long)]
     cgroup: Option<PathBuf>,
+
+    /// Only execute the hypervisor for this duration, then quit
+    ///
+    /// The condition is only checked in between major frames, e.g. a major
+    /// frame is never interrupted.
+    #[clap(short, long)]
+    duration: Option<humantime::Duration>,
 }
 
 #[quit::main]
@@ -83,9 +90,11 @@ fn main() -> LeveledResult<()> {
         serde_yaml::from_reader(&f).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
     config.cgroup = cgroup;
 
+    let terminate_after = args.duration.map(|d| d.into());
+
     loop {
         info!("Start Hypervisor");
-        match Hypervisor::new(config.clone())?.run() {
+        match Hypervisor::new(config.clone(), terminate_after)?.run() {
             Ok(_) => {
                 return Err(anyhow!(
                     "Hypervisor Run is not supposed to exit with an OK variant"
