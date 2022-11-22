@@ -35,8 +35,18 @@ jobs:
         run: nix build .#devShells.x86_64-linux.default
       - name: Build partition
         run: nix develop -c cargo build -p hello_part --target x86_64-unknown-linux-musl --release
+      - name: Upload Partition
+        uses: actions/upload-artifact@v3
+        with:
+          name: hello_part
+          path: target/x86_64-unknown-linux-musl/release/hello_part
       - name: Build hypervisor
         run: nix develop -c cargo build -p linux-apex-hypervisor --release
+      - name: Upload Hypervisor
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-apex-hypervisor
+          path: target/release/linux-apex-hypervisor
       - name: Run example
         run: |
           nix develop -c systemd-run --user --scope -- \
