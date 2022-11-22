@@ -1,13 +1,18 @@
+//! Error handling for this crate
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::health::{
-    ModuleInitHMTable, ModuleRecoveryAction, ModuleRunHMTable, PartitionHMTable, RecoveryAction,
-};
-
+/// A Result containing a SystemError with its accompanying source
 pub type TypedResult<T> = Result<T, TypedError>;
+/// A Result containing a SystemError with its accompanying error and time window
+// TODO: Consider merging these two types by making level an Option.
 pub type LeveledResult<T> = Result<T, LeveledError>;
 
+/// A low-level error issued by the operating system
+///
+/// This implementation is custom. Do not confuse it with the traditional unix errnos.
+// TODO: Why can't we just use traditional unix errnos? The anyhow messages should be
+// concrete enough.
 #[derive(Error, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum SystemError {
     #[error("Configuration error")]
@@ -32,6 +37,7 @@ pub enum SystemError {
     CGroup,
 }
 
+/// The time window in which the error has occurred
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorLevel {
     /// Synchronous to Partition Time Window
@@ -42,6 +48,7 @@ pub enum ErrorLevel {
     ModuleRun,
 }
 
+/// Combination of a SystemError with an anyhow error
 #[derive(Error, Debug)]
 #[error("{err:?}: {source:?}")]
 pub struct TypedError {
@@ -50,17 +57,23 @@ pub struct TypedError {
 }
 
 impl TypedError {
+    /// Creates a new TypedError
     pub fn new(err: SystemError, source: anyhow::Error) -> Self {
         Self { err, source }
     }
+    /// Returns the SystemError of this TypedError
     pub fn err(&self) -> SystemError {
         self.err
     }
+    /// Returns the anyhow error of this TypedError
     pub fn source(&self) -> &anyhow::Error {
         &self.source
     }
 }
 
+/// Combination of a SystemError with an anyhow error and its time window
+// TODO: Consider naming "level" "source" instead, as it indicates in which
+// time window the error has occurred?
 #[derive(Error, Debug)]
 #[error("{err:?}: {level:?}, {source:?}")]
 pub struct LeveledError {
@@ -70,22 +83,26 @@ pub struct LeveledError {
 }
 
 impl LeveledError {
+    /// Creates a new LeveledError
     pub fn new(err: SystemError, level: ErrorLevel, source: anyhow::Error) -> Self {
         Self { err, level, source }
     }
-
+    /// Returns the SystemError of this TypedError
     pub fn err(&self) -> SystemError {
         self.err
     }
+    /// Returns the ErrorLevel of this TypedError
     pub fn level(&self) -> ErrorLevel {
         self.level
     }
+    /// Returns the anyhow error of this TypedError
     pub fn source(&self) -> &anyhow::Error {
         &self.source
     }
 }
 impl From<LeveledError> for TypedError {
     fn from(le: LeveledError) -> Self {
+        // Basically just cut off the level field
         Self {
             err: le.err,
             source: le.source,
@@ -93,23 +110,24 @@ impl From<LeveledError> for TypedError {
     }
 }
 
+/// Converts a Result into one of our own Result types
 pub trait ResultExt<T> {
+    /// Converts a Result to a TypedResult
     fn typ(self, err: SystemError) -> TypedResult<T>;
+    /// Converts a Result to a LeveledResult
     fn lev_typ(self, err: SystemError, level: ErrorLevel) -> LeveledResult<T>;
 }
 
+/// Converts a TypedResult to one of our own Result types
 pub trait TypedResultExt<T> {
+    /// Creates a LeveledResult from a TypedResult
     fn lev(self, level: ErrorLevel) -> LeveledResult<T>;
-}
-
-pub trait TypedErrorExt<T> {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<T>;
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<T>;
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<T>;
 }
 
 impl<T> TypedResultExt<T> for TypedResult<T> {
     fn lev(self, level: ErrorLevel) -> LeveledResult<T> {
+        // This basically just creates a LeveledError with all fields tken even from
+        // the TypedResult, except the level being added.
         self.map_err(|e| LeveledError {
             err: e.err,
             level,
@@ -118,93 +136,19 @@ impl<T> TypedResultExt<T> for TypedResult<T> {
     }
 }
 
-impl TypedErrorExt<()> for TypedResult<()> {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_part(hm);
-        }
-        self.lev(ErrorLevel::Partition)
-    }
-
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_mod_init(hm);
-        }
-        self.lev(ErrorLevel::ModuleInit)
-    }
-
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<()> {
-        if let Err(err) = self {
-            return err.map_ignore_mod_run(hm);
-        }
-        self.lev(ErrorLevel::ModuleRun)
-    }
-}
-
-impl TypedErrorExt<()> for TypedError {
-    fn map_ignore_part(self, hm: &PartitionHMTable) -> LeveledResult<()> {
-        if let Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) = hm.try_action(self.err)
-        {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::Partition)
-    }
-
-    fn map_ignore_mod_init(self, hm: &ModuleInitHMTable) -> LeveledResult<()> {
-        if let Some(ModuleRecoveryAction::Ignore) = hm.try_action(self.err) {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::ModuleInit)
-    }
-
-    fn map_ignore_mod_run(self, hm: &ModuleRunHMTable) -> LeveledResult<()> {
-        if let Some(ModuleRecoveryAction::Ignore) = hm.try_action(self.err) {
-            return Ok(());
-        }
-        Err(self).lev(ErrorLevel::ModuleRun)
-    }
-}
-
 impl<T, E: Into<anyhow::Error>> ResultExt<T> for Result<T, E> {
     fn typ(self, err: SystemError) -> TypedResult<T> {
-        match self {
-            Ok(t) => Ok(t),
-            Err(e) => Err(TypedError {
-                err,
-                source: e.into(),
-            }),
-        }
+        self.map_err(|e| TypedError {
+            err,
+            source: e.into(),
+        })
     }
 
     fn lev_typ(self, err: SystemError, level: ErrorLevel) -> LeveledResult<T> {
-        match self {
-            Ok(t) => Ok(t),
-            Err(e) => Err(LeveledError {
-                err,
-                level,
-                source: e.into(),
-            }),
-        }
+        self.map_err(|e| LeveledError {
+            err,
+            level,
+            source: e.into(),
+        })
     }
-
-    //fn rec_res(self, err: SystemError, level: ErrorLevel) -> RecoverableResult<T> {
-    //    match self {
-    //        Ok(t) => Ok(t),
-    //        Err(e) => e.into().rec_res(err, level),
-    //    }
-    //}
 }
-
-//impl<T> ResultExt<T> for anyhow::Error {
-//    fn typ(self, err: SystemError) -> TypedResult<T> {
-//        TypedResult::Err(self.typ(err))
-//    }
-//
-//    fn lev_typ(self, err: SystemError, level: ErrorLevel) -> LeveledResult<T> {
-//        todo!()
-//    }
-//
-//    //fn rec_res(self, err: SystemError, level: ErrorLevel) -> RecoverableResult<T> {
-//    //    Err(RecoverableError::new(err, level, self))
-//    //}
-//}

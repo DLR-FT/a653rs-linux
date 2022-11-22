@@ -1,3 +1,4 @@
+//! Health control types
 use serde::{Deserialize, Serialize};
 
 use crate::error::SystemError;
