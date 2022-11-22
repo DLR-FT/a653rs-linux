@@ -30,7 +30,6 @@ jobs:
         run: nix develop -c cargo build -p linux-apex-hypervisor --release
       - name: Run example
         run: |
-          nix develop -c \
-            systemd-run --user --scope \
-              timeout -s SIGINT --preserve-status --verbose --foreground --kill-after=10s $DURATION \
-                target/release/linux-apex-hypervisor examples/hello_part/hypervisor_config.yaml
+          nix develop -c systemd-run --user --scope -- \
+            target/release/linux-apex-hypervisor --duration $DURATION \
+            examples/hello_part/hypervisor_config.yaml
