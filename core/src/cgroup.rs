@@ -157,38 +157,33 @@ impl Cgroup {
         Ok(fs::write(path, "1")?)
     }
 
-    // TODO: Implement functions to fetch the parents and children
-}
-
-// I personally think, that a Drop trait may be too aggresive for removing cgroups,
-// as this would make fetching children and parents in the tree of cgroups almost
-// impossible, because the Drop trait would delete them immediately afterwards.
-// Maybe it would be better to have a method such as rm(), which would delete
-// a cgroup (recursively). With an optional compile flag, it could also be made the
-// Drop trait.
-impl Drop for Cgroup {
-    fn drop(&mut self) {
-        if !is_cgroup(&self.path).unwrap() {
-            // TODO: Maybe this is WAAAY to strict?
-            panic!("{} is not a valid cgroup", self.path.to_str().unwrap());
+    /// Kills all processes and removes the current cgroup
+    pub fn rm(&self) -> anyhow::Result<()> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.to_str().unwrap_or("N/A"));
         }
 
         // Recursively delete all sub cgroups
-        for entry in fs::read_dir(&self.path).unwrap() {
-            let entry = entry.unwrap();
-            let meta = entry.metadata().unwrap();
+        for entry in fs::read_dir(&self.path)? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
 
             if meta.is_dir() {
-                // Each sub cgroup is deleted by calling the drop trait recursively (throug this)
-                let _child = Self::import_root(&entry.path()).unwrap();
+                // Each sub cgroup is deleted by calling this function recursively
+                let child = Self::import_root(&entry.path())?;
+                child.rm()?;
             }
         }
 
         // Remove the actual cgroup
-        self.kill().unwrap();
-        while self.populated().unwrap() {}
-        fs::remove_dir(&self.path).unwrap();
+        self.kill()?;
+        while self.populated()? {}
+        fs::remove_dir(&self.path)?;
+
+        Ok(())
     }
+
+    // TODO: Implement functions to fetch the parents and children
 }
 
 /// Checks if path is a valid cgroup by comparing the device id
@@ -212,12 +207,11 @@ mod tests {
         let path = Path::new(CGROUP_MOUNT).join("cgroup_test");
         assert!(!path.exists()); // Ensure, that it does not already exist
 
-        {
-            let _cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
-            assert!(path.exists() && path.is_dir());
-        }
+        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        assert!(path.exists() && path.is_dir());
 
-        assert!(!path.exists()); // Test the Drop trait
+        cg.rm().unwrap();
+        assert!(!path.exists());
     }
 
     #[test]
@@ -226,11 +220,10 @@ mod tests {
         assert!(!path.exists()); // Ensure, that it does not already exist
         fs::create_dir(&path).unwrap();
 
-        {
-            let _cg = Cgroup::import_root(&path).unwrap();
-        }
+        let cg = Cgroup::import_root(&path).unwrap();
 
-        assert!(!path.exists()); // Test the Drop trait
+        cg.rm().unwrap();
+        assert!(!path.exists());
     }
 
     #[test]
@@ -239,20 +232,17 @@ mod tests {
         let path_cg2 = path_cg1.join("cgroup_test2");
         assert!(!path_cg1.exists()); // Ensure, that it does not already exist
 
-        {
-            let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
-            assert!(path_cg1.exists() && path_cg1.is_dir());
-            assert!(!path_cg2.exists());
+        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        assert!(path_cg1.exists() && path_cg1.is_dir());
+        assert!(!path_cg2.exists());
 
-            {
-                let _cg2 = cg1.new("cgroup_test2").unwrap();
-                assert!(path_cg2.exists() && path_cg2.is_dir());
-            }
+        let _cg2 = cg1.new("cgroup_test2").unwrap();
+        assert!(path_cg2.exists() && path_cg2.is_dir());
 
-            assert!(!path_cg2.exists()); // Test the Drop trait
-        }
+        cg1.rm().unwrap();
 
-        assert!(!path_cg1.exists()); // Test the Drop trait
+        assert!(!path_cg2.exists());
+        assert!(!path_cg1.exists());
     }
 
     #[test]
@@ -266,6 +256,8 @@ mod tests {
         cg1.mv(pid).unwrap();
         cg2.mv(pid).unwrap();
         proc.kill().unwrap();
+
+        cg1.rm().unwrap();
     }
 
     #[test]
@@ -294,6 +286,8 @@ mod tests {
         assert_eq!(pids[0], pid);
 
         proc.kill().unwrap();
+
+        cg1.rm().unwrap();
     }
 
     #[test]
@@ -310,6 +304,8 @@ mod tests {
         assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
 
         proc.kill().unwrap();
+
+        cg.rm().unwrap();
     }
 
     #[test]
@@ -335,6 +331,8 @@ mod tests {
         assert!(!cg.frozen().unwrap());
 
         proc.kill().unwrap();
+
+        cg.rm().unwrap();
     }
 
     #[test]
@@ -350,6 +348,8 @@ mod tests {
         cg.mv(pid).unwrap();
         assert!(cg.populated().unwrap());
         cg.kill().unwrap();
+
+        cg.rm().unwrap();
 
         // TODO: Check if the previous PID still exists (although unstable because the OS may re-assign)
     }
