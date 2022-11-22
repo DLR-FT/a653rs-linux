@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use anyhow::Ok;
 
-use nix::sys::stat;
+use nix::sys::statfs;
 use nix::unistd::Pid;
 
 /// A single cgroup inside our tree of managed cgroups
@@ -193,8 +193,8 @@ impl Drop for Cgroup {
 
 /// Checks if path is a valid cgroup by comparing the device id
 fn is_cgroup(path: &Path) -> anyhow::Result<bool> {
-    let st = stat::stat(path)?;
-    Ok(st.st_dev == 26) // 26 is the magic number indicating a cgroup mount
+    let st = statfs::statfs(path)?;
+    Ok(st.filesystem_type() == statfs::CGROUP2_SUPER_MAGIC)
 }
 
 #[cfg(test)]
