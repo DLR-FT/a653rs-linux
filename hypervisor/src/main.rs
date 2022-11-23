@@ -50,7 +50,7 @@ fn main() -> LeveledResult<()> {
     // Register Handler for SIGINT
     // Maybe use https://crates.io/crates/signal-hook instead
     let sig_action = SigAction::new(
-        SigHandler::Handler(unwind),
+        SigHandler::Handler(sighdlr),
         SaFlags::empty(),
         SigSet::empty(),
     );
@@ -124,7 +124,7 @@ fn main() -> LeveledResult<()> {
     }
 }
 
-pub extern "C" fn unwind(_: i32) {
+pub extern "C" fn sighdlr(_: i32) {
     print!("\r");
     std::io::stdout().flush().unwrap();
     info!("Exiting");
