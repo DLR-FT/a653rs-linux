@@ -12,9 +12,7 @@ use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use anyhow::bail;
-use anyhow::Ok;
-
+use anyhow::{anyhow, bail, Ok};
 use nix::sys::statfs;
 use nix::unistd::Pid;
 
@@ -186,6 +184,17 @@ impl Cgroup {
     // TODO: Implement functions to fetch the parents and children
 }
 
+/// Returns the first cgroup2 mount point found on the host system
+pub fn mount_point() -> anyhow::Result<PathBuf> {
+    // TODO: This is an awful old function, replace it!
+    procfs::process::Process::myself()?
+        .mountinfo()?
+        .iter()
+        .find(|m| m.fs_type.eq("cgroup2")) // TODO A process can have several cgroup mounts
+        .ok_or_else(|| anyhow!("no cgroup2 mount found"))
+        .map(|m| m.mount_point.clone())
+}
+
 /// Checks if path is a valid cgroup by comparing the device id
 fn is_cgroup(path: &Path) -> anyhow::Result<bool> {
     let st = statfs::statfs(path)?;
@@ -200,14 +209,12 @@ mod tests {
     use std::io;
     use std::process;
 
-    const CGROUP_MOUNT: &'static str = "/sys/fs/cgroup";
-
     #[test]
     fn new_root() {
-        let path = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        let path = Path::new(&mount_point().unwrap()).join("cgroup_test");
         assert!(!path.exists()); // Ensure, that it does not already exist
 
-        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
         assert!(path.exists() && path.is_dir());
 
         cg.rm().unwrap();
@@ -216,7 +223,7 @@ mod tests {
 
     #[test]
     fn import_root() {
-        let path = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        let path = Path::new(&mount_point().unwrap()).join("cgroup_test");
         assert!(!path.exists()); // Ensure, that it does not already exist
         fs::create_dir(&path).unwrap();
 
@@ -228,11 +235,11 @@ mod tests {
 
     #[test]
     fn new() {
-        let path_cg1 = Path::new(CGROUP_MOUNT).join("cgroup_test");
+        let path_cg1 = Path::new(&mount_point().unwrap()).join("cgroup_test");
         let path_cg2 = path_cg1.join("cgroup_test2");
         assert!(!path_cg1.exists()); // Ensure, that it does not already exist
 
-        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg1 = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
         assert!(path_cg1.exists() && path_cg1.is_dir());
         assert!(!path_cg2.exists());
 
@@ -250,7 +257,7 @@ mod tests {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
 
-        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg1 = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
         let cg2 = cg1.new("cgroup_test2").unwrap();
 
         cg1.mv(pid).unwrap();
@@ -265,7 +272,7 @@ mod tests {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
 
-        let cg1 = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg1 = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
         let cg2 = cg1.new("cgroup_test2").unwrap();
 
         assert!(cg1.get_pids().unwrap().is_empty());
@@ -294,7 +301,7 @@ mod tests {
     fn populated() {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
 
         assert!(!cg.populated().unwrap());
         assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
@@ -312,7 +319,7 @@ mod tests {
     fn frozen() {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
 
         // Freeze an empty cgroup
         assert!(!cg.frozen().unwrap());
@@ -339,7 +346,7 @@ mod tests {
     fn kill() {
         let proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = Cgroup::new_root(Path::new(CGROUP_MOUNT), "cgroup_test").unwrap();
+        let cg = Cgroup::new_root(Path::new(&mount_point().unwrap()), "cgroup_test").unwrap();
 
         // Kill an empty cgroup
         cg.kill().unwrap();
@@ -356,7 +363,7 @@ mod tests {
 
     #[test]
     fn is_cgroup() {
-        assert!(super::is_cgroup(Path::new(CGROUP_MOUNT)).unwrap());
+        assert!(super::is_cgroup(Path::new(&mount_point().unwrap())).unwrap());
         assert!(!super::is_cgroup(Path::new("/tmp")).unwrap());
     }
 
