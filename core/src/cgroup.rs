@@ -21,6 +21,7 @@ use nix::unistd::Pid;
 /// The tree is not represented by a traditional tree data structure,
 /// as this is very complicated in Rust. Instead, the tree is "calculated"
 /// by the path alone.
+#[derive(Debug)]
 pub struct CGroup {
     path: PathBuf,
 }
