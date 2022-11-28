@@ -164,7 +164,7 @@ impl CGroup {
     }
 
     /// Returns the path of the event file, which may be polled
-    pub fn get_events_fd(&self) -> PathBuf {
+    pub fn get_events_path(&self) -> PathBuf {
         self.path.join("cgroup.events")
     }
 

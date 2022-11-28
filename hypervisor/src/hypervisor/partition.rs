@@ -56,15 +56,9 @@ pub(crate) struct Run {
 
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
-        let cgroup_main = CGroup::new(&base.cgroup.path(), "main")?;
-        let cgroup_periodic = CGroup::new(
-            &base.cgroup.path(),
-            PartitionConstants::PERIODIC_PROCESS_CGROUP,
-        )?;
-        let cgroup_aperiodic = CGroup::new(
-            &base.cgroup.path(),
-            PartitionConstants::APERIODIC_PROCESS_CGROUP,
-        )?;
+        let cgroup_main = base.cgroup.new("main").typ(SystemError::CGroup)?;
+        let cgroup_periodic = base.cgroup.new(PartitionConstants::PERIODIC_PROCESS_CGROUP).typ(SystemError::CGroup)?;
+        let cgroup_aperiodic = base.cgroup.new(PartitionConstants::APERIODIC_PROCESS_CGROUP).typ(SystemError::CGroup)?;
 
         let real_uid = nix::unistd::getuid();
         let real_gid = nix::unistd::getgid();
@@ -91,7 +85,9 @@ impl Run {
                 .flag_newns()
                 .flag_newipc()
                 .flag_newnet()
-                .flag_into_cgroup(&base.cgroup.get_fd()?.as_raw_fd())
+                .flag_into_cgroup(&std::fs::File::open(base.cgroup.get_path())
+                                    .typ(SystemError::CGroup)?
+                                    .as_raw_fd())
                 .call()
         }
         .typ(SystemError::Panic)?
@@ -271,7 +267,7 @@ impl Run {
 
     pub fn unfreeze_aperiodic(&self) -> TypedResult<bool> {
         if self.aperiodic {
-            self.cgroup_aperiodic.unfreeze()?;
+            self.cgroup_aperiodic.unfreeze().typ(SystemError::CGroup)?;
             return Ok(true);
         }
         Ok(false)
@@ -279,7 +275,7 @@ impl Run {
 
     pub fn freeze_aperiodic(&self) -> TypedResult<bool> {
         if self.aperiodic {
-            self.cgroup_aperiodic.freeze()?;
+            self.cgroup_aperiodic.freeze().typ(SystemError::CGroup)?;
             return Ok(true);
         }
         Ok(false)
@@ -287,23 +283,28 @@ impl Run {
 
     pub fn unfreeze_periodic(&self) -> TypedResult<bool> {
         if self.periodic {
-            self.cgroup_periodic.unfreeze()?;
+            self.cgroup_periodic.unfreeze().typ(SystemError::CGroup)?;
             return Ok(true);
         }
         Ok(false)
     }
 
     pub fn periodic_events(&self) -> TypedResult<OwnedFd> {
-        self.cgroup_periodic.events_file()
+        OwnedFd::try_from(
+            std::fs::File::open(
+                self.cgroup_periodic.get_events_path()
+            )
+            .typ(SystemError::CGroup)?
+        ).typ(SystemError::CGroup)
     }
 
     pub fn is_periodic_frozen(&self) -> TypedResult<bool> {
-        self.cgroup_periodic.is_frozen()
+        self.cgroup_periodic.frozen().typ(SystemError::CGroup)
     }
 
     pub fn freeze_periodic(&self) -> TypedResult<bool> {
         if self.periodic {
-            self.cgroup_periodic.freeze()?;
+            self.cgroup_periodic.freeze().typ(SystemError::CGroup)?;
             return Ok(true);
         }
         Ok(false)
@@ -349,17 +350,17 @@ impl Run {
 
         base.freeze()?;
 
-        if !self.cgroup_aperiodic.member()?.is_empty() {
+        if !self.cgroup_aperiodic.populated().typ(SystemError::CGroup)? {
             self.aperiodic = true;
         }
 
-        if !self.cgroup_periodic.member()?.is_empty() {
+        if !self.cgroup_periodic.populated().typ(SystemError::CGroup)? {
             self.periodic = true;
         }
 
         // Move main process to own cgroup
-        self.cgroup_main.freeze()?;
-        self.cgroup_main.add_process(self.main)?;
+        self.cgroup_main.freeze().typ(SystemError::CGroup)?;
+        self.cgroup_main.mv(self.main).typ(SystemError::CGroup)?;
 
         self.freeze_aperiodic()?;
         self.freeze_periodic()?;
@@ -367,7 +368,7 @@ impl Run {
         self.mode = OperatingMode::Normal;
         self.mode_file.write(&self.mode)?;
 
-        self.cgroup_aperiodic.unfreeze()?;
+        self.cgroup_aperiodic.unfreeze().typ(SystemError::CGroup)?;
         base.unfreeze()?;
         Ok(())
     }
@@ -384,11 +385,7 @@ impl Run {
         }
 
         base.freeze()?;
-        // maybe do not wait for that long. Should only happen within a partition ime window
-        if !base.kill_all_timeout(Duration::from_millis(10))? {
-            return Err(anyhow!("Kill all in Start Transition took more than 10ms"))
-                .typ(SystemError::Panic);
-        }
+        base.kill()?;
 
         *self = Run::new(base, cond, warm_start).typ(SystemError::PartitionInit)?;
 
@@ -431,7 +428,7 @@ impl Base {
     }
 
     pub fn unfreeze(&self) -> TypedResult<()> {
-        self.cgroup.unfreeze()
+        self.cgroup.unfreeze().typ(SystemError::CGroup)
     }
 
     pub fn sampling_fds(&self) -> Vec<RawFd> {
@@ -442,19 +439,19 @@ impl Base {
     }
 
     pub fn freeze(&self) -> TypedResult<()> {
-        self.cgroup.freeze()
+        self.cgroup.freeze().typ(SystemError::CGroup)
     }
 
     pub fn is_frozen(&self) -> TypedResult<bool> {
-        self.cgroup.is_frozen()
+        self.cgroup.frozen().typ(SystemError::CGroup)
     }
 
     pub fn part_hm(&self) -> &PartitionHMTable {
         &self.hm
     }
 
-    pub fn kill_all_timeout(&self, timeout: Duration) -> TypedResult<bool> {
-        self.cgroup.kill_all_timeout(timeout)
+    pub fn kill(&self) -> TypedResult<()> {
+        self.cgroup.kill().typ(SystemError::CGroup)
     }
 }
 
@@ -471,7 +468,7 @@ impl Partition {
         sampling: &HashMap<String, Sampling>,
     ) -> TypedResult<Self> {
         // Todo implement drop for cgroup (in error case)
-        let cgroup = CGroup::new(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
+        let cgroup = CGroup::new_root(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
 
         let sampling_channel = sampling
             .iter()
@@ -574,10 +571,10 @@ impl Partition {
     }
 
     pub(crate) fn freeze(&self) -> TypedResult<()> {
-        self.base.cgroup.freeze()
+        self.base.cgroup.freeze().typ(SystemError::CGroup)
     }
 
-    pub(crate) fn delete(self, timeout: Duration) -> TypedResult<()> {
-        self.base.cgroup.delete(timeout)
+    pub(crate) fn rm(self) -> TypedResult<()> {
+        self.base.cgroup.rm().typ(SystemError::CGroup)
     }
 }
