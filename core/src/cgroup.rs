@@ -163,6 +163,11 @@ impl CGroup {
         self.path.clone()
     }
 
+    /// Returns the path of the event file, which may be polled
+    pub fn get_events_fd(&self) -> PathBuf {
+        self.path.join("cgroup.events")
+    }
+
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
