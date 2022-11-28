@@ -30,8 +30,8 @@ impl CGroup {
     /// Creates a new cgroup as the root of a sub-tree
     ///
     /// path must be the path of an already existing cgroup
-    pub fn new_root(path: &Path, name: &str) -> anyhow::Result<Self> {
-        let path = path.join(name);
+    pub fn new_root<P: AsRef<Path>>(path: P, name: &str) -> anyhow::Result<Self> {
+        let path = PathBuf::from(path.as_ref()).join(name);
 
         // There is no need to check if the path already exists, as create_dir()
         // will fail under this circumstance.
@@ -41,8 +41,10 @@ impl CGroup {
     }
 
     /// Imports an already existing cgroup as the root of a sub-tree
-    pub fn import_root(path: &Path) -> anyhow::Result<Self> {
-        if !is_cgroup(path)? {
+    pub fn import_root<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let path = PathBuf::from(path.as_ref());
+
+        if !is_cgroup(&path)? {
             bail!("{} is not a valid cgroup", path.to_str().unwrap());
         }
 
