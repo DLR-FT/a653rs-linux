@@ -156,6 +156,11 @@ impl CGroup {
         Ok(fs::write(path, "1")?)
     }
 
+    /// Returns the path of this cgroup
+    pub fn get_path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
