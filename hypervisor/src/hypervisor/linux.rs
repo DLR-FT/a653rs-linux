@@ -169,7 +169,10 @@ impl Drop for Hypervisor {
         );
         // Using unwrap in this context is probably safe, as a failure in import_root requires that
         // the cgroup must have been deleted externally
-        if let Err(e) = CGroup::import_root(&self.prev_cg).unwrap().mv(nix::unistd::getpid()) {
+        if let Err(e) = CGroup::import_root(&self.prev_cg)
+            .unwrap()
+            .mv(nix::unistd::getpid())
+        {
             error!("{e}")
         }
 

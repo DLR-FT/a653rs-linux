@@ -57,8 +57,14 @@ pub(crate) struct Run {
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         let cgroup_main = base.cgroup.new("main").typ(SystemError::CGroup)?;
-        let cgroup_periodic = base.cgroup.new(PartitionConstants::PERIODIC_PROCESS_CGROUP).typ(SystemError::CGroup)?;
-        let cgroup_aperiodic = base.cgroup.new(PartitionConstants::APERIODIC_PROCESS_CGROUP).typ(SystemError::CGroup)?;
+        let cgroup_periodic = base
+            .cgroup
+            .new(PartitionConstants::PERIODIC_PROCESS_CGROUP)
+            .typ(SystemError::CGroup)?;
+        let cgroup_aperiodic = base
+            .cgroup
+            .new(PartitionConstants::APERIODIC_PROCESS_CGROUP)
+            .typ(SystemError::CGroup)?;
 
         let real_uid = nix::unistd::getuid();
         let real_gid = nix::unistd::getgid();
@@ -85,9 +91,11 @@ impl Run {
                 .flag_newns()
                 .flag_newipc()
                 .flag_newnet()
-                .flag_into_cgroup(&std::fs::File::open(base.cgroup.get_path())
-                                    .typ(SystemError::CGroup)?
-                                    .as_raw_fd())
+                .flag_into_cgroup(
+                    &std::fs::File::open(base.cgroup.get_path())
+                        .typ(SystemError::CGroup)?
+                        .as_raw_fd(),
+                )
                 .call()
         }
         .typ(SystemError::Panic)?
@@ -291,11 +299,9 @@ impl Run {
 
     pub fn periodic_events(&self) -> TypedResult<OwnedFd> {
         OwnedFd::try_from(
-            std::fs::File::open(
-                self.cgroup_periodic.get_events_path()
-            )
-            .typ(SystemError::CGroup)?
-        ).typ(SystemError::CGroup)
+            std::fs::File::open(self.cgroup_periodic.get_events_path()).typ(SystemError::CGroup)?,
+        )
+        .typ(SystemError::CGroup)
     }
 
     pub fn is_periodic_frozen(&self) -> TypedResult<bool> {

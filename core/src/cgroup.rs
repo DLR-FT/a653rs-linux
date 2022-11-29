@@ -171,7 +171,10 @@ impl CGroup {
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap_or("N/A"));
+            bail!(
+                "{} is not a valid cgroup",
+                self.path.to_str().unwrap_or("N/A")
+            );
         }
 
         // Recursively delete all sub cgroups
@@ -218,9 +221,9 @@ fn is_cgroup(path: &Path) -> anyhow::Result<bool> {
 mod tests {
     // The tests must be run as root with --test-threads=1
 
+    use std::{io, process};
+
     use super::*;
-    use std::io;
-    use std::process;
 
     #[test]
     fn new_root() {

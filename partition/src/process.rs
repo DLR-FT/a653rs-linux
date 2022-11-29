@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use anyhow::anyhow;
 use apex_rs::bindings::*;
 use apex_rs::prelude::{ProcessAttribute, SystemTime};
-use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::cgroup;
+use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
 };
@@ -174,7 +174,9 @@ impl Process {
         let name = self.name()?;
 
         let cg = self.cg().lev(ErrorLevel::Partition)?;
-        cg.freeze().typ(SystemError::CGroup).lev(ErrorLevel::Partition)?;
+        cg.freeze()
+            .typ(SystemError::CGroup)
+            .lev(ErrorLevel::Partition)?;
 
         let stack = unsafe {
             STACKS[self.periodic as usize]
@@ -216,7 +218,8 @@ impl Process {
         } else {
             PartitionConstants::APERIODIC_PROCESS_CGROUP
         };
-        CGroup::new_root(cgroup::mount_point().typ(SystemError::CGroup)?, cg_name).typ(SystemError::CGroup)
+        CGroup::new_root(cgroup::mount_point().typ(SystemError::CGroup)?, cg_name)
+            .typ(SystemError::CGroup)
     }
 
     pub fn periodic(&self) -> bool {
