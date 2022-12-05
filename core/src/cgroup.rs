@@ -80,13 +80,10 @@ impl CGroup {
             bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
         }
 
-        // TODO: "Rustify" this
-        let data = fs::read(self.path.join("cgroup.procs"))?;
-        let mut pids: Vec<Pid> = Vec::new();
-        for line in data.lines() {
-            let line = line?;
-            pids.push(Pid::from_raw(line.parse()?));
-        }
+        let pids: Vec<Pid> = fs::read(self.path.join("cgroup.procs"))?
+            .lines()
+            .map(|line| Pid::from_raw(line.unwrap().parse().unwrap()))
+            .collect();
 
         Ok(pids)
     }
