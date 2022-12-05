@@ -394,9 +394,9 @@ mod tests {
         assert!(!super::is_cgroup(Path::new("/tmp")).unwrap());
     }
 
-    /// Spawns a child process of yes(1)
+    /// Spawns a child process of sleep(1)
     fn spawn_proc() -> io::Result<process::Child> {
-        process::Command::new("yes")
+        process::Command::new("sleep 120")
             .stdout(process::Stdio::null())
             .spawn()
     }
