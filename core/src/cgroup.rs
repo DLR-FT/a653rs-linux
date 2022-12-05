@@ -34,7 +34,7 @@ impl CGroup {
         // Double-checking if path is cgroup does not hurt, as it is
         // better to potentially create a directory at a random location.
         if !is_cgroup(path.as_ref())? {
-            bail!("{} is not a valid cgroup", path.as_ref().to_str().unwrap());
+            bail!("{} is not a valid cgroup", path.as_ref().display());
         }
 
         let path = PathBuf::from(path.as_ref()).join(name);
@@ -51,7 +51,7 @@ impl CGroup {
         let path = PathBuf::from(path.as_ref());
 
         if !is_cgroup(&path)? {
-            bail!("{} is not a valid cgroup", path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", path.display());
         }
 
         Ok(CGroup {
@@ -67,7 +67,7 @@ impl CGroup {
     /// Moves a process to this cgroup
     pub fn mv(&self, pid: Pid) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         fs::write(self.path.join("cgroup.procs"), pid.to_string())?;
@@ -77,7 +77,7 @@ impl CGroup {
     /// Returns all PIDs associated with this cgroup
     pub fn get_pids(&self) -> anyhow::Result<Vec<Pid>> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         let pids: Vec<Pid> = fs::read(self.path.join("cgroup.procs"))?
@@ -91,7 +91,7 @@ impl CGroup {
     /// Checks whether this cgroup is populated
     pub fn populated(&self) -> anyhow::Result<bool> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         Ok(!fs::read(self.path.join("cgroup.procs"))?.is_empty())
@@ -100,7 +100,7 @@ impl CGroup {
     /// Checks whether this cgroup is frozen
     pub fn frozen(&self) -> anyhow::Result<bool> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         // We need to check for the existance of cgroup.freeze, because
@@ -116,7 +116,7 @@ impl CGroup {
     /// Freezes this cgroup (does nothing if already frozen)
     pub fn freeze(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         // We need to check for the existance of cgroup.freeze, because
@@ -132,7 +132,7 @@ impl CGroup {
     /// Unfreezes this cgroup (does nothing if not frozen)
     pub fn unfreeze(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         // We need to check for the existance of cgroup.freeze, because
@@ -148,7 +148,7 @@ impl CGroup {
     /// Kills all processes in this cgroup
     pub fn kill(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.to_str().unwrap());
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         // We need to check for the existance of cgroup.kill, because
@@ -174,10 +174,7 @@ impl CGroup {
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
-            bail!(
-                "{} is not a valid cgroup",
-                self.path.to_str().unwrap_or("N/A")
-            );
+            bail!("{} is not a valid cgroup", self.path.display());
         }
 
         // Recursively delete all sub cgroups
