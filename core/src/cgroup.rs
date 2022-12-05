@@ -177,21 +177,18 @@ impl CGroup {
             bail!("{} is not a valid cgroup", self.path.display());
         }
 
-        // Recursively delete all sub cgroups
-        for entry in fs::read_dir(&self.path)? {
-            let entry = entry?;
-            let meta = entry.metadata()?;
-
-            if meta.is_dir() {
-                // Each sub cgroup is deleted by calling this function recursively
-                let child = Self::import_root(&entry.path())?;
-                child.rm()?;
-            }
-        }
-
-        // Remove the actual cgroup
+        // Calling kill will also kill all sub cgroup processes
         self.kill()?;
-        while self.populated()? {}
+
+        // Obtain all sub cgroups
+        let dirs: Vec<PathBuf> = fs::read_dir(&self.path)?
+            .filter(|entry| entry.as_ref().unwrap().metadata().unwrap().is_dir())
+            .map(|entry| entry.unwrap().path())
+            .collect();
+
+        for dir in dirs {
+            fs::remove_dir(dir)?;
+        }
         fs::remove_dir(&self.path)?;
 
         Ok(())
