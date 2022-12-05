@@ -110,7 +110,7 @@ impl CGroup {
             return Ok(false);
         }
 
-        Ok(fs::read(&path)? == "1\n".as_bytes())
+        Ok(fs::read(&path)? == b"1\n")
     }
 
     /// Freezes this cgroup (does nothing if already frozen)
