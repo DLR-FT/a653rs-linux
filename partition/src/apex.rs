@@ -152,11 +152,12 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         sampling_port_id: SamplingPortId,
         message: &mut [ApexByte],
     ) -> Result<(Validity, MessageSize), ErrorReturnCode> {
-        if let Some((port, val)) = SAMPLING_PORTS
-            .read()
-            .unwrap()
-            .get(sampling_port_id as usize - 1)
-        {
+        let read = if let Ok(read) = SAMPLING_PORTS.read() {
+            read
+        } else {
+            return Err(ErrorReturnCode::NotAvailable);
+        };
+        if let Some((port, val)) = read.get(sampling_port_id as usize - 1) {
             if let Some(port) = CONSTANTS.sampling.get(*port) {
                 if message.is_empty() {
                     return Err(ErrorReturnCode::InvalidParam);

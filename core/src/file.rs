@@ -1,8 +1,7 @@
 //! Implementation of in-memory files
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::os::unix::prelude::{AsRawFd, IntoRawFd, RawFd};
+use std::os::unix::prelude::{AsRawFd, FileExt, IntoRawFd, RawFd};
 
 use anyhow::{anyhow, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};
@@ -79,21 +78,21 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         // TODO: Use an approach without unsafe
         let bytes =
             unsafe { std::slice::from_raw_parts(value as *const T as *const u8, size_of::<T>()) };
-        let mut file = self.get_memfd()?.into_file();
-        file.seek(SeekFrom::Start(0)).typ(SystemError::Panic)?;
-        file.write_all(bytes)
+        let file = self.get_memfd()?.into_file();
+        file.write_all_at(bytes, 0)
             .map_err(anyhow::Error::from)
             .typ(SystemError::Panic)
     }
 
     /// Returns all of the TempFile's data
     pub fn read(&self) -> TypedResult<T> {
-        let mut buf = Vec::with_capacity(size_of::<T>());
-        let mut file = self.get_memfd()?.into_file();
-        file.seek(SeekFrom::Start(0)).typ(SystemError::Panic)?;
-        file.read_to_end(buf.as_mut()).typ(SystemError::Panic)?;
+        let mut buf = vec![0u8; size_of::<T>()];
+        let buf = buf.as_mut_slice();
+        let file = self.get_memfd()?.into_file();
+        file.read_at(buf, 0).typ(SystemError::Panic)?;
         // TODO: Use an approach without unsafe
-        Ok(unsafe { buf.as_slice().align_to::<T>().1[0].clone() })
+        let aligned = unsafe { buf.align_to::<T>() };
+        Ok(aligned.1[0].clone())
     }
 
     /// Returns a mutable memory map from a TempFile
