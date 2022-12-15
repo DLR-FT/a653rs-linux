@@ -38,10 +38,11 @@ impl Hypervisor {
         let prev_cg = PathBuf::from(config.cgroup.parent().unwrap());
 
         let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
-        let cg = CGroup::new(
+        let cg = CGroup::new_root(
             &prev_cg,
             config.cgroup.file_name().unwrap().to_str().unwrap(),
         )
+        .typ(SystemError::CGroup)
         .lev(ErrorLevel::ModuleInit)?;
 
         let mut hv = Self {
@@ -67,7 +68,7 @@ impl Hypervisor {
             }
             hv.partitions.insert(
                 p.name.clone(),
-                Partition::new(hv.cg.path(), p.clone(), &hv.sampling_channel)
+                Partition::new(hv.cg.get_path(), p.clone(), &hv.sampling_channel)
                     .lev(ErrorLevel::ModuleInit)?,
             );
         }
@@ -95,7 +96,8 @@ impl Hypervisor {
 
     pub fn run(mut self) -> LeveledResult<()> {
         self.cg
-            .add_process(nix::unistd::getpid())
+            .mv(nix::unistd::getpid())
+            .typ(SystemError::CGroup)
             .lev(ErrorLevel::ModuleInit)?;
 
         //for p in self.partitions.values_mut() {
@@ -165,19 +167,24 @@ impl Drop for Hypervisor {
             "moving own process to previous cgroup {:?}",
             self.prev_cg.as_path()
         );
-        if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()) {
+        // Using unwrap in this context is probably safe, as a failure in import_root requires that
+        // the cgroup must have been deleted externally
+        if let Err(e) = CGroup::import_root(&self.prev_cg)
+            .unwrap()
+            .mv(nix::unistd::getpid())
+        {
             error!("{e}")
         }
 
         for (p, m) in self.partitions.drain() {
             trace!("deleting partition {p}");
-            if let Err(e) = m.delete(Duration::from_secs(2)) {
+            if let Err(e) = m.rm() {
                 error!("{e}")
             }
         }
 
         trace!("deleting former own cgroup");
-        if let Err(e) = self.cg.delete(Duration::from_secs(2)) {
+        if let Err(e) = self.cg.rm() {
             error!("{e}")
         }
         trace!("Hypervisor clean up took: {:?}", now.elapsed())

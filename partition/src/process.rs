@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use anyhow::anyhow;
 use apex_rs::bindings::*;
 use apex_rs::prelude::{ProcessAttribute, SystemTime};
+use linux_apex_core::cgroup;
 use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
@@ -173,7 +174,9 @@ impl Process {
         let name = self.name()?;
 
         let cg = self.cg().lev(ErrorLevel::Partition)?;
-        cg.freeze().lev(ErrorLevel::Partition)?;
+        cg.freeze()
+            .typ(SystemError::CGroup)
+            .lev(ErrorLevel::Partition)?;
 
         let stack = unsafe {
             STACKS[self.periodic as usize]
@@ -191,7 +194,7 @@ impl Process {
             //setrlimit(Resource::RLIMIT_STACK, stack_size - 2000, stack_size - 2000).unwrap();
 
             let cg = self.cg().unwrap();
-            cg.add_process(getpid()).unwrap();
+            cg.mv(getpid()).unwrap();
             (self.attr.entry_point)();
             0
         });
@@ -199,7 +202,7 @@ impl Process {
         // Make extra sure that the process is in the cgroup
         let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))
             .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
-        cg.add_process(child).unwrap();
+        cg.mv(child).unwrap();
 
         self.pid.write(&child).lev(ErrorLevel::Partition)?;
 
@@ -215,7 +218,8 @@ impl Process {
         } else {
             PartitionConstants::APERIODIC_PROCESS_CGROUP
         };
-        CGroup::new(CGroup::mount_point()?, cg_name)
+        CGroup::new_root(cgroup::mount_point().typ(SystemError::CGroup)?, cg_name)
+            .typ(SystemError::CGroup)
     }
 
     pub fn periodic(&self) -> bool {
