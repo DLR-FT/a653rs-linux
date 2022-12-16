@@ -32,16 +32,21 @@ impl CGroup {
     /// path must be the path of an already existing cgroup
     pub fn new_root<P: AsRef<Path>>(path: P, name: &str) -> anyhow::Result<Self> {
         // Double-checking if path is cgroup does not hurt, as it is
-        // better to potentially create a directory at a random location.
+        // better to not potentially create a directory at a random location.
         if !is_cgroup(path.as_ref())? {
             bail!("{} is not a valid cgroup", path.as_ref().display());
         }
 
         let path = PathBuf::from(path.as_ref()).join(name);
 
-        // There is no need to check if the path already exists, as create_dir()
-        // will fail under this circumstance.
-        fs::create_dir(&path)?;
+        // TODO this is a hotfix for #17. We should revisit this issue, trying to find
+        // our why the same CGroup is created multiple times.
+        if path.exists() {
+            warn!("CGroup {path:?} already exists");
+        } else {
+            // will fail if the path already exists
+            fs::create_dir(&path).unwrap();
+        }
 
         Self::import_root(&path)
     }
