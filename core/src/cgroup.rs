@@ -45,7 +45,7 @@ impl CGroup {
             warn!("CGroup {path:?} already exists");
         } else {
             // will fail if the path already exists
-            fs::create_dir(&path).unwrap();
+            fs::create_dir(&path)?;
         }
 
         Self::import_root(&path)
