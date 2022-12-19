@@ -8,13 +8,15 @@
 //! This approach makes it possible to only manage a certain sub-tree
 //! of cgroups, thereby saving resources. Alternatively, the root cgroup
 //! may be imported, keeping track of all cgroups existing on the host system.
-use std::fs;
+use std::fs::{self};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Ok};
+use itertools::Itertools;
 use nix::sys::statfs;
 use nix::unistd::Pid;
+use walkdir::WalkDir;
 
 /// A single cgroup inside our tree of managed cgroups
 ///
@@ -150,7 +152,8 @@ impl CGroup {
         Ok(fs::write(path, "0")?)
     }
 
-    /// Kills all processes in this cgroup
+    /// Kills all processes in this cgroup and returns once this
+    /// procedure is finished
     pub fn kill(&self) -> anyhow::Result<()> {
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
@@ -158,12 +161,25 @@ impl CGroup {
 
         // We need to check for the existance of cgroup.kill, because
         // this file does not exist on the root cgroup.
-        let path = self.path.join("cgroup.kill");
-        if !path.exists() {
+        let killfile = self.path.join("cgroup.kill");
+        if !killfile.exists() {
             bail!("cannot kill the root cgroup");
         }
 
-        Ok(fs::write(path, "1")?)
+        // Emit the kill signal to all processes inside the cgroup
+        trace!("writing '1' to {}", killfile.display());
+        fs::write(killfile, "1")?;
+
+        // Check if all processes were terminated successfully
+        let mut i = 1;
+        while i <= 64 {
+            trace!("kill iteration ({i}/64)");
+            if !self.populated()? {
+                return Ok(());
+            }
+            i += 1;
+        }
+        bail!("failed to kill the cgroup")
     }
 
     /// Returns the path of this cgroup
@@ -185,16 +201,19 @@ impl CGroup {
         // Calling kill will also kill all sub cgroup processes
         self.kill()?;
 
-        // Obtain all sub cgroups
-        let dirs: Vec<PathBuf> = fs::read_dir(&self.path)?
-            .filter(|entry| entry.as_ref().unwrap().metadata().unwrap().is_dir())
-            .map(|entry| entry.unwrap().path())
-            .collect();
-
-        for dir in dirs {
-            fs::remove_dir(dir)?;
+        // Delete all cgroups from deepest to highest.
+        // It is necessary to delete the outer-most directories first, because
+        // a non-empty directory may not be deleted.
+        trace!("Calling remove on {}", &self.path.display());
+        for d in WalkDir::new(&self.path)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_dir())
+            .sorted_by(|a, b| a.depth().cmp(&b.depth()).reverse())
+        {
+            trace!("Removing cgroup {}", &d.path().display());
+            fs::remove_dir(d.path())?;
         }
-        fs::remove_dir(&self.path)?;
 
         Ok(())
     }
