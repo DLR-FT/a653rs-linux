@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::net::UdpSocket;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -17,7 +18,7 @@ use linux_apex_core::error::{
 use linux_apex_core::file::TempFile;
 use linux_apex_core::health::PartitionHMTable;
 use linux_apex_core::health_event::PartitionCall;
-use linux_apex_core::ipc::{channel_pair, IpcReceiver};
+use linux_apex_core::ipc::{channel_pair, io_pair, IoSender, IpcReceiver};
 use linux_apex_core::partition::{PartitionConstants, SamplingConstant};
 use linux_apex_core::sampling::Sampling;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
@@ -25,6 +26,7 @@ use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
+use super::config::UdpAddress;
 use super::scheduler::{PartitionTimeWindow, Timeout};
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::linux::SYSTEM_START_TIME;
@@ -64,6 +66,7 @@ pub(crate) struct Run {
     _mode_file_fd: OwnedFd,
     mode_file: TempFile<OperatingMode>,
     call_rx: IpcReceiver<PartitionCall>,
+    _io_tx: IoSender<UdpSocket>,
 }
 
 impl FileMounter {
@@ -129,6 +132,13 @@ impl Run {
         let mode_file_fd = unsafe { OwnedFd::from_raw_fd(mode_file.as_raw_fd()) };
         mode_file.write(&mode)?;
 
+        // Create the UDP sockets that were specified in the configuration of the partition.
+        let (io_tx, io_rx) = io_pair::<UdpSocket>()?;
+        for UdpAddress(addr) in base.udp_ports.iter() {
+            let udp_socket = UdpSocket::bind(addr).typ(SystemError::Panic)?;
+            io_tx.try_send(udp_socket).typ(SystemError::Panic)?;
+        }
+
         let pid = match unsafe {
             Clone3::default()
                 .flag_newcgroup()
@@ -171,6 +181,7 @@ impl Run {
                 keep.push(sys_time.as_raw_fd());
                 keep.push(call_tx.as_raw_fd());
                 keep.push(mode_file.as_raw_fd());
+                keep.push(io_rx.as_raw_fd());
 
                 Partition::release_fds(&keep).unwrap();
 
@@ -244,6 +255,7 @@ impl Run {
                     sender_fd: call_tx.as_raw_fd(),
                     start_time_fd: sys_time.as_raw_fd(),
                     partition_mode_fd: mode_file.as_raw_fd(),
+                    io_fd: io_rx.as_raw_fd(),
                     sampling: base
                         .sampling_channel
                         .clone()
@@ -288,6 +300,7 @@ impl Run {
             mode,
             mode_file,
             call_rx,
+            _io_tx: io_tx,
             periodic: false,
             aperiodic: false,
             _mode_file_fd: mode_file_fd,
@@ -455,6 +468,7 @@ pub(crate) struct Base {
     duration: Duration,
     period: Duration,
     working_dir: TempDir,
+    udp_ports: Vec<UdpAddress>,
 }
 
 impl Base {
@@ -523,6 +537,7 @@ impl Partition {
             working_dir,
             hm: config.hm_table,
             sampling_channel,
+            udp_ports: config.udp_ports,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =

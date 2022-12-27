@@ -38,7 +38,12 @@ pub struct Partition {
     pub devices: Vec<Device>,
     #[serde(default)]
     pub hm_table: PartitionHMTable,
+    #[serde(default)]
+    pub udp_ports: Vec<UdpAddress>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UdpAddress(pub String);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Device {

@@ -1,12 +1,17 @@
 //! Implementation of IPC
-use std::io::ErrorKind;
+use std::io::{ErrorKind, IoSlice, IoSliceMut};
 use std::marker::PhantomData;
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
 use std::time::Duration;
 
 use anyhow::Error;
-use nix::sys::socket::{socketpair, AddressFamily, SockFlag, SockType};
+use nix::cmsg_space;
+use nix::errno::Errno;
+use nix::sys::socket::{
+    recvmsg, sendmsg, socketpair, AddressFamily, ControlMessage, ControlMessageOwned, MsgFlags,
+    SockFlag, SockType,
+};
 use polling::{Event, Poller};
 use serde::{Deserialize, Serialize};
 
@@ -129,6 +134,110 @@ impl<T> FromRawFd for IpcReceiver<T> {
         Self {
             socket: UnixDatagram::from_raw_fd(fd),
             _p: PhantomData,
+        }
+    }
+}
+
+/// Creates a pair of sockets that are meant for passing file descriptors to partitions.
+pub fn io_pair<T>() -> TypedResult<(IoSender<T>, IoReceiver<T>)>
+where
+    T: AsRawFd,
+{
+    let (tx, rx) = socketpair(
+        AddressFamily::Unix,
+        SockType::Datagram,
+        None,
+        SockFlag::empty(),
+    )
+    .typ(SystemError::Panic)?;
+    unsafe { Ok((IoSender::from_raw_fd(tx), IoReceiver::from_raw_fd(rx))) }
+}
+
+#[derive(Debug)]
+/// Internal data type for the IO resource sender
+pub struct IoSender<T> {
+    socket: UnixDatagram,
+    _p: PhantomData<T>,
+}
+
+impl<T> IoSender<T>
+where
+    T: AsRawFd,
+{
+    /// Sends a resource to the receiving socket.
+    pub fn try_send(&self, resource: T) -> TypedResult<()> {
+        let fds = [resource.as_raw_fd()];
+        let cmsg = [ControlMessage::ScmRights(&fds)];
+        // Have to send some bytes along with the ancillary data.
+        let iov = [IoSlice::new(&[0u8])];
+        let io_fd = self.socket.as_raw_fd();
+        sendmsg::<()>(io_fd, &iov, &cmsg, MsgFlags::empty(), None).typ(SystemError::Panic)?;
+        Ok(())
+    }
+}
+
+impl<T> IoReceiver<T>
+where
+    T: FromRawFd,
+{
+    /// Returns the next available IO resource.
+    /// Returns `None`, if no further resources can be read from the socket.
+    pub fn try_receive(&self) -> TypedResult<Option<T>> {
+        let mut cmsg = cmsg_space!(RawFd);
+        let mut iobuf = [0u8];
+        let mut iov = [IoSliceMut::new(&mut iobuf)];
+        let io_fd = self.socket.as_raw_fd();
+        match recvmsg::<()>(io_fd, &mut iov, Some(&mut cmsg), MsgFlags::MSG_DONTWAIT) {
+            Ok(msg) => {
+                if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
+                    if let &[raw_fd] = fds.as_slice() {
+                        return Ok(Some(unsafe { T::from_raw_fd(raw_fd) }));
+                    }
+                }
+                Ok(None)
+            }
+            // This should never block since the socket is only written to before the partition starts.
+            Err(e) if e != Errno::EAGAIN && e != Errno::EINTR => {
+                Err(Error::from(e)).typ(SystemError::Panic)
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Internal data type for the IO resource sender
+pub struct IoReceiver<T> {
+    socket: UnixDatagram,
+    _p: PhantomData<T>,
+}
+
+impl<T> AsRawFd for IoSender<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.socket.as_raw_fd()
+    }
+}
+
+impl<T> AsRawFd for IoReceiver<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.socket.as_raw_fd()
+    }
+}
+
+impl<T> FromRawFd for IoSender<T> {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        Self {
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
+            _p: PhantomData::default(),
+        }
+    }
+}
+
+impl<T> FromRawFd for IoReceiver<T> {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        Self {
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
+            _p: PhantomData::default(),
         }
     }
 }

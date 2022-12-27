@@ -1,13 +1,14 @@
 #[macro_use]
 extern crate log;
 
+use std::net::UdpSocket;
 use std::os::unix::prelude::FromRawFd;
 use std::time::{Duration, Instant};
 
 use apex_rs::prelude::OperatingMode;
 use linux_apex_core::file::{get_memfd, TempFile};
 use linux_apex_core::health_event::PartitionCall;
-use linux_apex_core::ipc::IpcSender;
+use linux_apex_core::ipc::{IoReceiver, IpcSender};
 use linux_apex_core::partition::*;
 use memmap2::{MmapMut, MmapOptions};
 use once_cell::sync::Lazy;
@@ -73,6 +74,9 @@ pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 2]>
 
 pub(crate) static SENDER: Lazy<IpcSender<PartitionCall>> =
     Lazy::new(|| unsafe { IpcSender::from_raw_fd(CONSTANTS.sender_fd) });
+
+pub(crate) static IO_RX: Lazy<IoReceiver<UdpSocket>> =
+    Lazy::new(|| unsafe { IoReceiver::<UdpSocket>::from_raw_fd(CONSTANTS.io_fd) });
 
 pub(crate) static SIGNAL_STACK: Lazy<MmapMut> = Lazy::new(|| {
     MmapOptions::new()
