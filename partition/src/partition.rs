@@ -1,11 +1,21 @@
 use std::cmp::min;
 
+#[cfg(feature = "socket")]
+use std::{
+    fmt::Display,
+    io,
+    net::{TcpStream, UdpSocket},
+};
+
 use a653rs::prelude::{ApexErrorP4Ext, MAX_ERROR_MESSAGE_SIZE};
 use a653rs_linux_core::error::SystemError;
 use a653rs_linux_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
 
 use crate::{CONSTANTS, SENDER};
+
+#[cfg(feature = "socket")]
+use crate::{TCP_SOCKETS, UDP_SOCKETS};
 
 /// Static functions for within a partition
 #[derive(Debug, Clone, Copy)]
@@ -16,10 +26,54 @@ impl ApexLinuxPartition {
         CONSTANTS.name.clone()
     }
 
+    #[cfg(feature = "socket")]
+    pub fn get_udp_socket(sockaddr: &str) -> Result<Option<UdpSocket>, ApexLinuxError> {
+        for stored in UDP_SOCKETS.iter() {
+            if stored.local_addr()?.to_string() == sockaddr {
+                let socket = stored.try_clone()?;
+                return Ok(Some(socket));
+            }
+        }
+        Ok(None)
+    }
+
+    #[cfg(feature = "socket")]
+    pub fn get_tcp_stream(sockaddr: &str) -> Result<Option<TcpStream>, ApexLinuxError> {
+        for stored in TCP_SOCKETS.iter() {
+            if stored.local_addr()?.to_string() == sockaddr {
+                let socket = stored.try_clone()?;
+                return Ok(Some(socket));
+            }
+        }
+        Ok(None)
+    }
+
     pub(crate) fn raise_system_error(error: SystemError) {
         if let Err(e) = SENDER.try_send(&PartitionCall::Error(error)) {
             panic!("Could not send SystemError event {error:?}. {e:?}")
         };
+    }
+}
+
+#[cfg(feature = "socket")]
+#[derive(Debug, Clone)]
+pub enum ApexLinuxError {
+    SocketError,
+}
+
+#[cfg(feature = "socket")]
+impl Display for ApexLinuxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApexLinuxError::SocketError => f.write_str("Failed to get socket"),
+        }
+    }
+}
+
+#[cfg(feature = "socket")]
+impl From<io::Error> for ApexLinuxError {
+    fn from(_value: io::Error) -> Self {
+        ApexLinuxError::SocketError
     }
 }
 

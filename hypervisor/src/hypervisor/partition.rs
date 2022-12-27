@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::net::{TcpStream, UdpSocket};
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
 use std::path::{self, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -14,7 +15,7 @@ use a653rs_linux_core::error::{
 use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::health::PartitionHMTable;
 use a653rs_linux_core::health_event::PartitionCall;
-use a653rs_linux_core::ipc::{channel_pair, IpcReceiver};
+use a653rs_linux_core::ipc::{channel_pair, io_pair, IoReceiver, IoSender, IpcReceiver};
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
 use a653rs_linux_core::sampling::Sampling;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
@@ -27,6 +28,7 @@ use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
+use super::config::PosixSocket;
 use super::scheduler::{PartitionTimeWindow, Timeout};
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::linux::SYSTEM_START_TIME;
@@ -67,6 +69,11 @@ pub(crate) struct Run {
     _mode_file_fd: OwnedFd,
     mode_file: TempFile<OperatingMode>,
     call_rx: IpcReceiver<PartitionCall>,
+    // We need to keep the struct for the sender's side, so
+    // the sockets currently in transmission are not closed
+    // before the partition has received them.
+    _io_udp_tx: IoSender<UdpSocket>,
+    _io_tcp_tx: IoSender<TcpStream>,
 }
 
 impl FileMounter {
@@ -166,6 +173,13 @@ impl Run {
         let mode_file_fd = unsafe { OwnedFd::from_raw_fd(mode_file.as_raw_fd()) };
         mode_file.write(&mode)?;
 
+        let IoTxRx {
+            udp_io_tx,
+            udp_io_rx,
+            tcp_io_tx,
+            tcp_io_rx,
+        } = send_sockets(base)?;
+
         let pid = match unsafe {
             Clone3::default()
                 .flag_newcgroup()
@@ -208,6 +222,8 @@ impl Run {
                 keep.push(sys_time.as_raw_fd());
                 keep.push(call_tx.as_raw_fd());
                 keep.push(mode_file.as_raw_fd());
+                keep.push(udp_io_rx.as_raw_fd());
+                keep.push(tcp_io_rx.as_raw_fd());
 
                 Partition::release_fds(&keep).unwrap();
 
@@ -299,6 +315,7 @@ impl Run {
                     sender_fd: call_tx.as_raw_fd(),
                     start_time_fd: sys_time.as_raw_fd(),
                     partition_mode_fd: mode_file.as_raw_fd(),
+                    io_fd: udp_io_rx.as_raw_fd(),
                     sampling: base
                         .sampling_channel
                         .clone()
@@ -343,6 +360,8 @@ impl Run {
             mode,
             mode_file,
             call_rx,
+            _io_udp_tx: udp_io_tx,
+            _io_tcp_tx: tcp_io_tx,
             periodic: false,
             aperiodic: false,
             _mode_file_fd: mode_file_fd,
@@ -497,6 +516,34 @@ impl Run {
     }
 }
 
+struct IoTxRx {
+    udp_io_tx: IoSender<UdpSocket>,
+    udp_io_rx: IoReceiver<UdpSocket>,
+    tcp_io_tx: IoSender<TcpStream>,
+    tcp_io_rx: IoReceiver<TcpStream>,
+}
+
+fn send_sockets(base: &Base) -> Result<IoTxRx, a653rs_linux_core::error::TypedError> {
+    let (udp_io_tx, udp_io_rx) = io_pair::<UdpSocket>()?;
+    let (tcp_io_tx, tcp_io_rx) = io_pair::<TcpStream>()?;
+    for addr in base.sockets.iter() {
+        match addr {
+            PosixSocket::TcpConnect { address } => tcp_io_tx
+                .try_send(TcpStream::connect(address.clone()).typ(SystemError::Panic)?)
+                .typ(SystemError::Panic)?,
+            PosixSocket::Udp { address } => udp_io_tx
+                .try_send(UdpSocket::bind(address.clone()).typ(SystemError::Panic)?)
+                .typ(SystemError::Panic)?,
+        }
+    }
+    Ok(IoTxRx {
+        udp_io_tx,
+        udp_io_rx,
+        tcp_io_tx,
+        tcp_io_rx,
+    })
+}
+
 #[derive(Debug)]
 pub(crate) struct Base {
     name: String,
@@ -509,6 +556,7 @@ pub(crate) struct Base {
     duration: Duration,
     period: Duration,
     working_dir: TempDir,
+    sockets: Vec<PosixSocket>,
 }
 
 impl Base {
@@ -576,6 +624,7 @@ impl Partition {
             working_dir,
             hm: config.hm_table,
             sampling_channel,
+            sockets: config.sockets,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =

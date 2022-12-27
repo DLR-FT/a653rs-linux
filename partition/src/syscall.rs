@@ -118,9 +118,7 @@ mod tests {
                 recvmsg::<()>(responder, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
 
             let fds: Vec<RawFd> = match res.cmsgs().next().unwrap() {
-                ControlMessageOwned::ScmRights(fds) => {
-                    fds.iter().map(|&fd| fd.try_into().unwrap()).collect()
-                }
+                ControlMessageOwned::ScmRights(fds) => fds.to_vec(),
                 _ => panic!("unknown cmsg received"),
             };
 

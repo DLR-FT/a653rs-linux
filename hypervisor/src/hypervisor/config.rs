@@ -33,6 +33,9 @@
 //!     duration: 10ms
 //!     image: target/x86_64-unknown-linux-musl/release/hello_part
 //!     period: 1s
+//!     sockets:
+//!       - type: tcp_connect
+//!         address: 127.0.0.1:8083
 //! channel:
 //!   - !Sampling
 //!     msg_size: 10KB
@@ -46,6 +49,7 @@
 //! # serde_yaml::from_str::<Config>(yaml).unwrap();
 //! ```
 
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -134,6 +138,27 @@ pub struct Partition {
     /// to the inside of a partitions.
     #[serde(default)]
     pub mounts: Vec<(PathBuf, PathBuf)>,
+
+    #[serde(default)]
+    pub sockets: Vec<PosixSocket>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PosixSocket {
+    TcpConnect { address: String },
+    Udp { address: String },
+}
+
+impl ToSocketAddrs for PosixSocket {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        match self {
+            PosixSocket::TcpConnect { address } | PosixSocket::Udp { address } => {
+                address.to_socket_addrs()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

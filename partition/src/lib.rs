@@ -8,6 +8,12 @@
 #[macro_use]
 extern crate log;
 
+#[cfg(feature = "socket")]
+use std::net::{TcpStream, UdpSocket};
+
+#[cfg(feature = "socket")]
+use a653rs_linux_core::ipc::IoReceiver;
+
 use std::os::fd::RawFd;
 use std::os::unix::prelude::FromRawFd;
 use std::time::{Duration, Instant};
@@ -85,6 +91,14 @@ pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 32]
 pub(crate) static SENDER: Lazy<IpcSender<PartitionCall>> =
     Lazy::new(|| unsafe { IpcSender::from_raw_fd(CONSTANTS.sender_fd) });
 
+#[cfg(feature = "socket")]
+pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =
+    Lazy::new(|| unsafe { IoReceiver::<UdpSocket>::from_raw_fd(CONSTANTS.io_fd) });
+
+#[cfg(feature = "socket")]
+pub(crate) static TCP_IO_RX: Lazy<IoReceiver<TcpStream>> =
+    Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.io_fd) });
+
 pub(crate) static SIGNAL_STACK: Lazy<MmapMut> = Lazy::new(|| {
     MmapOptions::new()
         .stack()
@@ -106,3 +120,29 @@ pub(crate) static SYSCALL: Lazy<RawFd> = Lazy::new(|| {
 
     syscall_socket
 });
+
+#[cfg(feature = "socket")]
+pub(crate) static UDP_SOCKETS: Lazy<Vec<UdpSocket>> = Lazy::new(|| receive_sockets(&UDP_IO_RX));
+
+#[cfg(feature = "socket")]
+pub(crate) static TCP_SOCKETS: Lazy<Vec<TcpStream>> = Lazy::new(|| receive_sockets(&TCP_IO_RX));
+
+/// Receives sockets from the hypervisor.
+/// Will panic if an error occurs while receiving the file descriptors of the
+/// sockets.
+#[cfg(feature = "socket")]
+fn receive_sockets<T: FromRawFd>(receiver: &IoReceiver<T>) -> Vec<T> {
+    let mut sockets: Vec<T> = Vec::default();
+    loop {
+        match unsafe { receiver.try_receive() } {
+            Ok(i) => {
+                if let Some(i) = i {
+                    sockets.push(i);
+                } else {
+                    return sockets;
+                }
+            }
+            Err(e) => panic!("Could not receive sockets from hypervisor: {e:?}"),
+        }
+    }
+}
