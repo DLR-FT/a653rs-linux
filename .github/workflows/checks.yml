@@ -28,6 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         check:
+          - cargo clippy --all-features -- -D warnings
           - cargo clippy -- -D warnings
           - udeps
           - treefmt --fail-on-change

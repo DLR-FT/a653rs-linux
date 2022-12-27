@@ -20,6 +20,10 @@ pub struct PartitionConstants {
     pub sender_fd: RawFd,
     pub start_time_fd: RawFd,
     pub partition_mode_fd: RawFd,
+
+    // A UNIX domain socket, that is used to send file descriptors to the partition.
+    pub io_fd: RawFd,
+
     pub sampling: Vec<SamplingConstant>,
 }
 
