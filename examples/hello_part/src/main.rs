@@ -3,6 +3,8 @@
 #[macro_use]
 extern crate log;
 
+use std::ffi::CString;
+use std::net::UdpSocket;
 use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
@@ -23,6 +25,7 @@ static SOURCE_HELLO: OnceCell<SamplingPortSource<HELLO_SAMPLING_PORT_SIZE, Hyper
     OnceCell::new();
 static DESTINATION_HELLO: OnceCell<SamplingPortDestination<HELLO_SAMPLING_PORT_SIZE, Hypervisor>> =
     OnceCell::new();
+static SOCKETS: OnceCell<Vec<UdpSocket>> = OnceCell::new();
 const HELLO_SAMPLING_PORT_SIZE: u32 = 10000;
 
 fn main() {
@@ -41,6 +44,13 @@ impl Partition<Hypervisor> for Hello {
                 .create_sampling_port_source(Name::from_str("Hello").unwrap())
                 .unwrap();
             SOURCE_HELLO.set(source).unwrap();
+            let socks = Hypervisor::receive_udp_sockets();
+            let sock = socks.first().unwrap();
+            sock.set_nonblocking(true).unwrap();
+            let saddr = "127.0.0.1:34256";
+            info!("Connecting the UDP socket to {saddr}");
+            sock.connect(saddr).unwrap();
+            SOCKETS.set(socks).unwrap();
         } else if *BAR {
             let destination = ctx
                 .create_sampling_port_destination(
@@ -89,6 +99,15 @@ extern "C" fn aperiodic_hello() {
             let round = Duration::from_millis(time.as_millis() as u64);
             info!("{:?}: AP MSG {i}", format_duration(round).to_string());
         }
+
+        if *FOO {
+            let udp = SOCKETS.get().unwrap().first().unwrap();
+            let hello = CString::new("Hello World\n").unwrap();
+            if let Err(err) = udp.send(hello.as_bytes_with_nul()) {
+                warn!("{}", err);
+            }
+        }
+
         sleep(Duration::from_millis(1))
     }
 }
@@ -109,11 +128,9 @@ extern "C" fn periodic_hello() {
             info!("{:?}: P MSG {i}", format_duration(round).to_string());
         }
         sleep(Duration::from_millis(1));
-
         //if i % 4 == 0 {
         //    rec(0);
         //}
-
         if i % 5 == 0 {
             if *FOO {
                 SOURCE_HELLO

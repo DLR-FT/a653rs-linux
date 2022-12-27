@@ -1,11 +1,12 @@
 use std::cmp::min;
+use std::net::UdpSocket;
 
 use apex_rs::prelude::{ApexErrorP4Ext, MAX_ERROR_MESSAGE_SIZE};
 use linux_apex_core::error::SystemError;
 use linux_apex_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
 
-use crate::{CONSTANTS, SENDER};
+use crate::{CONSTANTS, IO_RX, SENDER};
 
 /// Static functions for within a partition
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +15,24 @@ pub struct ApexLinuxPartition;
 impl ApexLinuxPartition {
     pub fn get_partition_name() -> String {
         CONSTANTS.name.clone()
+    }
+
+    /// Receives UDP sockets from the hypervisor.
+    /// Will panic if an error occurs while receiving the sockets.
+    pub fn receive_udp_sockets() -> Vec<UdpSocket> {
+        let mut sockets: Vec<UdpSocket> = Vec::default();
+        loop {
+            match IO_RX.try_receive() {
+                Ok(sock) => {
+                    if let Some(sock) = sock {
+                        sockets.push(sock);
+                    } else {
+                        return sockets;
+                    }
+                }
+                Err(e) => panic!("Could not receive UDP sockets from hypervisor: {e:?}"),
+            }
+        }
     }
 
     pub(crate) fn raise_system_error(error: SystemError) {

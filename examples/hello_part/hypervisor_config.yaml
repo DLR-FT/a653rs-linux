@@ -6,6 +6,8 @@ partitions:
     offset: 0ms
     period: 500ms
     image: target/x86_64-unknown-linux-musl/release/hello_part
+    udp_ports:
+      - "127.0.0.1:34254"
   - id: 1
     name: Bar
     offset: 100ms
