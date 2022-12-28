@@ -38,6 +38,8 @@ pub struct Partition {
     pub devices: Vec<Device>,
     #[serde(default)]
     pub hm_table: PartitionHMTable,
+    #[serde(default)]
+    pub veth: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

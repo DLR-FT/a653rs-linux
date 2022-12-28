@@ -9,6 +9,7 @@ pub mod file;
 pub mod health;
 pub mod health_event;
 pub mod ipc;
+pub mod net;
 pub mod partition;
 pub mod queuing;
 pub mod sampling;

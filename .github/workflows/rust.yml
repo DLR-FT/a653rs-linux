@@ -49,7 +49,7 @@ jobs:
           path: target/release/linux-apex-hypervisor
       - name: Run example
         run: |
-          nix develop -c systemd-run --user --scope -- \
+          nix develop -c unshare -rn systemd-run --user --scope -- \
             target/release/linux-apex-hypervisor --duration $DURATION \
             examples/hello_part/hypervisor_config.yaml
       - name: Export Nix store cache

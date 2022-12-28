@@ -536,6 +536,7 @@ dependencies = [
  "polling",
  "procfs",
  "rand",
+ "regex",
  "serde",
  "thiserror",
  "walkdir",

@@ -6,12 +6,18 @@ partitions:
     offset: 0ms
     period: 500ms
     image: target/x86_64-unknown-linux-musl/release/hello_part
+    veth:
+      - p5:p6
+      - p7:p8
   - id: 1
     name: Bar
     offset: 100ms
     duration: 10ms
     image: target/x86_64-unknown-linux-musl/release/hello_part
     period: 1s
+    veth:
+      - p1:p2
+      - p3:p4
 channel:
   - !Sampling
     name: Hello

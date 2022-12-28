@@ -105,7 +105,7 @@
             {
               name = "run-hypervisor-hello-example-scoped";
               command =
-                "systemd-run --user --scope run-hypervisor-hello-example";
+                "unshare -rn systemd-run --user --scope run-hypervisor-hello-example";
               help =
                 ''Run Hypervisor with the "hello" example with systemd-run'';
               category = "dev";

@@ -18,6 +18,7 @@ use linux_apex_core::file::TempFile;
 use linux_apex_core::health::PartitionHMTable;
 use linux_apex_core::health_event::PartitionCall;
 use linux_apex_core::ipc::{channel_pair, IpcReceiver};
+use linux_apex_core::net;
 use linux_apex_core::partition::{PartitionConstants, SamplingConstant};
 use linux_apex_core::sampling::Sampling;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
@@ -101,6 +102,15 @@ impl Run {
         .typ(SystemError::Panic)?
         {
             0 => {
+                // Checks if all configured veth pairs were created
+                if !base.veth.is_empty() {
+                    info!("Checking the veth(4) pairs");
+                    let mut available_ifs = net::get_interfaces().unwrap();
+                    while !base.veth.iter().all(|x| available_ifs.contains(&x.1)) {
+                        info!("Re-checking the interfaces");
+                        available_ifs = net::get_interfaces().unwrap();
+                    }
+                }
                 // Map User and user group (required for tmpfs mounts)
                 std::fs::write(
                     PathBuf::from("/proc/self").join("uid_map"),
@@ -247,6 +257,11 @@ impl Run {
             "Successfully created Partition {}. Main Pid: {pid}",
             base.name()
         );
+
+        for p in &base.veth {
+            net::VethPair::new(&p.0, &p.1, Pid::from_raw(pid)).unwrap();
+            info!("Created veth(4) pair {}:{}", p.0, p.1)
+        }
 
         //let pid_fd = PidFd::try_from(Pid::from_raw(pid));
         let pid = Pid::from_raw(pid);
@@ -426,6 +441,7 @@ pub(crate) struct Base {
     duration: Duration,
     period: Duration,
     working_dir: TempDir,
+    veth: Vec<(String, String)>,
 }
 
 impl Base {
@@ -472,6 +488,7 @@ impl Partition {
         cgroup_root: P,
         config: PartitionConfig,
         sampling: &HashMap<String, Sampling>,
+        veth: Vec<(String, String)>,
     ) -> TypedResult<Self> {
         // Todo implement drop for cgroup (in error case)
         let cgroup = CGroup::new_root(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
@@ -494,6 +511,7 @@ impl Partition {
             working_dir,
             hm: config.hm_table,
             sampling_channel,
+            veth,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =
