@@ -38,12 +38,12 @@ impl Hypervisor {
         let prev_cg = PathBuf::from(config.cgroup.parent().unwrap());
 
         let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
-        let cg = CGroup::new_root(
-            &prev_cg,
-            config.cgroup.file_name().unwrap().to_str().unwrap(),
-        )
-        .typ(SystemError::CGroup)
-        .lev(ErrorLevel::ModuleInit)?;
+        let pid = std::process::id();
+        let file_name = config.cgroup.file_name().unwrap().to_str().unwrap();
+        let cg_name = format!("{file_name}-{pid}");
+        let cg = CGroup::new_root(&prev_cg, cg_name.as_str())
+            .typ(SystemError::CGroup)
+            .lev(ErrorLevel::ModuleInit)?;
 
         let mut hv = Self {
             cg,
