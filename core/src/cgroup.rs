@@ -101,7 +101,7 @@ impl CGroup {
             bail!("{} is not a valid cgroup", self.path.display());
         }
 
-        Ok(!fs::read(self.path.join("cgroup.procs"))?.is_empty())
+        Ok(fs::read_to_string(self.get_events_path())?.contains("populated 1\n"))
     }
 
     /// Checks whether this cgroup is frozen
