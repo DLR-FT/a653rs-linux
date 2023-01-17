@@ -38,12 +38,11 @@ impl Hypervisor {
         let prev_cg = PathBuf::from(config.cgroup.parent().unwrap());
 
         let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
-        let pid = std::process::id();
-        let file_name = config.cgroup.file_name().unwrap().to_str().unwrap();
-        let cg_name = format!("{file_name}-{pid}");
-        let cg = CGroup::new_root(&prev_cg, cg_name.as_str())
-            .typ(SystemError::CGroup)
-            .lev(ErrorLevel::ModuleInit)?;
+        let cg = CGroup::new(
+            &prev_cg,
+            config.cgroup.file_name().unwrap().to_str().unwrap(),
+        )
+        .lev(ErrorLevel::ModuleInit)?;
 
         let mut hv = Self {
             cg,
@@ -68,7 +67,7 @@ impl Hypervisor {
             }
             hv.partitions.insert(
                 p.name.clone(),
-                Partition::new(hv.cg.get_path(), p.clone(), &hv.sampling_channel)
+                Partition::new(hv.cg.path(), p.clone(), &hv.sampling_channel)
                     .lev(ErrorLevel::ModuleInit)?,
             );
         }
@@ -96,8 +95,7 @@ impl Hypervisor {
 
     pub fn run(mut self) -> LeveledResult<()> {
         self.cg
-            .mv(nix::unistd::getpid())
-            .typ(SystemError::CGroup)
+            .add_process(nix::unistd::getpid())
             .lev(ErrorLevel::ModuleInit)?;
 
         //for p in self.partitions.values_mut() {
@@ -167,24 +165,19 @@ impl Drop for Hypervisor {
             "moving own process to previous cgroup {:?}",
             self.prev_cg.as_path()
         );
-        // Using unwrap in this context is probably safe, as a failure in import_root requires that
-        // the cgroup must have been deleted externally
-        if let Err(e) = CGroup::import_root(&self.prev_cg)
-            .unwrap()
-            .mv(nix::unistd::getpid())
-        {
+        if let Err(e) = CGroup::add_process_to(&self.prev_cg, nix::unistd::getpid()) {
             error!("{e}")
         }
 
         for (p, m) in self.partitions.drain() {
             trace!("deleting partition {p}");
-            if let Err(e) = m.rm() {
+            if let Err(e) = m.delete(Duration::from_secs(2)) {
                 error!("{e}")
             }
         }
 
         trace!("deleting former own cgroup");
-        if let Err(e) = self.cg.rm() {
+        if let Err(e) = self.cg.delete(Duration::from_secs(2)) {
             error!("{e}")
         }
         trace!("Hypervisor clean up took: {:?}", now.elapsed())

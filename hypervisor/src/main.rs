@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::anyhow;
 use clap::Parser;
-use linux_apex_core::cgroup;
+use linux_apex_core::cgroup::CGroup;
 use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
 use linux_apex_core::health::ModuleRecoveryAction;
 use linux_apex_hypervisor::hypervisor::config::Config;
@@ -65,9 +65,7 @@ fn main() -> LeveledResult<()> {
     trace!("My pid is {}", my_pid.pid);
 
     // assumes cgroupv2
-    let cgroups_mount_point = cgroup::mount_point()
-        .typ(SystemError::CGroup)
-        .lev(ErrorLevel::ModuleInit)?;
+    let cgroups_mount_point = CGroup::mount_point().lev(ErrorLevel::ModuleInit)?;
 
     let cgroup = args.cgroup.get_or_insert_with(|| {
         let cgroups = my_pid
