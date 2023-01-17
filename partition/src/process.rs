@@ -218,8 +218,11 @@ impl Process {
         } else {
             PartitionConstants::APERIODIC_PROCESS_CGROUP
         };
-        CGroup::new_root(cgroup::mount_point().typ(SystemError::CGroup)?, cg_name)
-            .typ(SystemError::CGroup)
+
+        let path = cgroup::mount_point().typ(SystemError::CGroup)?;
+        let path = path.join(cg_name);
+
+        CGroup::import_root(path).typ(SystemError::CGroup)
     }
 
     pub fn periodic(&self) -> bool {
