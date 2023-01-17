@@ -40,12 +40,16 @@
       in
       rec {
         packages = {
+          # the hypervisor itself
+          default = packages.linux-apex-hypervisor;
           linux-apex-hypervisor = naersk-lib.buildPackage rec {
             pname = "linux-apex-hypervisor";
             root = ./.;
             cargoBuildOptions = x: x ++ [ "--package" pname ];
             cargoTestOptions = x: x ++ [ "--package" pname ];
           };
+
+          # an example
           hello-part = naersk-lib.buildPackage rec {
             pname = "hello_part";
             root = ./.;
@@ -56,13 +60,12 @@
           };
         };
 
-        defaultPackage = packages.linux-apex-hypervisor;
-
+        # a devshell with all the necessary bells and whistles
         devShells.default = (pkgs.devshell.mkShell {
           imports = [ "${devshell}/extra/git/hooks.nix" ];
           name = "linux-apex-dev-shell";
           packages = with pkgs; [
-            gcc
+            stdenv.cc.cc
             coreutils
             rust-toolchain
             rust-analyzer
@@ -132,6 +135,8 @@
             }
           ];
         });
+
+        # always check these
         checks = {
           nixpkgs-fmt = pkgs.runCommand "nixpkgs-fmt"
             {
@@ -142,6 +147,9 @@
               nativeBuildInputs = [ rust-toolchain ];
             } "cd ${./.}; cargo fmt --check; touch $out";
         };
+
+        # instructions for the CI server
+        hydraJobs = packages // checks;
       });
 }
 
