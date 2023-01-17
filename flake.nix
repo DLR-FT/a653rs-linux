@@ -65,7 +65,7 @@
           imports = [ "${devshell}/extra/git/hooks.nix" ];
           name = "linux-apex-dev-shell";
           packages = with pkgs; [
-            stdenv.cc.cc
+            stdenv.cc
             coreutils
             rust-toolchain
             rust-analyzer
