@@ -356,11 +356,11 @@ impl Run {
 
         base.freeze()?;
 
-        if !self.cgroup_aperiodic.populated().typ(SystemError::CGroup)? {
+        if self.cgroup_aperiodic.populated().typ(SystemError::CGroup)? {
             self.aperiodic = true;
         }
 
-        if !self.cgroup_periodic.populated().typ(SystemError::CGroup)? {
+        if self.cgroup_periodic.populated().typ(SystemError::CGroup)? {
             self.periodic = true;
         }
 
