@@ -41,10 +41,8 @@ impl CGroup {
 
         let path = PathBuf::from(path.as_ref()).join(name);
 
-        // TODO this is a hotfix for #17. We should revisit this issue, trying to find
-        // our why the same CGroup is created multiple times.
         if path.exists() {
-            warn!("CGroup {path:?} already exists");
+            bail!("CGroup {path:?} already exists");
         } else {
             // will fail if the path already exists
             fs::create_dir(&path)?;
