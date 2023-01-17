@@ -260,10 +260,11 @@ mod tests {
 
     #[test]
     fn new_root() {
-        let path = get_path().join("cgroup_test");
+        let name = gen_name();
+        let path = get_path().join(&name);
         assert!(!path.exists()); // Ensure, that it does not already exist
 
-        let cg = CGroup::new_root(get_path(), "cgroup_test").unwrap();
+        let cg = CGroup::new_root(get_path(), &name).unwrap();
         assert!(path.exists() && path.is_dir());
 
         cg.rm().unwrap();
@@ -272,7 +273,7 @@ mod tests {
 
     #[test]
     fn import_root() {
-        let path = get_path().join("cgroup_test");
+        let path = get_path().join(gen_name());
         assert!(!path.exists()); // Ensure, that it does not already exist
         fs::create_dir(&path).unwrap();
 
@@ -284,15 +285,18 @@ mod tests {
 
     #[test]
     fn new() {
-        let path_cg1 = get_path().join("cgroup_test");
-        let path_cg2 = path_cg1.join("cgroup_test2");
+        let name1 = gen_name();
+        let name2 = gen_name();
+
+        let path_cg1 = get_path().join(&name1);
+        let path_cg2 = path_cg1.join(&name2);
         assert!(!path_cg1.exists()); // Ensure, that it does not already exist
 
-        let cg1 = CGroup::new_root(get_path(), "cgroup_test").unwrap();
+        let cg1 = CGroup::new_root(get_path(), &name1).unwrap();
         assert!(path_cg1.exists() && path_cg1.is_dir());
         assert!(!path_cg2.exists());
 
-        let _cg2 = cg1.new("cgroup_test2").unwrap();
+        let _cg2 = cg1.new(&name2).unwrap();
         assert!(path_cg2.exists() && path_cg2.is_dir());
 
         cg1.rm().unwrap();
@@ -306,8 +310,8 @@ mod tests {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
 
-        let cg1 = CGroup::new_root(get_path(), "cgroup_test").unwrap();
-        let cg2 = cg1.new("cgroup_test2").unwrap();
+        let cg1 = CGroup::new_root(get_path(), &gen_name()).unwrap();
+        let cg2 = cg1.new(&gen_name()).unwrap();
 
         cg1.mv(pid).unwrap();
         cg2.mv(pid).unwrap();
@@ -321,8 +325,8 @@ mod tests {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
 
-        let cg1 = CGroup::new_root(get_path(), "cgroup_test").unwrap();
-        let cg2 = cg1.new("cgroup_test2").unwrap();
+        let cg1 = CGroup::new_root(get_path(), &gen_name()).unwrap();
+        let cg2 = cg1.new(&gen_name()).unwrap();
 
         assert!(cg1.get_pids().unwrap().is_empty());
         assert!(cg2.get_pids().unwrap().is_empty());
@@ -350,7 +354,7 @@ mod tests {
     fn populated() {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = CGroup::new_root(get_path(), "cgroup_test").unwrap();
+        let cg = CGroup::new_root(get_path(), &gen_name()).unwrap();
 
         assert!(!cg.populated().unwrap());
         assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
@@ -368,7 +372,7 @@ mod tests {
     fn frozen() {
         let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = CGroup::new_root(get_path(), "cgroup_test").unwrap();
+        let cg = CGroup::new_root(get_path(), &gen_name()).unwrap();
 
         // Freeze an empty cgroup
         assert!(!cg.frozen().unwrap());
@@ -395,7 +399,7 @@ mod tests {
     fn kill() {
         let proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
-        let cg = CGroup::new_root(get_path(), "cgroup_test").unwrap();
+        let cg = CGroup::new_root(get_path(), &gen_name()).unwrap();
 
         // Kill an empty cgroup
         cg.kill().unwrap();
@@ -429,5 +433,16 @@ mod tests {
         super::mount_point()
             .unwrap()
             .join(super::current_cgroup().unwrap())
+    }
+
+    /// Generates a name for the current cgroup
+    fn gen_name() -> String {
+        loop {
+            let val: u64 = rand::random();
+            let str = format!("apex-test-{val}");
+            if !Path::new(&str).exists() {
+                return str;
+            }
+        }
     }
 }
