@@ -1,0 +1,35 @@
+name: Run checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  nix-checks:
+    name: Run nix flake check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v13
+        with:
+          nix_path: nixpkgs=channel:nixos-stable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Nix store
+        uses: actions/cache@v3
+        id: nix-cache
+        with:
+          path: /tmp/nixcache
+          key: nix-${{ runner.os }}
+      - name: Import Nix store cache
+        if: "steps.nix-cache.outputs.cache-hit == 'true'"
+        run: nix copy --no-check-sigs --from /tmp/nixcache --all
+      - name: Nix Flake Check
+        run: nix flake check
+      - name: Export Nix store cache
+        if: "steps.nix-cache.outputs.cache-hit != 'true'"
+        run: |
+          nix copy --no-check-sigs --to /tmp/nixcache \
+            .#devShells.x86_64-linux.default
