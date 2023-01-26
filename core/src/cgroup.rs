@@ -169,13 +169,11 @@ impl CGroup {
         fs::write(killfile, "1")?;
 
         // Check if all processes were terminated successfully
-        let mut i = 1;
-        while i <= 64 {
+        for i in 1..=64 {
             trace!("kill iteration ({i}/64)");
             if !self.populated()? {
                 return Ok(());
             }
-            i += 1;
         }
         bail!("failed to kill the cgroup")
     }
