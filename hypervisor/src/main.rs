@@ -49,13 +49,13 @@ fn main() -> LeveledResult<()> {
 
     // Register Handler for SIGINT
     // Maybe use https://crates.io/crates/signal-hook instead
-    let sig_action = SigAction::new(
+    let sig = SigAction::new(
         SigHandler::Handler(sighdlr),
         SaFlags::empty(),
         SigSet::empty(),
     );
-    unsafe { sigaction(SIGINT, &sig_action) }
-        .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+    unsafe { sigaction(SIGINT, &sig) }.lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+    unsafe { sigaction(SIGTERM, &sig) }.lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
 
     trace!("parsing args");
     let mut args = Args::parse();
