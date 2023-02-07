@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -37,6 +37,18 @@ pub enum TransitionAction {
     Error,
 }
 
+// Information about the files that are to be mounted
+#[derive(Debug)]
+pub struct FileMounter {
+    pub source: Option<PathBuf>,
+    pub target: PathBuf,
+    pub fstype: Option<String>,
+    pub flags: MsFlags,
+    pub data: Option<String>,
+    // TODO: Find a way to get rid of this boolean
+    pub is_dir: bool, // Use File::create or fs::create_dir_all
+}
+
 // Struct for holding information of a partition which is not in Idle Mode
 #[derive(Debug)]
 pub(crate) struct Run {
@@ -52,6 +64,39 @@ pub(crate) struct Run {
     _mode_file_fd: OwnedFd,
     mode_file: TempFile<OperatingMode>,
     call_rx: IpcReceiver<PartitionCall>,
+}
+
+impl FileMounter {
+    // Mount (and consume) a device
+    pub fn mount(self, base_dir: &Path) -> anyhow::Result<()> {
+        let target: &PathBuf = &base_dir.join(self.target);
+        let fstype = self.fstype.map(|x| PathBuf::from(x));
+        let data = self.data.map(|x| PathBuf::from(x));
+
+        if self.is_dir {
+            trace!("Creating directory {}", target.display());
+            fs::create_dir_all(target)?;
+        } else {
+            // It is okay to use .unwrap() here.
+            // It will only fail due to a developer mistake, not due to a user mistake.
+            let parent = target.parent().unwrap();
+            trace!("Creating directory {}", parent.display());
+            fs::create_dir_all(parent)?;
+
+            trace!("Creating file {}", target.display());
+            fs::File::create(target)?;
+        }
+
+        mount::<PathBuf, PathBuf, PathBuf, PathBuf>(
+            self.source.as_ref(),
+            target,
+            fstype.as_ref(),
+            self.flags,
+            data.as_ref(),
+        )?;
+
+        anyhow::Ok(())
+    }
 }
 
 impl Run {
@@ -129,76 +174,59 @@ impl Run {
 
                 Partition::release_fds(&keep).unwrap();
 
-                // Mount working directory as tmpfs
-                mount::<str, _, _, str>(
-                    None,
-                    base.working_dir.path(),
-                    Some("tmpfs"),
-                    MsFlags::empty(),
-                    // TODO config size?
-                    Some("size=500k"),
-                    //None,
-                )
-                .unwrap();
-                //mount::<_, _, str, str>(
-                //    Some(base.working_dir.path()),
-                //    base.working_dir.path(),
-                //    None,
-                //    MsFlags::MS_BIND,
-                //    None,
-                //).unwrap();
+                // Mount the required mounts
+                let mounts = [
+                    // Mount working directory as tmpfs
+                    FileMounter {
+                        source: None,
+                        target: "".into(),
+                        fstype: Some("tmpfs".into()),
+                        flags: MsFlags::empty(),
+                        data: Some("size=500k".into()),
+                        is_dir: true,
+                    },
+                    // Mount binary
+                    FileMounter {
+                        source: Some(base.bin.clone()),
+                        target: "bin".into(),
+                        fstype: None,
+                        flags: MsFlags::MS_RDONLY | MsFlags::MS_BIND,
+                        data: None,
+                        is_dir: false,
+                    },
+                    // Mount /dev/null (for stdio::null)
+                    FileMounter {
+                        source: Some("/dev/null".into()),
+                        target: "dev/null".into(),
+                        fstype: None,
+                        flags: MsFlags::MS_RDONLY | MsFlags::MS_BIND,
+                        data: None,
+                        is_dir: false,
+                    },
+                    // Mount proc
+                    FileMounter {
+                        source: Some("/proc".into()),
+                        target: "proc".into(),
+                        fstype: Some("proc".into()),
+                        flags: MsFlags::empty(),
+                        data: None,
+                        is_dir: true,
+                    },
+                    // Mount CGroup v2
+                    FileMounter {
+                        source: None,
+                        target: "sys/fs/cgroup".into(),
+                        fstype: Some("cgroup2".into()),
+                        flags: MsFlags::empty(),
+                        data: None,
+                        is_dir: true,
+                    },
+                ];
 
-                // Mount binary
-                let bin = base.working_dir.path().join("bin");
-                File::create(&bin).unwrap();
-                mount::<_, _, str, str>(
-                    Some(&base.bin),
-                    &bin,
-                    None,
-                    MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                    None,
-                )
-                .unwrap();
-
-                let dev = base.working_dir.path().join("dev");
-                std::fs::create_dir_all(&dev).unwrap();
-                // TODO bind-mount requested devices
-
-                // Mount /dev/null (for stdio::null)
-                let null = dev.join("null");
-                File::create(&null).unwrap();
-                mount::<_, _, str, str>(
-                    Some("/dev/null"),
-                    &null,
-                    None,
-                    MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                    None,
-                )
-                .unwrap();
-
-                // Mount proc
-                let proc = base.working_dir.path().join("proc");
-                std::fs::create_dir(proc.as_path()).unwrap();
-                mount::<str, _, str, str>(
-                    Some("/proc"),
-                    proc.as_path(),
-                    Some("proc"),
-                    MsFlags::empty(),
-                    None,
-                )
-                .unwrap();
-
-                //// Mount CGroup V2
-                let cgroup = base.working_dir.path().join("sys/fs/cgroup");
-                std::fs::create_dir_all(&cgroup).unwrap();
-                mount::<str, _, str, str>(
-                    None,
-                    cgroup.as_path(),
-                    Some("cgroup2"),
-                    MsFlags::empty(),
-                    None,
-                )
-                .unwrap();
+                for m in mounts {
+                    debug!("mounting {:?}", &m);
+                    m.mount(base.working_dir.path()).unwrap();
+                }
 
                 // Change working directory and root (unmount old root)
                 chdir(base.working_dir.path()).unwrap();
