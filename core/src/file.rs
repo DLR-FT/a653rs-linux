@@ -23,6 +23,7 @@ pub struct TempFile<T: Send + Clone + Sized> {
 impl<T: Send + Clone + Sized> TempFile<T> {
     /// Creates an in-memory file
     pub fn create<N: AsRef<str>>(name: N) -> TypedResult<Self> {
+        trace!("Create TempFile \"{}\"", name.as_ref());
         let mem = MemfdOptions::default()
             .close_on_exec(false)
             .allow_sealing(true)

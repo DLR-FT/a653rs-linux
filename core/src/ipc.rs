@@ -86,6 +86,7 @@ pub fn channel_pair<T>() -> TypedResult<(IpcSender<T>, IpcReceiver<T>)>
 where
     T: for<'de> Deserialize<'de> + Serialize,
 {
+    trace!("Create IPC channel pair");
     let (tx, rx) = socketpair(
         AddressFamily::Unix,
         SockType::Datagram,

@@ -33,6 +33,7 @@ impl CGroup {
     ///
     /// path must be the path of an already existing cgroup
     pub fn new_root<P: AsRef<Path>>(path: P, name: &str) -> anyhow::Result<Self> {
+        trace!("Create cgroup \"{name}\"");
         // Double-checking if path is cgroup does not hurt, as it is
         // better to not potentially create a directory at a random location.
         if !is_cgroup(path.as_ref())? {
@@ -53,6 +54,7 @@ impl CGroup {
 
     /// Imports an already existing cgroup as the root of a sub-tree
     pub fn import_root<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        trace!("Import cgroup {}", path.as_ref().display());
         let path = PathBuf::from(path.as_ref());
 
         if !is_cgroup(&path)? {
@@ -71,6 +73,7 @@ impl CGroup {
 
     /// Moves a process to this cgroup
     pub fn mv(&self, pid: Pid) -> anyhow::Result<()> {
+        trace!("Move {pid:?} to {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }
@@ -120,6 +123,7 @@ impl CGroup {
 
     /// Freezes this cgroup (does nothing if already frozen)
     pub fn freeze(&self) -> anyhow::Result<()> {
+        trace!("Freeze {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }
@@ -136,6 +140,7 @@ impl CGroup {
 
     /// Unfreezes this cgroup (does nothing if not frozen)
     pub fn unfreeze(&self) -> anyhow::Result<()> {
+        trace!("Unfreeze {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }
@@ -153,6 +158,7 @@ impl CGroup {
     /// Kills all processes in this cgroup and returns once this
     /// procedure is finished
     pub fn kill(&self) -> anyhow::Result<()> {
+        trace!("Kill {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }
@@ -190,6 +196,7 @@ impl CGroup {
 
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
+        trace!("Remove {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }

@@ -148,6 +148,8 @@ impl Process {
     }
 
     pub fn start(&self) -> LeveledResult<PidFd> {
+        let name = self.name()?;
+        trace!("Start Process \"{name}\"");
         unsafe {
             let stack = stack_t {
                 ss_sp: SIGNAL_STACK.as_ptr() as *mut nix::libc::c_void,
@@ -170,8 +172,6 @@ impl Process {
             );
             sigaction(Signal::SIGFPE, &report_sigfpe_action).unwrap();
         }
-
-        let name = self.name()?;
 
         let cg = self.cg().lev(ErrorLevel::Partition)?;
         cg.freeze()
