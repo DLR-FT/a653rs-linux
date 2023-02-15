@@ -57,6 +57,7 @@ impl<'a> PartitionTimeWindow<'a> {
     //}
 
     fn handle_part_err(&mut self, res: TypedResult<()>) -> LeveledResult<()> {
+        debug!("Partition \"{}\" received err: {res:?}", self.base.name());
         if let Err(err) = res.as_ref() {
             let now = Instant::now();
 

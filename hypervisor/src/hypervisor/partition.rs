@@ -56,6 +56,7 @@ pub(crate) struct Run {
 
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
+        trace!("Create new \"Run\" for \"{}\" partition", base.name());
         let cgroup_main = base.cgroup.new("main").typ(SystemError::CGroup)?;
         let cgroup_periodic = base
             .cgroup
