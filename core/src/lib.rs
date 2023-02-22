@@ -13,3 +13,4 @@ pub mod partition;
 pub mod queuing;
 pub mod sampling;
 pub mod shmem;
+pub mod syscall;
