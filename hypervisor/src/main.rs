@@ -75,8 +75,7 @@ fn main() -> LeveledResult<()> {
             .expect("unable to retrieve my parent cgroup");
         let cgroup_path = cgroups
             .iter()
-            .filter(|c| c.hierarchy == 0)
-            .next()
+            .find(|c| c.hierarchy == 0)
             .unwrap()
             .pathname
             .strip_prefix('/')

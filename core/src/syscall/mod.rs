@@ -1,6 +1,8 @@
 use nix::sys::ptrace::traceme;
 use nix::sys::signal::{raise, Signal};
 
+pub mod ptrace;
+
 // Make child process also traced
 // (Or dont because we control all systemcalls)
 // PTRACE_O_TRACEFORK / PTRACE_O_TRACEVFORK / PTRACE_O_TRACECLONE
@@ -176,7 +178,7 @@ pub enum ApexSyscall {
 }
 
 impl ApexSyscall {
-    pub fn child() -> anyhow::Result<()> {
+    pub fn install() -> anyhow::Result<()> {
         traceme()?;
         raise(Signal::SIGSTOP)?;
         Ok(())
@@ -185,8 +187,10 @@ impl ApexSyscall {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::c_void;
+
     use nix::libc;
-    use nix::sys::ptrace::{attach, cont, getregs, syscall};
+    use nix::sys::ptrace::{self, attach, cont, getregs, syscall};
     use nix::sys::signal::Signal;
     use nix::sys::wait::waitpid;
     use nix::unistd::{fork, write, ForkResult};
@@ -202,7 +206,21 @@ mod tests {
                     .map(|_| {
                         let res1 = waitpid(child, None);
                         // cont(child, None).ok();
-                        let res2 = getregs(child).map(|r| r.orig_rax);
+                        let res2 = getregs(child).map(|r| (r.orig_rax, r.rdi, r.rsi, r.rdx, r.r10));
+
+                        if let Ok(regs) = getregs(child) {
+                            if regs.orig_rax == 500 {
+                                // let data = 5;
+                                unsafe {
+                                    ptrace::write(
+                                        child,
+                                        regs.rdi as *mut c_void,
+                                        5u64 as *mut u64 as *mut c_void,
+                                    )
+                                };
+                            }
+                        }
+
                         // syscall(child, None).ok();
                         // let res3 = waitpid(child, None);
 
@@ -214,8 +232,12 @@ mod tests {
                 panic!("{res:?}");
             }
             Ok(ForkResult::Child) => {
-                ApexSyscall::child().unwrap();
-                unsafe { nix::libc::syscall(500) };
+                ApexSyscall::install().unwrap();
+                unsafe {
+                    let mut test = [0u64, 0, 0, 0];
+                    let res = nix::libc::syscall(500, &mut test);
+                    nix::libc::syscall(501, test[0], test[1], test[2], test[3]);
+                };
                 unsafe { fork() }.unwrap();
                 // unsafe { libc::_exit(0) };
 
