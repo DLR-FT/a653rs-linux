@@ -109,7 +109,16 @@ impl<'a> PartitionTimeWindow<'a> {
         // If we are in the normal mode at the beginning of the time frame,
         // only then we may schedule the periodic process inside a partition
         if let OperatingMode::Normal = self.run.mode() {
-            let res = self.run_periodic();
+            let res = self.run.unfreeze_periodic();
+            let res = match res {
+                Ok(true) => self.run_periodic(),
+                // Check if there is no periodic process
+                Ok(false) => {
+                    self.run.unfreeze_aperiodic().lev(ErrorLevel::Partition)?;
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            };
             self.handle_part_err(res)?;
         }
 
@@ -169,7 +178,6 @@ impl<'a> PartitionTimeWindow<'a> {
     }
 
     fn run_periodic(&mut self) -> TypedResult<()> {
-        self.run.unfreeze_periodic()?;
         let mut poller = PeriodicPoller::new(self.run)?;
 
         self.base.unfreeze()?;
