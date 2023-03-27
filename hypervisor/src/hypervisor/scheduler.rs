@@ -4,9 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use apex_rs::prelude::{OperatingMode, StartCondition};
-use linux_apex_core::error::{
-    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
-};
+use linux_apex_core::error::{ResultExt, SystemError, TypedError, TypedResult};
 use linux_apex_core::health::{ModuleRecoveryAction, RecoveryAction};
 use linux_apex_core::health_event::PartitionCall;
 use polling::{Event, Poller};
@@ -56,7 +54,8 @@ impl<'a> PartitionTimeWindow<'a> {
     //    }
     //}
 
-    fn handle_part_err(&mut self, res: TypedResult<()>) -> LeveledResult<()> {
+    // TODO: Consider changing the interface of this function.
+    fn handle_part_err(&mut self, res: TypedResult<()>) -> TypedResult<()> {
         debug!("Partition \"{}\" received err: {res:?}", self.base.name());
         if let Err(err) = res.as_ref() {
             let now = Instant::now();
@@ -66,12 +65,12 @@ impl<'a> PartitionTimeWindow<'a> {
                     warn!("Could not map \"{res:?}\" to action. Using Panic action instead");
                     match self.base.part_hm().panic {
                         // We do not Handle Module Recovery actions here
-                        RecoveryAction::Module(_) => return res.lev(ErrorLevel::Partition),
+                        RecoveryAction::Module(_) => return res,
                         RecoveryAction::Partition(action) => action,
                     }
                 }
                 // We do not Handle Module Recovery actions here
-                Some(RecoveryAction::Module(_)) => return res.lev(ErrorLevel::Partition),
+                Some(RecoveryAction::Module(_)) => return res,
                 Some(RecoveryAction::Partition(action)) => action,
             };
 
@@ -100,7 +99,7 @@ impl<'a> PartitionTimeWindow<'a> {
         Ok(())
     }
 
-    pub fn run(&mut self) -> LeveledResult<()> {
+    pub fn run(&mut self) -> TypedResult<()> {
         // Stop if the time is already over
         if !self.timeout.time_left() {
             return Ok(());
@@ -114,7 +113,7 @@ impl<'a> PartitionTimeWindow<'a> {
                 Ok(true) => self.run_periodic(),
                 // Check if there is no periodic process
                 Ok(false) => {
-                    self.run.unfreeze_aperiodic().lev(ErrorLevel::Partition)?;
+                    self.run.unfreeze_aperiodic()?;
                     Ok(())
                 }
                 Err(e) => Err(e),

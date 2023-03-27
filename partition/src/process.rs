@@ -8,9 +8,7 @@ use apex_rs::bindings::*;
 use apex_rs::prelude::{ProcessAttribute, SystemTime};
 use linux_apex_core::cgroup;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{
-    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
-};
+use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
 use linux_apex_core::fd::PidFd;
 use linux_apex_core::file::TempFile;
 use linux_apex_core::partition::PartitionConstants;
@@ -48,22 +46,15 @@ pub(crate) struct Process {
 }
 
 impl Process {
-    pub fn create(attr: ProcessAttribute) -> LeveledResult<ProcessId> {
-        let name = attr
-            .name
-            .to_str()
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?
-            .to_string();
+    pub fn create(attr: ProcessAttribute) -> TypedResult<ProcessId> {
+        let name = attr.name.to_str().typ(SystemError::Panic)?.to_string();
         trace!("Create New Process: {name:?}");
-        let stack_size: usize = attr
-            .stack_size
-            .try_into()
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
+        let stack_size: usize = attr.stack_size.try_into().typ(SystemError::Panic)?;
         let mut stack = MmapOptions::new()
             .stack()
             .len(stack_size)
             .map_anon()
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
+            .typ(SystemError::Panic)?;
 
         let periodic = attr.period != SystemTime::Infinite;
         let id = periodic as i32 + 1;
@@ -71,7 +62,7 @@ impl Process {
         let guard = SYNC
             .lock()
             .map_err(|e| anyhow!("{e:?}"))
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
+            .typ(SystemError::Panic)?;
 
         let proc_file = if periodic {
             PERIODIC_PROCESS.clone()
@@ -79,17 +70,17 @@ impl Process {
             APERIODIC_PROCESS.clone()
         };
 
-        if proc_file.read().lev(ErrorLevel::Partition)?.is_some() {
+        if proc_file.read()?.is_some() {
             return Err(anyhow!("Process type already exists. Periodic: {periodic}"))
-                .lev_typ(SystemError::Panic, ErrorLevel::Partition);
+                .typ(SystemError::Panic);
         }
 
         // Files for dropping fd
         let mut fds = Vec::new();
-        let activated = TempFile::create(&format!("state_{name}")).lev(ErrorLevel::Partition)?;
+        let activated = TempFile::create(&format!("state_{name}"))?;
         fds.push(unsafe { OwnedFd::from_raw_fd(activated.fd()) });
-        activated.write(&false).lev(ErrorLevel::Partition)?;
-        let pid = TempFile::create(&format!("pid_{name}")).lev(ErrorLevel::Partition)?;
+        activated.write(&false)?;
+        let pid = TempFile::create(&format!("pid_{name}"))?;
         fds.push(unsafe { OwnedFd::from_raw_fd(pid.fd()) });
 
         let process = Self {
@@ -100,7 +91,7 @@ impl Process {
             periodic,
         };
 
-        proc_file.write(&Some(process)).lev(ErrorLevel::Partition)?;
+        proc_file.write(&Some(process))?;
 
         // We can unwrap because it was already checked that the cell is empty
         STACKS[periodic as usize]
@@ -140,14 +131,11 @@ impl Process {
         None
     }
 
-    pub fn name(&self) -> LeveledResult<&str> {
-        self.attr
-            .name
-            .to_str()
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)
+    pub fn name(&self) -> TypedResult<&str> {
+        self.attr.name.to_str().typ(SystemError::Panic)
     }
 
-    pub fn start(&self) -> LeveledResult<PidFd> {
+    pub fn start(&self) -> TypedResult<PidFd> {
         let name = self.name()?;
         trace!("Start Process \"{name}\"");
         unsafe {
@@ -173,10 +161,8 @@ impl Process {
             sigaction(Signal::SIGFPE, &report_sigfpe_action).unwrap();
         }
 
-        let cg = self.cg().lev(ErrorLevel::Partition)?;
-        cg.freeze()
-            .typ(SystemError::CGroup)
-            .lev(ErrorLevel::Partition)?;
+        let cg = self.cg()?;
+        cg.freeze().typ(SystemError::CGroup)?;
 
         let stack = unsafe {
             STACKS[self.periodic as usize]
@@ -201,12 +187,12 @@ impl Process {
 
         // Make extra sure that the process is in the cgroup
         let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))
-            .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
+            .typ(SystemError::Panic)?;
         cg.mv(child).unwrap();
 
-        self.pid.write(&child).lev(ErrorLevel::Partition)?;
+        self.pid.write(&child)?;
 
-        let pidfd = PidFd::try_from(child).lev(ErrorLevel::Partition)?;
+        let pidfd = PidFd::try_from(child)?;
 
         trace!("Started process \"{name}\" with pid: {child}");
         Ok(pidfd)

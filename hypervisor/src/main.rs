@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use clap::Parser;
 use linux_apex_core::cgroup;
-use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
+use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
 use linux_apex_core::health::ModuleRecoveryAction;
 use linux_apex_hypervisor::hypervisor::config::Config;
 use linux_apex_hypervisor::hypervisor::linux::Hypervisor;
@@ -36,7 +36,7 @@ pub struct Args {
 }
 
 #[quit::main]
-fn main() -> LeveledResult<()> {
+fn main() -> TypedResult<()> {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());
 
@@ -54,20 +54,17 @@ fn main() -> LeveledResult<()> {
         SaFlags::empty(),
         SigSet::empty(),
     );
-    unsafe { sigaction(SIGINT, &sig) }.lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
-    unsafe { sigaction(SIGTERM, &sig) }.lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+    unsafe { sigaction(SIGINT, &sig) }.typ(SystemError::Panic)?;
+    unsafe { sigaction(SIGTERM, &sig) }.typ(SystemError::Panic)?;
 
     trace!("parsing args");
     let mut args = Args::parse();
 
-    let my_pid =
-        procfs::process::Process::myself().lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
+    let my_pid = procfs::process::Process::myself().typ(SystemError::Panic)?;
     trace!("My pid is {}", my_pid.pid);
 
     // assumes cgroupv2
-    let cgroups_mount_point = cgroup::mount_point()
-        .typ(SystemError::CGroup)
-        .lev(ErrorLevel::ModuleInit)?;
+    let cgroups_mount_point = cgroup::mount_point().typ(SystemError::CGroup)?;
 
     let cgroup = args.cgroup.get_or_insert_with(|| {
         let cgroups = my_pid
@@ -87,9 +84,8 @@ fn main() -> LeveledResult<()> {
     let cgroup = cgroup.join("linux-hypervisor");
 
     info!("parsing config");
-    let f = File::open(args.config_file).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
-    let mut config: Config =
-        serde_yaml::from_reader(&f).lev_typ(SystemError::Config, ErrorLevel::ModuleInit)?;
+    let f = File::open(args.config_file).typ(SystemError::Config)?;
+    let mut config: Config = serde_yaml::from_reader(&f).typ(SystemError::Config)?;
     config.cgroup = cgroup;
 
     let terminate_after = args.duration.map(|d| d.into());
@@ -101,21 +97,13 @@ fn main() -> LeveledResult<()> {
                 return Err(anyhow!(
                     "Hypervisor Run is not supposed to exit with an OK variant"
                 ))
-                .lev_typ(SystemError::Panic, ErrorLevel::ModuleRun)
+                .typ(SystemError::Panic)
             }
             Err(e) => {
-                let action = match e.level() {
-                    // Partition Level is not expected here
-                    ErrorLevel::Partition => return Err(e),
-                    ErrorLevel::ModuleInit => config
-                        .hm_init_table
-                        .try_action(e.err())
-                        .unwrap_or(config.hm_init_table.panic),
-                    ErrorLevel::ModuleRun => config
-                        .hm_run_table
-                        .try_action(e.err())
-                        .unwrap_or(config.hm_run_table.panic),
-                };
+                let action = config
+                    .hm_init_table
+                    .try_action(e.err())
+                    .unwrap_or(config.hm_run_table.panic);
                 match action {
                     ModuleRecoveryAction::Ignore => {}
                     ModuleRecoveryAction::Shutdown => return Ok(()),

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
+use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
 use linux_apex_core::file::TempFile;
 use linux_apex_core::sampling::Sampling;
 use once_cell::sync::OnceCell;
@@ -30,20 +30,17 @@ pub struct Hypervisor {
 }
 
 impl Hypervisor {
-    pub fn new(config: Config, terminate_after: Option<Duration>) -> LeveledResult<Self> {
+    pub fn new(config: Config, terminate_after: Option<Duration>) -> TypedResult<Self> {
         // Init SystemTime
-        SYSTEM_START_TIME
-            .get_or_try_init(|| TempFile::create("system_time").lev(ErrorLevel::ModuleInit))?;
+        SYSTEM_START_TIME.get_or_try_init(|| TempFile::create("system_time"))?;
 
         let prev_cg = PathBuf::from(config.cgroup.parent().unwrap());
 
-        let schedule = config.generate_schedule().lev(ErrorLevel::ModuleInit)?;
+        let schedule = config.generate_schedule()?;
         let pid = std::process::id();
         let file_name = config.cgroup.file_name().unwrap().to_str().unwrap();
         let cg_name = format!("{file_name}-{pid}");
-        let cg = CGroup::new_root(&prev_cg, cg_name.as_str())
-            .typ(SystemError::CGroup)
-            .lev(ErrorLevel::ModuleInit)?;
+        let cg = CGroup::new_root(&prev_cg, cg_name.as_str()).typ(SystemError::CGroup)?;
 
         let mut hv = Self {
             cg,
@@ -64,28 +61,27 @@ impl Hypervisor {
         for p in config.partitions.iter() {
             if hv.partitions.contains_key(&p.name) {
                 return Err(anyhow!("Partition \"{}\" already exists", p.name))
-                    .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
+                    .typ(SystemError::PartitionConfig);
             }
             hv.partitions.insert(
                 p.name.clone(),
-                Partition::new(hv.cg.get_path(), p.clone(), &hv.sampling_channel)
-                    .lev(ErrorLevel::ModuleInit)?,
+                Partition::new(hv.cg.get_path(), p.clone(), &hv.sampling_channel)?,
             );
         }
 
         Ok(hv)
     }
 
-    fn add_channel(&mut self, channel: Channel) -> LeveledResult<()> {
+    fn add_channel(&mut self, channel: Channel) -> TypedResult<()> {
         match channel {
             Channel::Queuing(_) => todo!(),
             Channel::Sampling(s) => {
                 if self.sampling_channel.contains_key(&s.name) {
                     return Err(anyhow!("Sampling Channel \"{}\" already exists", s.name))
-                        .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
+                        .typ(SystemError::PartitionConfig);
                 }
 
-                let sampling = Sampling::try_from(s).lev(ErrorLevel::ModuleInit)?;
+                let sampling = Sampling::try_from(s)?;
                 self.sampling_channel
                     .insert(sampling.name().to_string(), sampling);
             }
@@ -94,11 +90,8 @@ impl Hypervisor {
         Ok(())
     }
 
-    pub fn run(mut self) -> LeveledResult<()> {
-        self.cg
-            .mv(nix::unistd::getpid())
-            .typ(SystemError::CGroup)
-            .lev(ErrorLevel::ModuleInit)?;
+    pub fn run(mut self) -> TypedResult<()> {
+        self.cg.mv(nix::unistd::getpid()).typ(SystemError::CGroup)?;
 
         //for p in self.partitions.values_mut() {
         //    let part = &self.config.partitions[p.id() - 1];
@@ -122,9 +115,9 @@ impl Hypervisor {
         let sys_time = SYSTEM_START_TIME
             .get()
             .ok_or_else(|| anyhow!("SystemTime was not set"))
-            .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
-        sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
-        sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
+            .typ(SystemError::Panic)?;
+        sys_time.write(&frame_start)?;
+        sys_time.seal_read_only()?;
         loop {
             // if we are not ment to execute any longer, terminate here
             match self.terminate_after {

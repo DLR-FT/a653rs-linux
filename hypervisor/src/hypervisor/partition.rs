@@ -11,9 +11,7 @@ use apex_rs::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
 use itertools::Itertools;
 use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{
-    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
-};
+use linux_apex_core::error::{ResultExt, SystemError, TypedResult};
 use linux_apex_core::file::TempFile;
 use linux_apex_core::health::PartitionHMTable;
 use linux_apex_core::health_event::PartitionCall;
@@ -574,10 +572,10 @@ impl Partition {
         &mut self,
         sampling: &mut HashMap<String, Sampling>,
         timeout: Timeout,
-    ) -> LeveledResult<()> {
+    ) -> TypedResult<()> {
         PartitionTimeWindow::new(&self.base, &mut self.run, timeout).run()?;
         // TODO Error handling and freeze if err
-        self.base.freeze().lev(ErrorLevel::Partition)?;
+        self.base.freeze()?;
 
         for (name, _) in self
             .base
