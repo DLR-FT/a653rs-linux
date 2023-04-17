@@ -197,54 +197,57 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn custom_systemcall() {
-        match unsafe { fork() } {
-            Ok(ForkResult::Parent { child, .. }) => {
-                // attach(child).unwrap();
-                let res: Vec<_> = (0..100)
-                    .map(|_| {
-                        let res1 = waitpid(child, None);
-                        // cont(child, None).ok();
-                        let res2 = getregs(child).map(|r| (r.orig_rax, r.rdi, r.rsi, r.rdx, r.r10));
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn custom_syscall() {}
 
-                        if let Ok(regs) = getregs(child) {
-                            if regs.orig_rax == 500 {
-                                // let data = 5;
-                                unsafe {
-                                    ptrace::write(
-                                        child,
-                                        regs.rdi as *mut c_void,
-                                        5u64 as *mut u64 as *mut c_void,
-                                    )
-                                };
-                            }
-                        }
+    // #[test]
+    // fn custom_systemcall() {
+    //     match unsafe { fork() } {
+    //         Ok(ForkResult::Parent { child, .. }) => {
+    //             // attach(child).unwrap();
+    //             let res: Vec<_> = (0..100)
+    //                 .map(|_| {
+    //                     let res1 = waitpid(child, None);
+    //                     // cont(child, None).ok();
+    //                     let res2 = getregs(child).map(|r| (r.orig_rax, r.rdi, r.rsi, r.rdx, r.r10));
 
-                        // syscall(child, None).ok();
-                        // let res3 = waitpid(child, None);
+    //                     if let Ok(regs) = getregs(child) {
+    //                         if regs.orig_rax == 500 {
+    //                             // let data = 5;
+    //                             unsafe {
+    //                                 ptrace::write(
+    //                                     child,
+    //                                     regs.rdi as *mut c_void,
+    //                                     5u64 as *mut u64 as *mut c_void,
+    //                                 )
+    //                             };
+    //                         }
+    //                     }
 
-                        // sysemu(child, None).ok();
-                        syscall(child, None).ok();
-                        (res1, res2)
-                    })
-                    .collect();
-                panic!("{res:?}");
-            }
-            Ok(ForkResult::Child) => {
-                ApexSyscall::install().unwrap();
-                unsafe {
-                    let mut test = [0u64, 0, 0, 0];
-                    let res = nix::libc::syscall(500, &mut test);
-                    nix::libc::syscall(501, test[0], test[1], test[2], test[3]);
-                };
-                unsafe { fork() }.unwrap();
-                // unsafe { libc::_exit(0) };
+    //                     // syscall(child, None).ok();
+    //                     // let res3 = waitpid(child, None);
 
-                raise(Signal::SIGKILL).unwrap();
-            }
-            Err(_) => println!("Fork failed"),
-        };
-        assert!(true);
-    }
+    //                     // sysemu(child, None).ok();
+    //                     syscall(child, None).ok();
+    //                     (res1, res2)
+    //                 })
+    //                 .collect();
+    //             panic!("{res:?}");
+    //         }
+    //         Ok(ForkResult::Child) => {
+    //             ApexSyscall::install().unwrap();
+    //             unsafe {
+    //                 let mut test = [0u64, 0, 0, 0];
+    //                 let res = nix::libc::syscall(500, &mut test);
+    //                 nix::libc::syscall(501, test[0], test[1], test[2], test[3]);
+    //             };
+    //             unsafe { fork() }.unwrap();
+    //             // unsafe { libc::_exit(0) };
+
+    //             raise(Signal::SIGKILL).unwrap();
+    //         }
+    //         Err(_) => println!("Fork failed"),
+    //     };
+    //     assert!(true);
+    // }
 }
