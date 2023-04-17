@@ -20,7 +20,7 @@
         lib = nixpkgs.lib;
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ devshell.overlay ];
+          overlays = [ devshell.overlays.default ];
         };
 
         rust-toolchain = with fenix.packages.${system};
@@ -30,6 +30,7 @@
             latest.clippy
             latest.rustfmt
             targets.x86_64-unknown-linux-musl.latest.rust-std
+            targets.thumbv6m-none-eabi.latest.rust-std
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above

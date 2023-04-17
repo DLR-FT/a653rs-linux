@@ -52,7 +52,7 @@ impl log::Log for ApexLogger {
                 format!("{level}{}..", &line[..(MAX_ERROR_MESSAGE_SIZE - 3)])
             };
             let max = min(MAX_ERROR_MESSAGE_SIZE, msg.len());
-            ApexLinuxPartition::report_message(&msg.as_bytes()[0..max]).ok();
+            ApexLinuxPartition::report_application_message(&msg.as_bytes()[0..max]).ok();
         }
     }
 
