@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git", branch = "main" }
+apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git", branch = "main", features = ["macros"] }
 apex-rs-postcard = { git = "https://github.com/aeronautical-informatics/apex-rs-postcard.git", branch = "main" }
 #apex-hal = { path = "../../../apex_rs", features = ["p4"] }
 linux-apex-core = { path = "../../core" }

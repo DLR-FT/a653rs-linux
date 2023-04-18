@@ -73,6 +73,8 @@
             cargo-outdated
             cargo-udeps
             cargo-watch
+            cargo-audit
+            cargo-expand
             nixpkgs-fmt
           ];
           git.hooks = {
@@ -94,6 +96,19 @@
               name = "outdated";
               command = "cargo-outdated outdated";
               help = pkgs.cargo-outdated.meta.description;
+            }
+            {
+              name = "audit";
+              command = "cargo audit $@";
+              help = pkgs.cargo-audit.meta.description;
+            }
+            {
+              name = "expand";
+              command = ''
+                PATH=${fenix.packages.${system}.latest.rustc}/bin:$PATH
+                cargo expand $@
+              '';
+              help = pkgs.cargo-expand.meta.description;
             }
             {
               name = "clippy-watch-hello-example";
