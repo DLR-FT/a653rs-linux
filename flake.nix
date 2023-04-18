@@ -20,7 +20,7 @@
         lib = nixpkgs.lib;
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ devshell.overlay ];
+          overlays = [ devshell.overlays.default ];
         };
 
         rust-toolchain = with fenix.packages.${system};
@@ -30,6 +30,7 @@
             latest.clippy
             latest.rustfmt
             targets.x86_64-unknown-linux-musl.latest.rust-std
+            targets.thumbv6m-none-eabi.latest.rust-std
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above
@@ -72,6 +73,8 @@
             cargo-outdated
             cargo-udeps
             cargo-watch
+            cargo-audit
+            cargo-expand
             nixpkgs-fmt
           ];
           git.hooks = {
@@ -93,6 +96,19 @@
               name = "outdated";
               command = "cargo-outdated outdated";
               help = pkgs.cargo-outdated.meta.description;
+            }
+            {
+              name = "audit";
+              command = "cargo audit $@";
+              help = pkgs.cargo-audit.meta.description;
+            }
+            {
+              name = "expand";
+              command = ''
+                PATH=${fenix.packages.${system}.latest.rustc}/bin:$PATH
+                cargo expand $@
+              '';
+              help = pkgs.cargo-expand.meta.description;
             }
             {
               name = "clippy-watch-hello-example";

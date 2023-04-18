@@ -1,153 +1,111 @@
-#![allow(unconditional_panic, unconditional_recursion, dead_code)]
-
-#[macro_use]
-extern crate log;
-
-use std::str::FromStr;
-use std::thread::sleep;
-use std::time::Duration;
-
-use apex_rs::prelude::*;
+use apex_rs::macros::partition;
+use apex_rs::prelude::PartitionExt;
 use apex_rs_linux::partition::ApexLogger;
-use apex_rs_postcard::prelude::*;
-use humantime::format_duration;
 use log::LevelFilter;
-use once_cell::sync::{Lazy, OnceCell};
-use serde::{Deserialize, Serialize};
-
-pub type Hypervisor = apex_rs_linux::partition::ApexLinuxPartition;
-
-static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
-static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);
-static SOURCE_HELLO: OnceCell<SamplingPortSource<HELLO_SAMPLING_PORT_SIZE, Hypervisor>> =
-    OnceCell::new();
-static DESTINATION_HELLO: OnceCell<SamplingPortDestination<HELLO_SAMPLING_PORT_SIZE, Hypervisor>> =
-    OnceCell::new();
-const HELLO_SAMPLING_PORT_SIZE: u32 = 10000;
 
 fn main() {
     ApexLogger::install_panic_hook();
     ApexLogger::install_logger(LevelFilter::Trace).unwrap();
 
-    Hello.run()
+    hello::Partition.run()
 }
 
-struct Hello;
+#[partition(apex_rs_linux::partition::ApexLinuxPartition)]
+mod hello {
+    use core::time::Duration;
+    use std::thread::sleep;
 
-impl Partition<Hypervisor> for Hello {
-    fn cold_start(&self, ctx: &mut StartContext<Hypervisor>) {
-        if *FOO {
-            let source = ctx
-                .create_sampling_port_source(Name::from_str("Hello").unwrap())
-                .unwrap();
-            SOURCE_HELLO.set(source).unwrap();
-        } else if *BAR {
-            let destination = ctx
-                .create_sampling_port_destination(
-                    Name::from_str("Hello").unwrap(),
-                    Duration::from_millis(110),
-                )
-                .unwrap();
-            DESTINATION_HELLO.set(destination).unwrap();
+    use apex_rs_postcard::prelude::*;
+    use humantime::format_duration;
+    use log::*;
+    use serde::{Deserialize, Serialize};
+
+    #[sampling_out(name = "Hello", msg_size = "10KB")]
+    struct HelloSource;
+
+    #[sampling_in(name = "Hello", msg_size = "10KB", refresh_period = "100ms")]
+    struct HelloDestination;
+
+    #[start(cold)]
+    fn cold_start(mut ctx: start::Context) {
+        let ident = ctx.get_partition_status().identifier;
+        if ident == 0 {
+            ctx.create_hello_source().unwrap();
+        } else if ident == 1 {
+            ctx.create_hello_destination().unwrap();
         }
 
-        ctx.create_process(ProcessAttribute {
-            period: apex_rs::prelude::SystemTime::Infinite,
-            time_capacity: apex_rs::prelude::SystemTime::Infinite,
-            entry_point: aperiodic_hello,
-            stack_size: 100000,
-            base_priority: 1,
-            deadline: apex_rs::prelude::Deadline::Soft,
-            name: Name::from_str("aperiodic_hello").unwrap(),
-        })
-        .unwrap()
-        .start()
-        .unwrap();
-
-        ctx.create_process(ProcessAttribute {
-            period: apex_rs::prelude::SystemTime::Normal(Duration::ZERO),
-            time_capacity: apex_rs::prelude::SystemTime::Infinite,
-            entry_point: periodic_hello,
-            stack_size: 100000,
-            base_priority: 1,
-            deadline: apex_rs::prelude::Deadline::Soft,
-            name: Name::from_str("periodic_hello").unwrap(),
-        })
-        .unwrap()
-        .start()
-        .unwrap();
+        ctx.create_aperiodic().unwrap().start().unwrap();
+        ctx.create_periodic().unwrap().start().unwrap();
     }
 
-    fn warm_start(&self, ctx: &mut StartContext<Hypervisor>) {
-        self.cold_start(ctx)
+    #[start(warm)]
+    fn warm_start(ctx: start::Context) {
+        cold_start(ctx)
     }
-}
 
-extern "C" fn aperiodic_hello() {
-    for i in 0..i32::MAX {
-        if let SystemTime::Normal(time) = Hypervisor::get_time() {
-            let round = Duration::from_millis(time.as_millis() as u64);
-            info!("{:?}: AP MSG {i}", format_duration(round).to_string());
-        }
-        sleep(Duration::from_millis(1))
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CustomMessage {
-    msg: String,
-    when: Duration,
-}
-
-extern "C" fn periodic_hello() {
-    //sleep(Duration::from_millis(1));
-    //rec(0);
-
-    for i in 1..i32::MAX {
-        if let SystemTime::Normal(time) = Hypervisor::get_time() {
-            let round = Duration::from_millis(time.as_millis() as u64);
-            info!("{:?}: P MSG {i}", format_duration(round).to_string());
-        }
-        sleep(Duration::from_millis(1));
-
-        //if i % 4 == 0 {
-        //    rec(0);
-        //}
-
-        if i % 5 == 0 {
-            if *FOO {
-                SOURCE_HELLO
-                    .get()
-                    .unwrap()
-                    // .send(format!("Hello {}", i / 5).as_bytes())
-                    .send_type(CustomMessage {
-                        msg: format!("Sampling MSG {}", i / 5),
-                        when: Hypervisor::get_time().unwrap_duration(),
-                    })
-                    .ok()
-                    .unwrap();
-            } else if *BAR {
-                // let mut buf = [0; HELLO_SAMPLING_PORT_SIZE as usize];
-                let (valid, data) = DESTINATION_HELLO
-                    .get()
-                    .unwrap()
-                    .recv_type::<CustomMessage>()
-                    .ok()
-                    .unwrap();
-
-                info!("Received via Sampling Port: {:?}, valid: {valid:?}", data)
+    #[aperiodic(
+        time_capacity = "Infinite",
+        stack_size = "100KB",
+        base_priority = 1,
+        deadline = "Soft"
+    )]
+    fn aperiodic(ctx: aperiodic::Context) {
+        info!("Start Aperiodic");
+        for i in 0..i32::MAX {
+            if let SystemTime::Normal(time) = ctx.get_time() {
+                let round = Duration::from_millis(time.as_millis() as u64);
+                info!("{:?}: AP MSG {i}", format_duration(round).to_string());
             }
-
-            Hypervisor::periodic_wait().unwrap();
+            sleep(Duration::from_millis(1))
         }
     }
-}
 
-extern "C" fn test() {
-    println!("Hello");
-}
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct CustomMessage {
+        msg: String,
+        when: Duration,
+    }
 
-fn rec(i: usize) {
-    print!("\r{i}");
-    rec(i + 1)
+    #[periodic(
+        period = "0ms",
+        time_capacity = "Infinite",
+        stack_size = "100KB",
+        base_priority = 1,
+        deadline = "Soft"
+    )]
+    fn periodic(ctx: periodic::Context) {
+        let ident = ctx.get_partition_status().identifier;
+        for i in 1..i32::MAX {
+            if let SystemTime::Normal(time) = ctx.get_time() {
+                let round = Duration::from_millis(time.as_millis() as u64);
+                info!("{:?}: P MSG {i}", format_duration(round).to_string());
+            }
+            sleep(Duration::from_millis(1));
+
+            if i % 5 == 0 {
+                if ident == 0 {
+                    ctx.hello_source
+                        .unwrap()
+                        .send_type(CustomMessage {
+                            msg: format!("Sampling MSG {}", i / 5),
+                            when: ctx.get_time().unwrap_duration(),
+                        })
+                        .ok()
+                        .unwrap();
+                } else if ident == 1 {
+                    let (valid, data) = ctx
+                        .hello_destination
+                        .unwrap()
+                        .recv_type::<CustomMessage>()
+                        .ok()
+                        .unwrap();
+
+                    info!("Received via Sampling Port: {:?}, valid: {valid:?}", data)
+                }
+
+                ctx.periodic_wait().unwrap();
+            }
+        }
+    }
 }
