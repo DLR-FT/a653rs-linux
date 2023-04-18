@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use apex_rs::bindings::PortDirection;
 use apex_rs::prelude::{OperatingMode, StartCondition};
 use clone3::Clone3;
@@ -99,6 +99,36 @@ impl FileMounter {
     }
 }
 
+impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
+    type Error = anyhow::Error;
+
+    fn try_from(paths: &(PathBuf, PathBuf)) -> Result<Self, Self::Error> {
+        let source = &paths.0;
+        let mut target = paths.1.clone();
+
+        if !source.exists() {
+            bail!("File/Directory {} not existent", source.display())
+        }
+
+        if target.is_absolute() {
+            // Convert absolute paths into relative ones.
+            // Otherwise we will receive a permission error.
+            // TODO: Make this a function?
+            target = target.strip_prefix("/")?.into();
+            assert!(target.is_relative());
+        }
+
+        Ok(Self {
+            source: Some(source.clone()),
+            target: target,
+            fstype: None,
+            flags: MsFlags::MS_BIND,
+            data: None,
+            is_dir: source.is_dir(),
+        })
+    }
+}
+
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         trace!("Create new \"Run\" for \"{}\" partition", base.name());
@@ -175,7 +205,7 @@ impl Run {
                 Partition::release_fds(&keep).unwrap();
 
                 // Mount the required mounts
-                let mounts = [
+                let mut mounts = vec![
                     // Mount working directory as tmpfs
                     FileMounter {
                         source: None,
@@ -222,6 +252,12 @@ impl Run {
                         is_dir: true,
                     },
                 ];
+
+                for m in &base.mounts {
+                    mounts.push(m.try_into().unwrap());
+                }
+
+                // TODO: Check for duplicate mounts
 
                 for m in mounts {
                     debug!("mounting {:?}", &m);
@@ -450,6 +486,7 @@ pub(crate) struct Base {
     hm: PartitionHMTable,
     id: i64,
     bin: PathBuf,
+    mounts: Vec<(PathBuf, PathBuf)>,
     cgroup: CGroup,
     sampling_channel: HashMap<String, SamplingConstant>,
     duration: Duration,
@@ -518,6 +555,7 @@ impl Partition {
             id: config.id,
             cgroup,
             bin: config.image,
+            mounts: config.mounts,
             duration: config.duration,
             period: config.period,
             working_dir,
