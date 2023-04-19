@@ -52,7 +52,6 @@ pub fn waitpid_benchmark(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let _partition =
         rt.block_on(async { Arc::new(Mutex::new(PartitionTrace::new(child).await.unwrap())) });
-    panic!("{:?}", waitpid(child, Some(WaitPidFlag::WNOHANG)));
     c.bench_function("unresponded_waitpid", |b| {
         b.iter(|| waitpid(child, Some(WaitPidFlag::WNOHANG)))
     });
