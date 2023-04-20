@@ -15,7 +15,7 @@
     };
   };
   outputs = { self, nixpkgs, utils, fenix, naersk, devshell, ... }@inputs:
-    utils.lib.eachSystem [ "x86_64-linux" ] (system:
+    utils.lib.eachSystem [ "x86_64-linux" "i686-linux" "aarch64-linux" ] (system:
       let
         lib = nixpkgs.lib;
         pkgs = import nixpkgs {
@@ -23,14 +23,21 @@
           overlays = [ devshell.overlays.default ];
         };
 
+        # rust target name of the `system`
+        rust-target = pkgs.rust.toRustTarget pkgs.pkgsStatic.targetPlatform;
+
+        # converts a string to SHOUT_CASE
+        shout = string: builtins.replaceStrings [ "-" ] [ "_" ] (nixpkgs.lib.toUpper string);
+
+        # rust toolchain with the target corresponding to `system` installed
         rust-toolchain = with fenix.packages.${system};
           combine [
             latest.rustc
             latest.cargo
             latest.clippy
             latest.rustfmt
-            targets.x86_64-unknown-linux-musl.latest.rust-std
-            targets.thumbv6m-none-eabi.latest.rust-std
+            targets.${rust-target}.latest.rust-std
+            targets.thumbv6m-none-eabi.latest.rust-std # for no_std test
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above
@@ -38,27 +45,38 @@
           cargo = rust-toolchain;
           rustc = rust-toolchain;
         });
+
+        env = {
+          # environment variable to set the rust target
+          CARGO_BUILD_TARGET = rust-target;
+
+          # environment variable to determine the linker suitable for the target
+          "CARGO_TARGET_${shout rust-target}_LINKER" =
+            let
+              inherit (pkgs.pkgsStatic.stdenv) cc;
+            in
+            "${cc}/bin/${cc.targetPrefix}cc";
+        };
       in
       rec {
         packages = {
           # the hypervisor itself
           default = packages.a653rs-linux-hypervisor;
-          a653rs-linux-hypervisor = naersk-lib.buildPackage rec {
-            pname = "a653rs-linux-hypervisor";
+          a653rs-linux-hypervisor = naersk-lib.buildPackage
+            rec {
+              pname = "a653rs-linux-hypervisor";
+              root = ./.;
+              cargoBuildOptions = x: x ++ [ "--package" pname ];
+              cargoTestOptions = x: x ++ [ "--package" pname ];
+            } // env;
+
+          # an example
+          hello-part = naersk-lib.buildPackage (rec{
+            pname = "hello_part";
             root = ./.;
             cargoBuildOptions = x: x ++ [ "--package" pname ];
             cargoTestOptions = x: x ++ [ "--package" pname ];
-          };
-
-          # an example
-          hello-part = naersk-lib.buildPackage rec {
-            pname = "hello_part";
-            root = ./.;
-            cargoBuildOptions = x:
-              x ++ [ "--package" pname "--target" "x86_64-unknown-linux-musl" ];
-            cargoTestOptions = x:
-              x ++ [ "--package" pname "--target" "x86_64-unknown-linux-musl" ];
-          };
+          } // env);
         };
 
         # a devshell with all the necessary bells and whistles
@@ -165,7 +183,7 @@
         };
 
         # instructions for the CI server
-        hydraJobs = packages // checks;
+        hydraJobs = (nixpkgs.lib.filterAttrs (n: _: n != "default") packages) // checks;
       });
 }
 
