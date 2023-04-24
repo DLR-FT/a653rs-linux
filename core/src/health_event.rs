@@ -1,5 +1,5 @@
 //! Fetch information from a partition
-use apex_rs::prelude::OperatingMode;
+use a653rs::prelude::OperatingMode;
 use log::Level;
 use serde::{Deserialize, Serialize};
 

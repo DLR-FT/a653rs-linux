@@ -1,6 +1,6 @@
-use apex_rs::macros::partition;
-use apex_rs::prelude::PartitionExt;
-use apex_rs_linux::partition::ApexLogger;
+use a653rs::partition;
+use a653rs::prelude::PartitionExt;
+use a653rs_linux::partition::ApexLogger;
 use log::LevelFilter;
 
 fn main() {
@@ -10,12 +10,12 @@ fn main() {
     hello::Partition.run()
 }
 
-#[partition(apex_rs_linux::partition::ApexLinuxPartition)]
+#[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod hello {
     use core::time::Duration;
     use std::thread::sleep;
 
-    use apex_rs_postcard::prelude::*;
+    use a653rs_postcard::prelude::*;
     use humantime::format_duration;
     use log::*;
     use serde::{Deserialize, Serialize};

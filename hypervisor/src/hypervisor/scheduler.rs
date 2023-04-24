@@ -2,13 +2,13 @@ use std::os::unix::prelude::{AsRawFd, OwnedFd};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::anyhow;
-use apex_rs::prelude::{OperatingMode, StartCondition};
-use linux_apex_core::error::{
+use a653rs::prelude::{OperatingMode, StartCondition};
+use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
 };
-use linux_apex_core::health::{ModuleRecoveryAction, RecoveryAction};
-use linux_apex_core::health_event::PartitionCall;
+use a653rs_linux_core::health::{ModuleRecoveryAction, RecoveryAction};
+use a653rs_linux_core::health_event::PartitionCall;
+use anyhow::anyhow;
 use polling::{Event, Poller};
 
 use super::partition::{Base, Run};
@@ -80,15 +80,15 @@ impl<'a> PartitionTimeWindow<'a> {
 
             // TODO do not unwrap/expect these errors. Maybe raise Module Level PartitionInit Error?
             match action {
-                linux_apex_core::health::PartitionRecoveryAction::Idle => self
+                a653rs_linux_core::health::PartitionRecoveryAction::Idle => self
                     .run
                     .idle_transition(self.base)
                     .expect("Idle Transition Failed"),
-                linux_apex_core::health::PartitionRecoveryAction::ColdStart => self
+                a653rs_linux_core::health::PartitionRecoveryAction::ColdStart => self
                     .run
                     .start_transition(self.base, false, StartCondition::HmPartitionRestart)
                     .expect("Start(Cold) Transition Failed"),
-                linux_apex_core::health::PartitionRecoveryAction::WarmStart => self
+                a653rs_linux_core::health::PartitionRecoveryAction::WarmStart => self
                     .run
                     .start_transition(self.base, false, StartCondition::HmPartitionRestart)
                     .expect("Start(Warm) Transition Failed"),

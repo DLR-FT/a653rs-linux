@@ -1,10 +1,10 @@
 use std::process::exit;
 use std::thread::sleep;
 
-use apex_rs::bindings::*;
-use apex_rs::prelude::{Name, SystemTime};
-use linux_apex_core::error::SystemError;
-use linux_apex_core::sampling::{SamplingDestination, SamplingSource};
+use a653rs::bindings::*;
+use a653rs::prelude::{Name, SystemTime};
+use a653rs_linux_core::error::SystemError;
+use a653rs_linux_core::sampling::{SamplingDestination, SamplingSource};
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;

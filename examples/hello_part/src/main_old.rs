@@ -7,15 +7,15 @@ use std::str::FromStr;
 use std::thread::sleep;
 use std::time::Duration;
 
-use apex_rs::prelude::*;
-use apex_rs_linux::partition::ApexLogger;
-use apex_rs_postcard::prelude::*;
+use a653rs::prelude::*;
+use a653rs_linux::partition::ApexLogger;
+use a653rs_postcard::prelude::*;
 use humantime::format_duration;
 use log::LevelFilter;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 
-pub type Hypervisor = apex_rs_linux::partition::ApexLinuxPartition;
+pub type Hypervisor = a653rs_linux::partition::ApexLinuxPartition;
 
 static FOO: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 0);
 static BAR: Lazy<bool> = Lazy::new(|| Hello::get_partition_status().identifier == 1);
@@ -52,12 +52,12 @@ impl Partition<Hypervisor> for Hello {
         }
 
         ctx.create_process(ProcessAttribute {
-            period: apex_rs::prelude::SystemTime::Infinite,
-            time_capacity: apex_rs::prelude::SystemTime::Infinite,
+            period: a653rs::prelude::SystemTime::Infinite,
+            time_capacity: a653rs::prelude::SystemTime::Infinite,
             entry_point: aperiodic_hello,
             stack_size: 100000,
             base_priority: 1,
-            deadline: apex_rs::prelude::Deadline::Soft,
+            deadline: a653rs::prelude::Deadline::Soft,
             name: Name::from_str("aperiodic_hello").unwrap(),
         })
         .unwrap()
@@ -65,12 +65,12 @@ impl Partition<Hypervisor> for Hello {
         .unwrap();
 
         ctx.create_process(ProcessAttribute {
-            period: apex_rs::prelude::SystemTime::Normal(Duration::ZERO),
-            time_capacity: apex_rs::prelude::SystemTime::Infinite,
+            period: a653rs::prelude::SystemTime::Normal(Duration::ZERO),
+            time_capacity: a653rs::prelude::SystemTime::Infinite,
             entry_point: periodic_hello,
             stack_size: 100000,
             base_priority: 1,
-            deadline: apex_rs::prelude::Deadline::Soft,
+            deadline: a653rs::prelude::Deadline::Soft,
             name: Name::from_str("periodic_hello").unwrap(),
         })
         .unwrap()

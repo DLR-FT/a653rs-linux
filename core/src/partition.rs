@@ -3,8 +3,8 @@ use std::io::{Read, Write};
 use std::os::unix::prelude::{IntoRawFd, RawFd};
 use std::time::Duration;
 
-use apex_rs::bindings::PortDirection;
-use apex_rs::prelude::{PartitionId, StartCondition};
+use a653rs::bindings::PortDirection;
+use a653rs::prelude::{PartitionId, StartCondition};
 use memfd::{FileSeal, MemfdOptions};
 use serde::{Deserialize, Serialize};
 

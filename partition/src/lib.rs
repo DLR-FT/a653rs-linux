@@ -4,11 +4,11 @@ extern crate log;
 use std::os::unix::prelude::FromRawFd;
 use std::time::{Duration, Instant};
 
-use apex_rs::prelude::OperatingMode;
-use linux_apex_core::file::{get_memfd, TempFile};
-use linux_apex_core::health_event::PartitionCall;
-use linux_apex_core::ipc::IpcSender;
-use linux_apex_core::partition::*;
+use a653rs::prelude::OperatingMode;
+use a653rs_linux_core::file::{get_memfd, TempFile};
+use a653rs_linux_core::health_event::PartitionCall;
+use a653rs_linux_core::ipc::IpcSender;
+use a653rs_linux_core::partition::*;
 use memmap2::{MmapMut, MmapOptions};
 use once_cell::sync::Lazy;
 use process::Process;

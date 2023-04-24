@@ -1,5 +1,5 @@
 [package]
-name = "linux-apex-core"
+name = "a653rs-linux-core"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -7,8 +7,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apex-rs = { git = "https://github.com/aeronautical-informatics/apex-rs.git", branch = "main" }
-#apex-hal = { path = "../../apex_rs", features = ["p4", "serde"] }
+a653rs = "0.2"
 nix = "0.25"
 anyhow = "1.0"
 procfs = "0.14"

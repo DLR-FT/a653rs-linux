@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use a653rs_linux_core::cgroup::CGroup;
+use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
+use a653rs_linux_core::file::TempFile;
+use a653rs_linux_core::sampling::Sampling;
 use anyhow::anyhow;
-use linux_apex_core::cgroup::CGroup;
-use linux_apex_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
-use linux_apex_core::file::TempFile;
-use linux_apex_core::sampling::Sampling;
 use once_cell::sync::OnceCell;
 
 use super::config::{Channel, Config};

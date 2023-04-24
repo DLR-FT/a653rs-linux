@@ -42,9 +42,9 @@
       rec {
         packages = {
           # the hypervisor itself
-          default = packages.linux-apex-hypervisor;
-          linux-apex-hypervisor = naersk-lib.buildPackage rec {
-            pname = "linux-apex-hypervisor";
+          default = packages.a653rs-linux-hypervisor;
+          a653rs-linux-hypervisor = naersk-lib.buildPackage rec {
+            pname = "a653rs-linux-hypervisor";
             root = ./.;
             cargoBuildOptions = x: x ++ [ "--package" pname ];
             cargoTestOptions = x: x ++ [ "--package" pname ];
@@ -64,7 +64,7 @@
         # a devshell with all the necessary bells and whistles
         devShells.default = (pkgs.devshell.mkShell {
           imports = [ "${devshell}/extra/git/hooks.nix" ];
-          name = "linux-apex-dev-shell";
+          name = "a653rs-linux-dev-shell";
           packages = with pkgs; [
             stdenv.cc
             coreutils
@@ -133,7 +133,7 @@
                 # nix build .#hello-part
                 cargo build -p hello_part --target x86_64-unknown-linux-musl --release
                 RUST_LOG=''${RUST_LOG:=trace} \
-                  cargo run -p linux-apex-hypervisor --release -- \
+                  cargo run -p a653rs-linux-hypervisor --release -- \
                     examples/hello_part/hypervisor_config.yaml
               '';
               help = ''Run Hypervisor with the "hello" example'';
