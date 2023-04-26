@@ -131,9 +131,9 @@
               command = ''
                 cd $PRJ_ROOT
                 # nix build .#hello-part
-                cargo build -p hello_part --target x86_64-unknown-linux-musl --release
+                cargo build -p hello_part --target x86_64-unknown-linux-musl
                 RUST_LOG=''${RUST_LOG:=trace} \
-                  cargo run -p a653rs-linux-hypervisor --release -- \
+                  cargo run -p a653rs-linux-hypervisor -- \
                     examples/hello_part/hypervisor_config.yaml
               '';
               help = ''Run Hypervisor with the "hello" example'';
