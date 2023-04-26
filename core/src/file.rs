@@ -93,7 +93,12 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         file.read_at(buf, 0).typ(SystemError::Panic)?;
         // TODO: Use an approach without unsafe
         let aligned = unsafe { buf.align_to::<T>() };
-        Ok(aligned.1[0].clone())
+        let data = aligned.1.get(0)
+            .ok_or_else(||
+                anyhow!("The memfd is expected to at least contain one byte and was possibly truncated.")
+            )
+            .typ(SystemError::Panic)?;
+        Ok(data.clone())
     }
 
     /// Returns a mutable memory map from a TempFile
