@@ -1,7 +1,11 @@
+use core::pin::Pin;
 use std::collections::HashSet;
 use std::fmt::Debug;
+use std::task::Context;
 
 use anyhow::{bail, Result};
+use futures::task::Poll;
+use futures::Stream;
 use nix::sys::ptrace;
 use nix::sys::signal::{raise, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -83,4 +87,31 @@ impl PartitionTrace {
     }
 
     // pub fn write_data(&self, )
+}
+
+impl Stream for PartitionTrace {
+    type Item = WaitStatus;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.signal.poll_recv(cx) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Some(_)) => {}
+            _ => panic!("serious problem in the tokio signal stream"),
+        }
+
+        let pgid = Pid::from_raw(-self.get_pgid().as_raw());
+
+        // This loop is necessary, because POSIX signals are the worst invention
+        // ever since the invention of computers.
+        // See this StackOverflow thread:
+        // https://stackoverflow.com/questions/8398298/handling-multiple-sigchld
+        loop {
+            match waitpid(pgid, Some(WaitPidFlag::WNOHANG)).unwrap() {
+                // If the process is neither stopped nor exited continue
+                WaitStatus::StillAlive => {}
+                // Any other status should stop this
+                st => return Poll::Ready(Some(st)),
+            }
+        }
+    }
 }
