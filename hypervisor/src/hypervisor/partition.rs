@@ -21,6 +21,7 @@ use anyhow::{anyhow, bail};
 use clone3::Clone3;
 use itertools::Itertools;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
+use nix::sys::ptrace;
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
@@ -290,6 +291,44 @@ impl Run {
                 .try_into()
                 .unwrap();
 
+                // Spawn a thread in this process in order to perform the ptrace logic
+                // The ptrace logic works as follows:
+                // - Scan for all processes that are stopped
+                // - ptrace each of those
+                // - repeat
+                //
+                // I would really love to see this being realized through signals in order
+                // to save useless computation, but this is harder to realize than it seems.
+                let part_name = base.name.clone();
+                std::thread::spawn(move || loop {
+                    // Fetch all processes (in this pid namespace) that are stopped
+                    let stopped_pids: Vec<(Pid, char)> = procfs::process::all_processes()
+                        .unwrap()
+                        .map(|x| {
+                            let x = x.unwrap();
+                            (Pid::from_raw(x.pid), x.stat().unwrap().state)
+                        })
+                        .collect();
+
+                    // ptrace(2) each and every process
+                    for (pid, state) in stopped_pids {
+                        match state {
+                            'T' => {
+                                warn!("{part_name} -- {pid} -- T");
+                                ptrace::attach(pid).unwrap();
+                                ptrace::cont(pid, None).unwrap();
+                                //ptrace::syscall(pid, None).unwrap();
+                            }
+                            't' => {
+                                warn!("{part_name} -- {pid} -- t");
+                            }
+                            s => {
+                                debug!("{part_name} -- {pid} -- {s}");
+                            }
+                        }
+                    }
+                });
+
                 // Run binary
                 let mut handle = Command::new("/bin")
                     .stdout(Stdio::null())
@@ -430,7 +469,7 @@ impl Run {
         }
 
         // Move main process to own cgroup
-        self.cgroup_main.freeze().typ(SystemError::CGroup)?;
+        // The main cgroup itself serves as a meta thing
         self.cgroup_main.mv(self.main).typ(SystemError::CGroup)?;
 
         self.freeze_aperiodic()?;

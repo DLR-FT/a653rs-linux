@@ -13,7 +13,7 @@ a653rs-linux-core = { path = "../core" }
 
 
 # Required
-nix = "0.25"
+nix = { version="0.25", features = [ "ptrace"] }
 anyhow = "1.0"
 tempfile = "3.3"
 clone3 = "0.2"

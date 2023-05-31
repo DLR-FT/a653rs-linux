@@ -19,6 +19,7 @@ use nix::libc::{stack_t, SIGCHLD};
 use nix::sched::CloneFlags;
 use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, Signal};
 use nix::sys::signalfd::SigSet;
+use nix::sys::{ptrace, signal};
 use nix::unistd::{getpid, Pid};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -195,6 +196,9 @@ impl Process {
 
             let cg = self.cg().unwrap();
             cg.mv(getpid()).unwrap();
+
+            signal::raise(Signal::SIGSTOP).unwrap();
+
             (self.attr.entry_point)();
             0
         });
