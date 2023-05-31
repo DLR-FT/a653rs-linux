@@ -94,7 +94,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
 
         // the mut buf binding to the data in the MaybeUninit allows writing to the type byte-wise
         let buf =
-            unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, bytes_required) };
+            unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, size_of::<T>()) };
 
         let file = self.get_memfd()?.into_file();
 

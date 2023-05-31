@@ -1,4 +1,4 @@
-///! The channels used in combination with the related *sampling* module
+//! The channels used in combination with the related *sampling* module
 // TODO: Consider merging this module with sampling, as having a module only
 // providing structs might be weird.
 use std::collections::HashSet;
