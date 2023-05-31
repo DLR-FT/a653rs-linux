@@ -1,6 +1,6 @@
 //! Implementation of in-memory files
 use std::marker::PhantomData;
-use std::mem::size_of;
+use std::mem::{size_of, MaybeUninit};
 use std::os::unix::prelude::{AsRawFd, FileExt, IntoRawFd, RawFd};
 
 use anyhow::{anyhow, Result};
@@ -86,19 +86,30 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     }
 
     /// Returns all of the TempFile's data
+    // TODO check if this is used for sampling ports
     pub fn read(&self) -> TypedResult<T> {
-        let mut buf = vec![0u8; size_of::<T>()];
-        let buf = buf.as_mut_slice();
+        // MaybeUninit ensures we avoid alignment related UB
+        let mut data = MaybeUninit::<T>::uninit();
+        let bytes_required = size_of::<T>();
+
+        // the mut buf binding to the data in the MaybeUninit allows writing to the type byte-wise
+        let buf =
+            unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, bytes_required) };
+
         let file = self.get_memfd()?.into_file();
-        file.read_at(buf, 0).typ(SystemError::Panic)?;
-        // TODO: Use an approach without unsafe
-        let aligned = unsafe { buf.align_to::<T>() };
-        let data = aligned.1.get(0)
-            .ok_or_else(||
-                anyhow!("The memfd is expected to at least contain one byte and was possibly truncated.")
-            )
-            .typ(SystemError::Panic)?;
-        Ok(data.clone())
+
+        // read_at avoids confusion by moving cursors on shared file descriptors
+        let bytes_read = file.read_at(buf, 0).typ(SystemError::Panic)?;
+
+        trace!("read {bytes_read} bytes from memfd {}", self.fd);
+        if bytes_read != bytes_required {
+            warn!(
+                "initialized {} ({bytes_required} bytes in size) with {bytes_read} bytes originating from memfd {}",
+                std::any::type_name::<T>(), self.fd()
+            );
+        }
+
+        Ok(unsafe { data.assume_init() })
     }
 
     /// Returns a mutable memory map from a TempFile
