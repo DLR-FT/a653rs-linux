@@ -5,4 +5,6 @@ members = [
     "partition",
     "core",
     "examples/hello_part",
+    "examples/fuel_tank_simulation",
+    "examples/fuel_tank_controller"
 ]
