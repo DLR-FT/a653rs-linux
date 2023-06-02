@@ -170,14 +170,14 @@
                     cargo build --package ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target} --release
 
                     # (build &) run hypervisor
-                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml
+                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@
                   '';
                   help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
                   category = "example";
                 }
                 {
                   name = "systemd-run-example-${name}";
-                  command = "systemd-run --user --scope run-example-${name}";
+                  command = "systemd-run --user --scope run-example-${name} $@";
                   help = "Run the ${name} example using systemd-run";
                   category = "example";
                 }
