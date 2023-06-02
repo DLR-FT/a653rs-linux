@@ -1,0 +1,27 @@
+major_frame: 20ms
+partitions:
+  - id: 0
+    name: fuel_tank_simulation
+    duration: 10ms
+    offset: 0ms
+    period: 20ms
+    image: target/x86_64-unknown-linux-musl/release/fuel_tank_simulation
+  - id: 1
+    name: fuel_tank_controller
+    offset: 10ms
+    duration: 10ms
+    image: target/x86_64-unknown-linux-musl/release/fuel_tank_simulation
+    period: 20ms
+channel:
+  - !Sampling
+    name: fuel_sensors
+    msg_size: 10KB
+    source: fuel_tank_simulation
+    destination:
+      - fuel_tank_controller
+  - !Sampling
+    name: fuel_actuators
+    msg_size: 10KB
+    source: fuel_tank_controller
+    destination:
+      - fuel_tank_simulation

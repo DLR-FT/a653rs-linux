@@ -29,7 +29,6 @@
         # converts a string to SHOUT_CASE
         shout = string: builtins.replaceStrings [ "-" ] [ "_" ] (nixpkgs.lib.toUpper string);
 
-        # rust toolchain with the target corresponding to `system` installed
         rust-toolchain = with fenix.packages.${system};
           combine [
             latest.rustc
@@ -46,6 +45,7 @@
           rustc = rust-toolchain;
         });
 
+        # environment variables to add to the derivations
         env = {
           # environment variable to set the rust target
           CARGO_BUILD_TARGET = rust-target;
@@ -57,6 +57,20 @@
             in
             "${cc}/bin/${cc.targetPrefix}cc";
         };
+
+        # the provided examples
+        examples = [
+          {
+            name = "hello_part";
+            partitions = [ "hello_part" ];
+          }
+          {
+            name = "fuel_tank";
+            partitions = [ "fuel_tank_simulation" "fuel_tank_controller" ];
+          }
+        ];
+
+        cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;
       in
       rec {
         packages = {
@@ -69,15 +83,19 @@
               cargoBuildOptions = x: x ++ [ "--package" pname ];
               cargoTestOptions = x: x ++ [ "--package" pname ];
             } // env;
-
-          # an example
-          hello-part = naersk-lib.buildPackage (rec{
-            pname = "hello_part";
-            root = ./.;
-            cargoBuildOptions = x: x ++ [ "--package" pname ];
-            cargoTestOptions = x: x ++ [ "--package" pname ];
-          } // env);
-        };
+        } // (builtins.listToAttrs (builtins.map
+          ({ name, partitions }: {
+            name = "example-${name}";
+            value = naersk-lib.buildPackage
+              rec {
+                pname = name;
+                root = ./.;
+                cargoBuildOptions = x: x ++ (cargoPackageList partitions);
+                cargoTestOptions = x: x ++ (cargoPackageList partitions);
+              } // env;
+          }
+          )
+          examples));
 
         # a devshell with all the necessary bells and whistles
         devShells.default = (pkgs.devshell.mkShell {
@@ -105,7 +123,7 @@
             {
               name = "udeps";
               command = ''
-                PATH=${fenix.packages.${system}.latest.rustc}/bin:$PATH
+                PATH="${fenix.packages.${system}.latest.rustc}/bin:$PATH"
                 cargo udeps $@
               '';
               help = pkgs.cargo-udeps.meta.description;
@@ -123,51 +141,57 @@
             {
               name = "expand";
               command = ''
-                PATH=${fenix.packages.${system}.latest.rustc}/bin:$PATH
+                PATH="${fenix.packages.${system}.latest.rustc}/bin:$PATH"
                 cargo expand $@
               '';
               help = pkgs.cargo-expand.meta.description;
             }
             {
-              name = "clippy-watch-hello-example";
-              command = ''
-                cargo watch -x "clippy -p hello_part --target x86_64-unknown-linux-musl"
-              '';
-              help = ''Continuesly clippy "hello" example'';
-              category = "dev";
-            }
-            {
-              name = "run-hypervisor-hello-example-scoped";
-              command =
-                "systemd-run --user --scope run-hypervisor-hello-example";
-              help =
-                ''Run Hypervisor with the "hello" example with systemd-run'';
-              category = "dev";
-            }
-            {
-              name = "run-hypervisor-hello-example";
-              command = ''
-                cd $PRJ_ROOT
-                # nix build .#hello-part
-                cargo build -p hello_part --target x86_64-unknown-linux-musl --release
-                RUST_LOG=''${RUST_LOG:=trace} \
-                  cargo run -p a653rs-linux-hypervisor --release -- \
-                    examples/hello_part/hypervisor_config.yaml
-              '';
-              help = ''Run Hypervisor with the "hello" example'';
-              category = "dev";
-            }
-            {
               name = "verify-no_std";
               command = ''
-                cd $PRJ_ROOT
+                cd "$PRJ_ROOT"
                 cargo build --target thumbv6m-none-eabi --no-default-features
               '';
-              help =
-                "Verify that the library builds for no_std without std-features";
+              help = "Verify that the library builds for no_std without std-features";
               category = "dev";
             }
-          ];
+          ] ++ (
+            let
+              inherit (builtins) map concatStringsSep;
+              inherit (nixpkgs.lib) flatten;
+            in
+            flatten (map
+              ({ name, partitions }: [
+                {
+                  name = "run-example-${name}";
+                  command = ''
+                    cd "$PRJ_ROOT"
+                    # build partitions
+                    cargo build --package ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target} --release
+
+                    # (build &) run hypervisor
+                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@
+                  '';
+                  help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
+                  category = "example";
+                }
+                {
+                  name = "systemd-run-example-${name}";
+                  command = "systemd-run --user --scope run-example-${name} $@";
+                  help = "Run the ${name} example using systemd-run";
+                  category = "example";
+                }
+                {
+                  name = "clippy-watch-example-${name}";
+                  command = ''
+                    cargo watch --exec "clippy ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target}"
+                  '';
+                  help = "Continously clippy the ${name} example";
+                  category = "dev";
+                }
+              ])
+              examples)
+          );
         });
 
         # always check these

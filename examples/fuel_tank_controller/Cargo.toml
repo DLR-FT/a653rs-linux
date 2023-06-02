@@ -1,0 +1,18 @@
+[package]
+name = "fuel_tank_controller"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+a653rs = { version = "0.2", features = ["macros"] }
+a653rs-linux-core = { path = "../../core" }
+a653rs-linux = { path = "../../partition" }
+serde = "1.0"
+procfs = "0.14"
+log = "0"
+nix = "0.25"
+memmap2 = "0.5.5"
+once_cell = "1.13"
