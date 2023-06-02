@@ -31,6 +31,7 @@ where
     T: Serialize,
 {
     /// Sends value alongside the IpcSender
+    /// This fails if the resource is temporarily not available.
     pub fn try_send(&self, value: &T) -> TypedResult<()> {
         self.socket
             .send(bincode::serialize(value).typ(SystemError::Panic)?.as_ref())
