@@ -481,6 +481,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "fuel_tank_controller"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "a653rs-linux-core",
+ "log",
+ "memmap2",
+ "nix",
+ "once_cell",
+ "procfs",
+ "serde",
+]
+
+[[package]]
+name = "fuel_tank_simulation"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "a653rs-linux-core",
+ "a653rs-postcard",
+ "humantime 2.1.0",
+ "log",
+ "memmap2",
+ "nix",
+ "once_cell",
+ "procfs",
+ "serde",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
