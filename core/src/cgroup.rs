@@ -61,9 +61,7 @@ impl CGroup {
             bail!("{} is not a valid cgroup", path.display());
         }
 
-        Ok(CGroup {
-            path: path.to_path_buf(),
-        })
+        Ok(CGroup { path })
     }
 
     /// Creates a sub-cgroup inside this one
@@ -362,11 +360,11 @@ mod tests {
         let cg = CGroup::new_root(get_path(), &gen_name()).unwrap();
 
         assert!(!cg.populated().unwrap());
-        assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
+        assert_eq!(cg.populated().unwrap(), !cg.get_pids().unwrap().is_empty());
 
         cg.mv(pid).unwrap();
         assert!(cg.populated().unwrap());
-        assert_eq!(cg.populated().unwrap(), cg.get_pids().unwrap().len() > 0);
+        assert_eq!(cg.populated().unwrap(), !cg.get_pids().unwrap().is_empty());
 
         proc.kill().unwrap();
 

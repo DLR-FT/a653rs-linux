@@ -200,7 +200,7 @@ impl Process {
         });
 
         // Make extra sure that the process is in the cgroup
-        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD as i32))
+        let child = nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD))
             .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
         cg.mv(child).unwrap();
 

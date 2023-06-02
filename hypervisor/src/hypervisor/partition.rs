@@ -70,8 +70,8 @@ impl FileMounter {
     // Mount (and consume) a device
     pub fn mount(self, base_dir: &Path) -> anyhow::Result<()> {
         let target: &PathBuf = &base_dir.join(self.target);
-        let fstype = self.fstype.map(|x| PathBuf::from(x));
-        let data = self.data.map(|x| PathBuf::from(x));
+        let fstype = self.fstype.map(PathBuf::from);
+        let data = self.data.map(PathBuf::from);
 
         if self.is_dir {
             trace!("Creating directory {}", target.display());
@@ -120,7 +120,7 @@ impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
 
         Ok(Self {
             source: Some(source.clone()),
-            target: target,
+            target,
             fstype: None,
             flags: MsFlags::MS_BIND,
             data: None,
@@ -152,9 +152,12 @@ impl Run {
 
         let (call_tx, call_rx) = channel_pair::<PartitionCall>()?;
 
-        let mode = warm_start
-            .then_some(OperatingMode::WarmStart)
-            .unwrap_or(OperatingMode::ColdStart);
+        // TODO add a `::new(warm_start: bool)->Self` function to `OperatingMode`, use it here
+        let mode = if warm_start {
+            OperatingMode::WarmStart
+        } else {
+            OperatingMode::ColdStart
+        };
         let mode_file = TempFile::create("operation_mode")?;
         let mode_file_fd = unsafe { OwnedFd::from_raw_fd(mode_file.as_raw_fd()) };
         mode_file.write(&mode)?;
@@ -504,10 +507,7 @@ impl Base {
     }
 
     pub fn sampling_fds(&self) -> Vec<RawFd> {
-        self.sampling_channel
-            .iter()
-            .map(|(_, s)| s.fd)
-            .collect_vec()
+        self.sampling_channel.values().map(|s| s.fd).collect_vec()
     }
 
     pub fn freeze(&self) -> TypedResult<()> {
