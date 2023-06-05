@@ -5,6 +5,7 @@ use a653rs::bindings::*;
 use a653rs::prelude::{Name, SystemTime};
 use a653rs_linux_core::error::SystemError;
 use a653rs_linux_core::sampling::{SamplingDestination, SamplingSource};
+use nix::libc::EAGAIN;
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
@@ -208,9 +209,16 @@ impl ApexErrorP4 for ApexLinuxPartition {
             return Err(ErrorReturnCode::InvalidParam);
         }
         if let Ok(msg) = std::str::from_utf8(message) {
-            SENDER
-                .try_send(&PartitionCall::Message(msg.to_string()))
-                .unwrap();
+            // Logging may fail temporarily, because the resource can not be written to (e.g. queue is full),
+            // but the API does not allow us any other return code than INVALID_PARAM.
+            if let Err(e) = SENDER.try_send(&PartitionCall::Message(msg.to_string())) {
+                if let Some(e) = e.source().downcast_ref::<std::io::Error>() {
+                    if e.raw_os_error() == Some(EAGAIN) {
+                        return Ok(());
+                    }
+                }
+                panic!("Failed to report application message: {}", e);
+            }
         }
         Ok(())
     }
