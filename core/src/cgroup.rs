@@ -11,12 +11,15 @@
 use std::fs::{self};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Ok};
 use itertools::Itertools;
 use nix::sys::statfs;
 use nix::unistd::Pid;
 use walkdir::WalkDir;
+
+const KILLING_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A single cgroup inside our tree of managed cgroups
 ///
@@ -173,12 +176,15 @@ impl CGroup {
         fs::write(killfile, "1")?;
 
         // Check if all processes were terminated successfully
-        for i in 1..=64 {
-            trace!("kill iteration ({i}/64)");
+        let start = Instant::now();
+        trace!("Killing with a 1s timeout");
+        while start.elapsed() < KILLING_TIMEOUT {
             if !self.populated()? {
+                trace!("Killed with a 1s timeout");
                 return Ok(());
             }
         }
+
         bail!("failed to kill the cgroup")
     }
 
