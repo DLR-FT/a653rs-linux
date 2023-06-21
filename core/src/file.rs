@@ -73,7 +73,8 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         self.fd
     }
 
-    /// Writes value to the TempFile (overwrites existing data, but does not clean)
+    /// Writes value to the TempFile (overwrites existing data, but does not
+    /// clean)
     // TODO: Consider deleting the previous data?
     pub fn write(&self, value: &T) -> TypedResult<()> {
         // TODO: Use an approach without unsafe
@@ -92,7 +93,8 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         let mut data = MaybeUninit::<T>::uninit();
         let bytes_required = size_of::<T>();
 
-        // the mut buf binding to the data in the MaybeUninit allows writing to the type byte-wise
+        // the mut buf binding to the data in the MaybeUninit allows writing to the type
+        // byte-wise
         let buf =
             unsafe { std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, size_of::<T>()) };
 

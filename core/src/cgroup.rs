@@ -414,7 +414,8 @@ mod tests {
 
         cg.rm().unwrap();
 
-        // TODO: Check if the previous PID still exists (although unstable because the OS may re-assign)
+        // TODO: Check if the previous PID still exists (although unstable
+        // because the OS may re-assign)
     }
 
     #[test]

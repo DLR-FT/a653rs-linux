@@ -4,13 +4,15 @@ use thiserror::Error;
 
 /// A Result containing a SystemError with its accompanying source
 pub type TypedResult<T> = Result<T, TypedError>;
-/// A Result containing a SystemError with its accompanying error and time window
+/// A Result containing a SystemError with its accompanying error and time
+/// window
 // TODO: Consider merging these two types by making level an Option.
 pub type LeveledResult<T> = Result<T, LeveledError>;
 
 /// A low-level error issued by the operating system
 ///
-/// This implementation is custom. Do not confuse it with the traditional unix errnos.
+/// This implementation is custom. Do not confuse it with the traditional unix
+/// errnos.
 // TODO: Why can't we just use traditional unix errnos? The anyhow messages should be
 // concrete enough.
 #[derive(Error, Debug, Serialize, Deserialize, Clone, Copy)]

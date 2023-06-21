@@ -49,7 +49,9 @@ mod hello {
     fn periodic(ctx: periodic::Context) {
         info!("Start Aperiodic");
 
-        // TODO implement cascading flow, filling one f32 takes from a slice of f32, starting from the right most element in the slice. After consumption move all fuel as far as possible to the left.
+        // TODO implement cascading flow, filling one f32 takes from a slice of f32,
+        // starting from the right most element in the slice. After consumption move all
+        // fuel as far as possible to the left.
 
         loop {
             // Step 1: get control commands

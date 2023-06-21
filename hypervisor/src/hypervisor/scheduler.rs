@@ -43,19 +43,6 @@ impl<'a> PartitionTimeWindow<'a> {
         PartitionTimeWindow { base, run, timeout }
     }
 
-    ///// Initializes a Partition if it wasn't initialized before
-    //fn init_run<'b>(base: &'_ Base, run: &'b mut Option<Run>) -> TypedResult<&'b mut Run> {
-    //    match run {
-    //        Some(run) => Ok(run),
-    //        run @ None => {
-    //            let new_run = Run::new(base, StartCondition::NormalStart, false).typ(SystemError::PartitionInit)?;
-    //            run.get_or_insert(new_run);
-    //            // Unwrap can not fail because we just set it to a value
-    //            Ok(run.as_mut().unwrap())
-    //        }
-    //    }
-    //}
-
     fn handle_part_err(&mut self, res: TypedResult<()>) -> LeveledResult<()> {
         debug!("Partition \"{}\" received err: {res:?}", self.base.name());
         if let Err(err) = res.as_ref() {
@@ -78,7 +65,8 @@ impl<'a> PartitionTimeWindow<'a> {
             debug!("Handling: {err:?}");
             debug!("Apply Partition Recovery Action: {action:?}");
 
-            // TODO do not unwrap/expect these errors. Maybe raise Module Level PartitionInit Error?
+            // TODO do not unwrap/expect these errors. Maybe raise Module Level
+            // PartitionInit Error?
             match action {
                 a653rs_linux_core::health::PartitionRecoveryAction::Idle => self
                     .run
@@ -135,8 +123,9 @@ impl<'a> PartitionTimeWindow<'a> {
         if let OperatingMode::Idle = self.run.mode() {
             sleep(self.timeout.remaining_time());
         } else {
-            // Else we are in either a start mode or normal mode (post periodic/mid aperiodic time frame)
-            // Either-way we are supposed to unfreeze the partition
+            // Else we are in either a start mode or normal mode (post periodic/mid
+            // aperiodic time frame) Either-way we are supposed to unfreeze the
+            // partition
             self.base.unfreeze()?;
 
             let mut leftover = self.timeout.remaining_time();
@@ -291,8 +280,10 @@ impl PeriodicPoller {
                     // got a call events
                     Self::RECEIVER_ID => {
                         // Re-sub the readable event
-                        // This will result in the event instantly being ready again should we have something to read,
-                        // but that is better than accidentally missing an event (at the expense of one extra loop per receive)
+                        // This will result in the event instantly being ready again should we have
+                        // something to read, but that is better than
+                        // accidentally missing an event (at the expense of one extra loop per
+                        // receive)
                         self.poll
                             .modify(
                                 run.receiver().as_raw_fd(),

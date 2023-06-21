@@ -66,7 +66,8 @@ where
             .typ(SystemError::Panic)
     }
 
-    /// Reads a single instance of T from the IpcReceiver but fail after duration
+    /// Reads a single instance of T from the IpcReceiver but fail after
+    /// duration
     pub fn try_recv_timeout(&self, duration: Duration) -> TypedResult<Option<T>> {
         let poller = Poller::new().typ(SystemError::Panic)?;
         poller

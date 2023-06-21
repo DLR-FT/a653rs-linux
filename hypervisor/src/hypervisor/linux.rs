@@ -167,8 +167,8 @@ impl Drop for Hypervisor {
             "moving own process to previous cgroup {:?}",
             self.prev_cg.as_path()
         );
-        // Using unwrap in this context is probably safe, as a failure in import_root requires that
-        // the cgroup must have been deleted externally
+        // Using unwrap in this context is probably safe, as a failure in import_root
+        // requires that the cgroup must have been deleted externally
         if let Err(e) = CGroup::import_root(&self.prev_cg)
             .unwrap()
             .mv(nix::unistd::getpid())
