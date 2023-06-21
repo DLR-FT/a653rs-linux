@@ -43,20 +43,6 @@ impl<'a> PartitionTimeWindow<'a> {
         PartitionTimeWindow { base, run, timeout }
     }
 
-    #[rustfmt::skip]
-    // // Initializes a Partition if it wasn't initialized before
-    // fn init_run<'b>(base: &'_ Base, run: &'b mut Option<Run>) -> TypedResult<&'b
-    // mut Run> {     match run {
-    //         Some(run) => Ok(run),
-    //         run @ None => {
-    //             let new_run = Run::new(base, StartCondition::NormalStart,
-    // false).typ(SystemError::PartitionInit)?;
-    // run.get_or_insert(new_run);             // Unwrap can not fail because we
-    // just set it to a value             Ok(run.as_mut().unwrap())
-    //         }
-    //     }
-    // }
-
     fn handle_part_err(&mut self, res: TypedResult<()>) -> LeveledResult<()> {
         debug!("Partition \"{}\" received err: {res:?}", self.base.name());
         if let Err(err) = res.as_ref() {
