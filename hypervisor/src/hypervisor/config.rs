@@ -1,3 +1,49 @@
+//! Configuration for a653rs-linux-hypervisor.
+//!
+//! A configuration contains information about the partition schedule.
+//! Currently, only a single schedule is supported. Each schedule's major frame
+//! (MAF) has a fixed duration and number of slots. Each slot is occupied by at
+//! most one partition that executes during the slot. A slot has a fixed
+//! duration and offset inside the MAF. A partition may occupy multiple slots
+//! inside the schedule, in which case it may be repeated using the `period`
+//! parameter. Also the MAF must be cleanly dividable by this period.
+//!
+//! The hypervisor runs the executable file specified by `image` for each
+//! partition as a long-running process that is started and stopped according to
+//! the partition schedule.
+//!
+//! Partitions can communicate using channels (Sampling and Queuing). The name
+//! of the ports by which a partition can access a channel is the same for all
+//! attached partitions.
+
+//! ```rust
+//! # use a653rs_linux_hypervisor::hypervisor::config::Config;
+//! # let yaml = "
+//! major_frame: 1s
+//! partitions:
+//!   - id: 0
+//!     name: Foo
+//!     duration: 10ms
+//!     offset: 0ms
+//!     period: 500ms
+//!     image: target/x86_64-unknown-linux-musl/release/hello_part
+//!   - id: 1
+//!     name: Bar
+//!     offset: 100ms
+//!     duration: 10ms
+//!     image: target/x86_64-unknown-linux-musl/release/hello_part
+//!     period: 1s
+//! channel:
+//!   - !Sampling
+//!     name: Hello
+//!     msg_size: 10KB
+//!     source: Foo
+//!     destination:
+//!       - Bar
+//! # ";
+//! # serde_yaml::from_str::<Config>(yaml).unwrap();
+//! ```
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -31,6 +77,7 @@ pub struct Partition {
     pub duration: Duration,
     #[serde(with = "humantime_serde")]
     pub offset: Duration,
+    /// Repetition interval of the slice inside the MAF.
     #[serde(with = "humantime_serde")]
     pub period: Duration,
     pub image: PathBuf,
