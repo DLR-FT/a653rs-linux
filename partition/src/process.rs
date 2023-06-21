@@ -191,6 +191,7 @@ impl Process {
         safemem::write_bytes(stack, 0);
         let cbk = Box::new(move || {
             // TODO
+            #[rustfmt::skip]
             //setrlimit(Resource::RLIMIT_STACK, stack_size - 2000, stack_size - 2000).unwrap();
 
             let cg = self.cg().unwrap();

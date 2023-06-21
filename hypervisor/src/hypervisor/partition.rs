@@ -152,7 +152,8 @@ impl Run {
 
         let (call_tx, call_rx) = channel_pair::<PartitionCall>()?;
 
-        // TODO add a `::new(warm_start: bool)->Self` function to `OperatingMode`, use it here
+        // TODO add a `::new(warm_start: bool)->Self` function to `OperatingMode`, use
+        // it here
         let mode = if warm_start {
             OperatingMode::WarmStart
         } else {

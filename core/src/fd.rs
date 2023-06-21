@@ -15,7 +15,8 @@ use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
 #[derive(Debug)]
 /// The fundamental error type for this crate
-// TODO: Consider replacing it with a normal TypedError and using TimeDurationExceeded instead
+// TODO: Consider replacing it with a normal TypedError and using
+// TimeDurationExceeded instead
 pub enum PidWaitError {
     /// A timeout has a occurred
     Timeout,
@@ -44,8 +45,8 @@ impl PidFd {
 
         loop {
             // The second argument to Poller::modify() is totally valid and correct, due to
-            // epoll(2) internals, which demand providing a "user data variable" -- a feature
-            // that we make no use of.
+            // epoll(2) internals, which demand providing a "user data variable" -- a
+            // feature that we make no use of.
             poller
                 .modify(self.0.as_raw_fd(), Event::readable(42))
                 .map_err(anyhow::Error::from)
@@ -87,7 +88,8 @@ impl TryFrom<Pid> for PidFd {
                 .typ(SystemError::Panic)?
         };
         if pidfd < 0 {
-            // TODO: pidfd will be -1 in that case. Printing this is not useful. Access errno instead.
+            // TODO: pidfd will be -1 in that case. Printing this is not useful. Access
+            // errno instead.
             return Err(anyhow!("Error getting pidfd from {value}. {pidfd}"))
                 .typ(SystemError::Panic);
         }
