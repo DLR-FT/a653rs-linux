@@ -12,14 +12,8 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod hello {
-    use core::time::Duration;
-    use std::thread::sleep;
-
     use a653rs::prelude::SystemTime;
-    use a653rs_postcard::prelude::*;
-    use humantime::format_duration;
     use log::*;
-    use serde::{Deserialize, Serialize};
 
     #[sampling_in(name = "fuel_actuators", msg_size = "10KB", refresh_period = "20ms")]
     struct FuelActuators;
