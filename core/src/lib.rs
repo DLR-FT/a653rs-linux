@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate enum_primitive;
 
 pub mod cgroup;
 pub mod channel;
@@ -14,3 +16,4 @@ pub mod partition;
 pub mod queuing;
 pub mod sampling;
 pub mod shmem;
+pub mod syscall;
