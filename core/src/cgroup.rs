@@ -177,10 +177,10 @@ impl CGroup {
 
         // Check if all processes were terminated successfully
         let start = Instant::now();
-        trace!("Killing with a 1s timeout");
+        trace!("Killing with a {KILLING_TIMEOUT:?} timeout");
         while start.elapsed() < KILLING_TIMEOUT {
             if !self.populated()? {
-                trace!("Killed with a 1s timeout");
+                trace!("Killed with a {KILLING_TIMEOUT:?} timeout");
                 return Ok(());
             }
         }
