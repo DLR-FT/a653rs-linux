@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate log;
 
+use std::os::fd::RawFd;
 use std::os::unix::prelude::FromRawFd;
 use std::time::{Duration, Instant};
 
@@ -9,13 +10,16 @@ use a653rs_linux_core::file::{get_memfd, TempFile};
 use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::IpcSender;
 use a653rs_linux_core::partition::*;
+use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
 use memmap2::{MmapMut, MmapOptions};
+use nix::sys::socket::{self, connect, AddressFamily, SockFlag, SockType, UnixAddr};
 use once_cell::sync::Lazy;
 use process::Process;
 use tinyvec::ArrayVec;
 
 pub mod apex;
 pub mod partition;
+pub mod syscall;
 //mod scheduler;
 pub(crate) mod process;
 
@@ -80,4 +84,18 @@ pub(crate) static SIGNAL_STACK: Lazy<MmapMut> = Lazy::new(|| {
         .len(nix::libc::SIGSTKSZ)
         .map_anon()
         .unwrap()
+});
+
+pub(crate) static SYSCALL: Lazy<RawFd> = Lazy::new(|| {
+    let syscall_socket = socket::socket(
+        AddressFamily::Unix,
+        SockType::Datagram,
+        SockFlag::empty(),
+        None,
+    )
+    .unwrap();
+
+    connect(syscall_socket, &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap()).unwrap();
+
+    syscall_socket
 });
