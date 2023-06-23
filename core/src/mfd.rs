@@ -19,6 +19,8 @@ impl Mfd {
     /// Reads all data available
     pub fn read_all(&mut self) -> Result<Vec<u8>> {
         self.0.as_file().seek(SeekFrom::Start(0))?;
+        // TODO: Evaluate whether inlining ofsmall message directly into the dtagram
+        // makes sense.
         let mut buf: Vec<u8> = Vec::new();
         self.0.as_file().read_to_end(&mut buf)?;
 

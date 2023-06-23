@@ -17,10 +17,12 @@ use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::{channel_pair, IpcReceiver};
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
 use a653rs_linux_core::sampling::Sampling;
+use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
 use anyhow::{anyhow, bail};
 use clone3::Clone3;
 use itertools::Itertools;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
+use nix::sys::socket::{self, bind, AddressFamily, SockFlag, SockType, UnixAddr};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
@@ -28,6 +30,7 @@ use tempfile::{tempdir, TempDir};
 use super::scheduler::{PartitionTimeWindow, Timeout};
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::linux::SYSTEM_START_TIME;
+use crate::hypervisor::syscall;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionAction {
@@ -274,6 +277,24 @@ impl Run {
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
                 //umount("old").unwrap();
                 chdir("/").unwrap();
+
+                // After we've performed the pseudo chroot, we can create the
+                // Unix domain socket
+                let syscall_socket = socket::socket(
+                    AddressFamily::Unix,
+                    SockType::Datagram,
+                    SockFlag::SOCK_CLOEXEC,
+                    None,
+                )
+                .unwrap();
+
+                bind(syscall_socket, &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap()).unwrap();
+
+                // Now that the socket is up and running, we will create a satellite thread
+                // listening on it.
+                std::thread::spawn(move || {
+                    syscall::handle(syscall_socket, None).unwrap();
+                });
 
                 let constants: RawFd = PartitionConstants {
                     name: base.name.clone(),
