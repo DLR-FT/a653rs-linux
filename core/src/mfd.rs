@@ -8,6 +8,15 @@ use memfd::{FileSeal, Memfd, MemfdOptions};
 
 pub struct Mfd(Memfd);
 
+pub enum Seals {
+    /// No seals are placed
+    Unsealed,
+    /// SealShrink + SealGrow + SealWrite + SealSeal
+    Readable,
+    /// SealSeal
+    Writable,
+}
+
 impl Mfd {
     /// Creates an empty named Memfd
     pub fn create(name: &str) -> Result<Self> {
@@ -36,11 +45,22 @@ impl Mfd {
     }
 
     /// Finalizes the mfd so that it becomes immutable
-    pub fn finalize(&mut self) -> Result<()> {
-        self.0.add_seal(FileSeal::SealShrink)?;
-        self.0.add_seal(FileSeal::SealGrow)?;
-        self.0.add_seal(FileSeal::SealWrite)?;
-        self.0.add_seal(FileSeal::SealSeal)?;
+    pub fn finalize(&mut self, seals: Seals) -> Result<()> {
+        let file_seals: Vec<FileSeal> = match seals {
+            Seals::Unsealed => vec![],
+            Seals::Readable => vec![
+                FileSeal::SealShrink,
+                FileSeal::SealGrow,
+                FileSeal::SealWrite,
+                FileSeal::SealSeal,
+            ],
+            Seals::Writable => vec![FileSeal::SealSeal],
+        };
+
+        for seal in file_seals {
+            self.0.add_seal(seal)?;
+        }
+
         Ok(())
     }
 
@@ -69,7 +89,7 @@ mod tests {
     fn test_mfd() {
         let mut mfd = Mfd::create("test").unwrap();
         mfd.write("Hello, world!".as_bytes()).unwrap();
-        mfd.finalize().unwrap();
+        mfd.finalize(Seals::Readable).unwrap();
 
         assert_eq!(mfd.read_all().unwrap(), "Hello, world!".as_bytes());
     }

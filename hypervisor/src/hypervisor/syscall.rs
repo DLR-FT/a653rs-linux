@@ -4,7 +4,7 @@ use std::io::IoSliceMut;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
-use a653rs_linux_core::mfd::Mfd;
+use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
 use anyhow::{bail, Result};
 use libc::EINTR;
@@ -91,7 +91,7 @@ pub fn handle(fd: RawFd, timeout: Option<Duration>) -> Result<u32> {
             status: 0,
         };
         resp_fd.write(&resp.serialize()?)?;
-        resp_fd.finalize()?;
+        resp_fd.finalize(Seals::Readable)?;
 
         // Trigger the event
         let buf = 1_u64.to_ne_bytes();
@@ -141,7 +141,7 @@ mod tests {
                     .unwrap(),
                 )
                 .unwrap();
-            requ_fd.finalize().unwrap();
+            requ_fd.finalize(Seals::Readable).unwrap();
 
             // Send the fds to the responder
             {

@@ -5,7 +5,7 @@
 use std::io::IoSlice;
 use std::os::fd::{AsRawFd, RawFd};
 
-use a653rs_linux_core::mfd::Mfd;
+use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
 use anyhow::Result;
 use nix::libc::EINTR;
@@ -56,7 +56,7 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
 
     // Initialize the request file descriptor
     requ_fd.write(&requ.serialize()?)?;
-    requ_fd.finalize()?;
+    requ_fd.finalize(Seals::Readable)?;
 
     // Send the file descriptors to the hypervisor
     send_fds(
@@ -144,7 +144,7 @@ mod tests {
                     .unwrap(),
                 )
                 .unwrap();
-            resp_fd.finalize().unwrap();
+            resp_fd.finalize(Seals::Readable).unwrap();
 
             // Trigger the eventfd
             let buf = 1_u64.to_ne_bytes();
