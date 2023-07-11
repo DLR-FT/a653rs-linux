@@ -1,3 +1,11 @@
+//! This crate is a library both used by the partition and the hypervisor side
+//! of the Linux based ARINC 653 hypervisor.
+//!
+//! The pivot for interaction between the hypervisor and the partitions is
+//! formed by a Unix Domain Socket, which is exposed under a well-known path
+//! ([syscall::SYSCALL_SOCKET_PATH]) by the hypervisor
+//! prior to invocation of a partition.
+
 #[macro_use]
 extern crate log;
 #[macro_use]

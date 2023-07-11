@@ -1,3 +1,10 @@
+//! Partition side of the ARINC 653 Linux hypervisor
+//!
+//! This crate is a library, implementing and providing the ARINC 653 API meant
+//! to be used from within a partition running on the Linux hypervisor.
+
+#[deny(dead_code)]
+#[deny(missing_docs)]
 #[macro_use]
 extern crate log;
 
