@@ -290,12 +290,6 @@ impl Run {
 
                 bind(syscall_socket, &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap()).unwrap();
 
-                // Now that the socket is up and running, we will create a satellite thread
-                // listening on it.
-                std::thread::spawn(move || {
-                    syscall::handle(syscall_socket, None).unwrap();
-                });
-
                 let constants: RawFd = PartitionConstants {
                     name: base.name.clone(),
                     identifier: base.id,

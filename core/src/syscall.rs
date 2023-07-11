@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use enum_primitive::FromPrimitive;
 
-pub static SYSCALL_SOCKET_PATH: &str = "/syscall-a653";
+pub const SYSCALL_SOCKET_PATH: &str = "/syscall-a653";
 
 enum_from_primitive! {
 #[derive(Debug, Copy, Clone, PartialEq)]
