@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "a653rs"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba258cb45c9a7e8bd38999d99ea37dff00d02337178dbbc2c82ae724e677aa8e"
+checksum = "9d3d347467ceef5872bb667a40cd147608946b0694fd10eed6afa2c6ab0e4c5c"
 dependencies = [
  "a653rs_macros",
  "serde",
@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "a653rs-linux"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "a653rs",
  "a653rs-linux-core",
@@ -38,7 +38,9 @@ dependencies = [
  "a653rs",
  "anyhow",
  "bincode",
+ "byteorder",
  "bytesize",
+ "enum_primitive",
  "itertools",
  "log",
  "memfd",
@@ -83,8 +85,8 @@ dependencies = [
 
 [[package]]
 name = "a653rs-postcard"
-version = "0.1.0"
-source = "git+https://github.com/DLR-FT/a653rs-postcard.git?branch=main#3a7e09e70e881f2e43ad6529a4f30da88f37b0f5"
+version = "0.2.0"
+source = "git+https://github.com/DLR-FT/a653rs-postcard.git?branch=main#7f5fc019a3aa3145cae585c3471adb49756e8303"
 dependencies = [
  "a653rs",
  "arrayvec",
@@ -94,9 +96,9 @@ dependencies = [
 
 [[package]]
 name = "a653rs_macros"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65b18aa579370d7f84a4fb98024369ad34fbf4a6fe308c75f4debd9b27f22e94"
+checksum = "58c09ced9ff1ecd464a0754ba9b346202d6d2bda921c507b946f55d2d98f1cd9"
 dependencies = [
  "bytesize",
  "convert_case",
@@ -275,7 +277,7 @@ checksum = "ec837a71355b28f6556dbd569b37b3f363091c0bd4b2e735674521b4c5fd9bc5"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
- "num-traits",
+ "num-traits 0.2.15",
  "winapi",
 ]
 
@@ -424,6 +426,15 @@ name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
+
+[[package]]
+name = "enum_primitive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
+dependencies = [
+ "num-traits 0.1.43",
+]
 
 [[package]]
 name = "env_logger"
@@ -794,7 +805,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-rational",
- "num-traits",
+ "num-traits 0.2.15",
 ]
 
 [[package]]
@@ -805,7 +816,7 @@ checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
 dependencies = [
  "autocfg",
  "num-integer",
- "num-traits",
+ "num-traits 0.2.15",
 ]
 
 [[package]]
@@ -814,7 +825,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02e0d21255c828d6f128a1e41534206671e8c3ea0c62f32291e808dc82cff17d"
 dependencies = [
- "num-traits",
+ "num-traits 0.2.15",
 ]
 
 [[package]]
@@ -824,7 +835,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
 dependencies = [
  "autocfg",
- "num-traits",
+ "num-traits 0.2.15",
 ]
 
 [[package]]
@@ -835,7 +846,7 @@ checksum = "7d03e6c028c5dc5cac6e2dec0efda81fc887605bb3d884578bb6d6bf7514e252"
 dependencies = [
  "autocfg",
  "num-integer",
- "num-traits",
+ "num-traits 0.2.15",
 ]
 
 [[package]]
@@ -847,7 +858,16 @@ dependencies = [
  "autocfg",
  "num-bigint",
  "num-integer",
- "num-traits",
+ "num-traits 0.2.15",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.1.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e5113e9fd4cc14ded8e499429f396a20f98c772a47cc8622a736e1ec843c31"
+dependencies = [
+ "num-traits 0.2.15",
 ]
 
 [[package]]
