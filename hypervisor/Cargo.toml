@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-a653rs = "0.2"
+a653rs = "0.3"
 #apex-hal = { path = "../../a653rs", features = ["p4"] }
 a653rs-linux-core = { path = "../core" }
 
