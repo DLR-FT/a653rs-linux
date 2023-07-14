@@ -6,5 +6,9 @@ members = [
     "core",
     "examples/hello_part",
     "examples/fuel_tank_simulation",
-    "examples/fuel_tank_controller"
+    "examples/fuel_tank_controller",
 ]
+
+[workspace.dependencies]
+a653rs = "0.3.2"
+log = "0"

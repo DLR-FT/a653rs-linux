@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "a653rs"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d3d347467ceef5872bb667a40cd147608946b0694fd10eed6afa2c6ab0e4c5c"
+checksum = "b7660e679461434e8c1e2b47eba46d0635c6a6475d1c56775c4c8157962bb17d"
 dependencies = [
  "a653rs_macros",
  "serde",
