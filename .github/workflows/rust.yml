@@ -15,6 +15,7 @@ jobs:
         example:
           - hello_part
           - fuel_tank
+          - ping
     env:
       DURATION: 10s
       RUST_LOG: trace

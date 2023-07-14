@@ -68,6 +68,10 @@
             name = "fuel_tank";
             partitions = [ "fuel_tank_simulation" "fuel_tank_controller" ];
           }
+          {
+            name = "ping";
+            partitions = [ "ping_server" "ping_client" ];
+          }
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;

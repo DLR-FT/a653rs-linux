@@ -1,0 +1,27 @@
+major_frame: 1s
+partitions:
+  - id: 0
+    name: ping_client
+    duration: 10ms
+    offset: 0ms
+    period: 1s
+    image: target/x86_64-unknown-linux-musl/release/ping_client
+  - id: 1
+    name: ping_server
+    duration: 20ms
+    offset: 450ms
+    period: 1s
+    image: target/x86_64-unknown-linux-musl/release/ping_server
+channel:
+  - !Sampling
+    name: ping_request
+    msg_size: 16B
+    source: ping_client
+    destination:
+      - ping_server
+  - !Sampling
+    name: ping_response
+    msg_size: 32B
+    source: ping_server
+    destination:
+      - ping_client

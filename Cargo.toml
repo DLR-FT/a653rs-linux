@@ -4,9 +4,14 @@ members = [
     "hypervisor",
     "partition",
     "core",
+
     "examples/hello_part",
+
     "examples/fuel_tank_simulation",
     "examples/fuel_tank_controller",
+
+    "examples/ping_client",
+    "examples/ping_server",
 ]
 
 [workspace.dependencies]
