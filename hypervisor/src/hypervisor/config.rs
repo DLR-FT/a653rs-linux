@@ -54,37 +54,89 @@ use anyhow::anyhow;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+/// Main configuration of the hypervisor
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
+    /// Duration of one Major Frame (MaF)
+    ///
+    /// The schedule will repeat periodically after this duration.
     #[serde(with = "humantime_serde")]
     pub major_frame: Duration,
+
+    /// CGroup to place a partition's processes in
+    ///
+    /// The default value is sensible, you should not need to change this
     #[serde(default)]
     pub cgroup: PathBuf,
+
+    /// List of partitions
+    ///
+    /// The partitions contain the applications ran on the hypervisor.
     pub partitions: Vec<Partition>,
+
+    /// List of channels between partitions
+    ///
+    /// The channels enable intra-partition communication. Two types of channel
+    /// are available, [Channel::Sampling] and [Channel::Queuing]
+    /// TODO Currently, only Sampling Channels are supported
     #[serde(default)]
     pub channel: Vec<Channel>,
+
+    // TODO fill in documentation
     #[serde(default)]
     pub hm_init_table: ModuleInitHMTable,
+
+    // TODO fill in documentation
     #[serde(default)]
     pub hm_run_table: ModuleRunHMTable,
 }
 
+/// Partition configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Partition {
+    /// Partition id
     pub id: i64,
+
+    /// Partition name, used for example as prefix in the log printing
     pub name: String,
+
+    /// Duration of the partition window / Minor Frame (MiF)
+    ///
+    /// Whenever the partition is scheduled, it is executed for this long.
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
+
+    /// Offset from beginning of the MaF ([Config::major_frame]), when the MiF
+    /// starts
+    ///
+    /// Specifies when the partition is scheduled, relative to the beginning of
+    /// the current MaF
     #[serde(with = "humantime_serde")]
     pub offset: Duration,
+
     /// Repetition interval of the slice inside the MAF.
+    // TODO add an explanation
     #[serde(with = "humantime_serde")]
     pub period: Duration,
+
+    /// Path to the executable of the partition
     pub image: PathBuf,
+
+    /// Devices to be mounted into the partitions namespace
+    ///
+    /// Use this to pass devices into the partition, i. e. to get access to a
+    /// physical serial port.
     #[serde(default)]
     pub devices: Vec<Device>,
+
+    // TODO
     #[serde(default)]
     pub hm_table: PartitionHMTable,
+
+    /// Bindmounts from host to partition
+    ///
+    /// Use this to expose a path from the host environment inside of a
+    /// partitions mnt namespace
     #[serde(default)]
     pub mounts: Vec<(PathBuf, PathBuf)>,
 }
