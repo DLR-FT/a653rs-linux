@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "a653rs"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d3d347467ceef5872bb667a40cd147608946b0694fd10eed6afa2c6ab0e4c5c"
+checksum = "b7660e679461434e8c1e2b47eba46d0635c6a6475d1c56775c4c8157962bb17d"
 dependencies = [
  "a653rs_macros",
  "serde",
@@ -507,7 +507,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "log",
  "memmap2",
  "nix",
@@ -522,7 +521,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "log",
  "memmap2",
  "nix",
@@ -560,7 +558,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "a653rs-postcard",
  "humantime 2.1.0",
  "log",
@@ -896,6 +893,24 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
+
+[[package]]
+name = "ping_client"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "log",
+]
+
+[[package]]
+name = "ping_server"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "log",
+]
 
 [[package]]
 name = "polling"

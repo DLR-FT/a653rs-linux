@@ -15,15 +15,19 @@ jobs:
         example:
           - hello_part
           - fuel_tank
+          - ping
     env:
       DURATION: 10s
       RUST_LOG: trace
     steps:
       - uses: actions/checkout@v2
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v4
-      - name: Run the Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v1
+      - uses: cachix/install-nix-action@v22
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: cachix/cachix-action@v12
+        with:
+          name: dlr-ft
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - name: Check CGroup
         run: systemd-run --user --scope cat /proc/self/cgroup
       - name: Run example ${{ matrix.example }}
@@ -41,9 +45,25 @@ jobs:
           - audit --deny warnings
     steps:
       - uses: actions/checkout@v2
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v4
-      - name: Run the Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@v1
+      - uses: cachix/install-nix-action@v13
+        with:
+          nix_path: nixpkgs=channel:nixos-stable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Nix store
+        uses: actions/cache@v3
+        id: nix-cache
+        with:
+          path: /tmp/nixcache
+          key: nix-${{ runner.os }}
+      - name: Import Nix store cache
+        if: "steps.nix-cache.outputs.cache-hit == 'true'"
+        run: nix copy --no-check-sigs --from /tmp/nixcache --all
       - name: Run check ${{ matrix.check }}
         run: nix develop --command ${{ matrix.check }}
+      - name: Export Nix store cache
+        if: "steps.nix-cache.outputs.cache-hit != 'true'"
+        run: |
+          nix copy --no-check-sigs --to /tmp/nixcache \
+            .#devShells.x86_64-linux.default
