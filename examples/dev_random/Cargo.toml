@@ -1,0 +1,11 @@
+[package]
+name = "dev_random"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+a653rs = { workspace = true, features = ["macros"] }
+a653rs-linux = { path = "../../partition" }
+log.workspace = true

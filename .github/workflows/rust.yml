@@ -16,6 +16,7 @@ jobs:
           - hello_part
           - fuel_tank
           - ping
+          - dev_random
     env:
       DURATION: 10s
       RUST_LOG: trace

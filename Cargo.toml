@@ -12,6 +12,8 @@ members = [
 
     "examples/ping_client",
     "examples/ping_server",
+
+    "examples/dev_random",
 ]
 
 [workspace.dependencies]
