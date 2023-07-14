@@ -507,7 +507,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "log",
  "memmap2",
  "nix",
@@ -522,7 +521,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "log",
  "memmap2",
  "nix",
@@ -560,7 +558,6 @@ version = "0.1.0"
 dependencies = [
  "a653rs",
  "a653rs-linux",
- "a653rs-linux-core",
  "a653rs-postcard",
  "humantime 2.1.0",
  "log",
