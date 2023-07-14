@@ -122,29 +122,16 @@ pub struct Partition {
     /// Path to the executable of the partition
     pub image: PathBuf,
 
-    /// Devices to be mounted into the partitions namespace
-    ///
-    /// Use this to pass devices into the partition, i. e. to get access to a
-    /// physical serial port.
-    #[serde(default)]
-    pub devices: Vec<Device>,
-
     // TODO
     #[serde(default)]
     pub hm_table: PartitionHMTable,
 
     /// Bindmounts from host to partition
     ///
-    /// Use this to expose a path from the host environment inside of a
-    /// partitions mnt namespace
+    /// Use this to expose a path / file / device file from the host environment
+    /// to the inside of a partitions.
     #[serde(default)]
     pub mounts: Vec<(PathBuf, PathBuf)>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Device {
-    pub path: PathBuf,
-    pub read_only: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
