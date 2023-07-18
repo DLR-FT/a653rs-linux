@@ -120,6 +120,7 @@
             cargo-audit
             cargo-expand
             nixpkgs-fmt
+            nodePackages.prettier
           ];
           git.hooks = {
             enable = true;
