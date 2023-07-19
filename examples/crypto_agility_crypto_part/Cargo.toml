@@ -1,0 +1,15 @@
+[package]
+name = "crypto_agility_crypto_part"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+a653rs = { workspace = true, features = ["macros"] }
+a653rs-linux = { path = "../../partition" }
+aes-gcm = "0.10.2"
+log.workspace = true
+pqc_kyber = "0.6.0"
+tiny-keccak = { version = "2.0.2", features = ["kmac", "sha3"] }
+

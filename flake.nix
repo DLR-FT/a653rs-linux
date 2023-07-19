@@ -76,6 +76,14 @@
             name = "dev_random";
             partitions = [ "dev_random" ];
           }
+          {
+            name = "crypto_agility";
+            partitions = [
+              "crypto_agility_crypto_part"
+              "crypto_agility_sender"
+              "crypto_agility_receiver"
+            ];
+          }
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;

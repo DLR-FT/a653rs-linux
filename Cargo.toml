@@ -15,6 +15,10 @@ members = [
     "examples/ping_server",
 
     "examples/dev_random",
+
+    "examples/crypto_agility_crypto_part",
+    "examples/crypto_agility_sender",
+    "examples/crypto_agility_receiver",
 ]
 
 [workspace.dependencies]
