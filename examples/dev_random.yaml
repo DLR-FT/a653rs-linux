@@ -1,0 +1,10 @@
+major_frame: 1s
+partitions:
+  - id: 0
+    name: partition_0
+    duration: 1s
+    offset: 0ms
+    period: 1s
+    image: target/x86_64-unknown-linux-musl/release/dev_random
+    mounts:
+      - [/dev/random, /dev/random]

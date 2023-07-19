@@ -1,4 +1,4 @@
-name: Run checks
+name: Checks
 
 on:
   pull_request:
@@ -6,17 +6,48 @@ on:
     branches: [main]
 
 jobs:
-  nix-checks:
+  nix-flake-check:
     name: Run nix flake check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: cachix/install-nix-action@v22
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: cachix/cachix-action@v12
         with:
           name: dlr-ft
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: Nix Flake Check
         run: nix flake check
+
+  impure-checks:
+    name: Run check ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - udeps
+          - treefmt --fail-on-change
+          - audit --deny warnings
+    steps:
+      - uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v22
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: cachix/cachix-action@v12
+        with:
+          name: dlr-ft
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run check ${{ matrix.check }}
+        run: nix develop --command ${{ matrix.check }}

@@ -72,6 +72,10 @@
             name = "ping";
             partitions = [ "ping_server" "ping_client" ];
           }
+          {
+            name = "dev_random";
+            partitions = [ "dev_random" ];
+          }
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;
@@ -116,6 +120,7 @@
             cargo-audit
             cargo-expand
             nixpkgs-fmt
+            nodePackages.prettier
           ];
           git.hooks = {
             enable = true;

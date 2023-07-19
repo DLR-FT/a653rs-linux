@@ -16,54 +16,29 @@ jobs:
           - hello_part
           - fuel_tank
           - ping
+          - dev_random
     env:
       DURATION: 10s
       RUST_LOG: trace
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: cachix/install-nix-action@v22
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - uses: cachix/cachix-action@v12
         with:
           name: dlr-ft
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.example }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Check CGroup
         run: systemd-run --user --scope cat /proc/self/cgroup
       - name: Run example ${{ matrix.example }}
-        run: nix develop --command systemd-run-example-${{ matrix.example }} --duration $DURATION  
-
-  checks:
-    name: Run check ${{ matrix.check }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        check:
-          - udeps
-          - treefmt --fail-on-change
-          - audit --deny warnings
-    steps:
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v13
-        with:
-          nix_path: nixpkgs=channel:nixos-stable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Nix store
-        uses: actions/cache@v3
-        id: nix-cache
-        with:
-          path: /tmp/nixcache
-          key: nix-${{ runner.os }}
-      - name: Import Nix store cache
-        if: "steps.nix-cache.outputs.cache-hit == 'true'"
-        run: nix copy --no-check-sigs --from /tmp/nixcache --all
-      - name: Run check ${{ matrix.check }}
-        run: nix develop --command ${{ matrix.check }}
-      - name: Export Nix store cache
-        if: "steps.nix-cache.outputs.cache-hit != 'true'"
-        run: |
-          nix copy --no-check-sigs --to /tmp/nixcache \
-            .#devShells.x86_64-linux.default
+        run: nix develop --command systemd-run-example-${{ matrix.example }} --duration $DURATION
