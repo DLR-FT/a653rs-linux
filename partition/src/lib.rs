@@ -64,7 +64,7 @@ pub(crate) static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(
 });
 
 pub(crate) type SamplingPortsType = (usize, Duration);
-pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 2]>>> =
+pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 32]>>> =
     Lazy::new(|| {
         if let Ok(fd) = get_memfd(SAMPLING_PORTS_FILE) {
             TempFile::try_from(fd).unwrap()

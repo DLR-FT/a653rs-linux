@@ -94,11 +94,15 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         refresh_period: ApexSystemTime,
     ) -> Result<SamplingPortId, ErrorReturnCode> {
         if refresh_period <= 0 {
+            trace!("yielding InvalidConfig, because refresh period <= 0");
             return Err(ErrorReturnCode::InvalidConfig);
         }
 
         let name = Name::new(sampling_port_name);
-        let name = name.to_str().map_err(|_| ErrorReturnCode::InvalidConfig)?;
+        let name = name.to_str().map_err(|e| {
+            trace!("yielding InvalidConfig, because sampling port is not valid UTF-8:\n{e}");
+            ErrorReturnCode::InvalidConfig
+        })?;
         if let Some((i, s)) = CONSTANTS
             .sampling
             .iter()
@@ -106,6 +110,7 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
             .find(|(_, s)| s.name.eq(name))
         {
             if s.dir != port_direction {
+                trace!("yielding InvalidConfig, because mismatching port direction:\nexpected {:?}, got {port_direction:?}", s.dir);
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
@@ -114,6 +119,10 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
 
             let mut channels = SAMPLING_PORTS.read().unwrap();
             if channels.try_push(ch).is_some() {
+                trace!(
+                    "yielding InvalidConfig, maximum number of sampling ports already reached: {}",
+                    channels.len()
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
             SAMPLING_PORTS.write(&channels).unwrap();
@@ -121,6 +130,7 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
             return Ok(channels.len() as SamplingPortId);
         }
 
+        trace!("yielding InvalidConfig, configuration does not declare sampling port {name}");
         Err(ErrorReturnCode::InvalidConfig)
     }
 
