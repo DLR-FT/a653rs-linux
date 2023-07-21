@@ -107,13 +107,13 @@ mod crypto_partition {
 
                 // second, check that the message is valid i.e. has to be processed
                 if validity != Validity::Valid {
-                    warn!("message validity flag indicates it is outdated, skipping it");
+                    debug!("message validity flag indicates it is outdated, skipping it");
                     ctx.periodic_wait().unwrap();
                     continue;
                 }
 
                 if received_msg.is_empty() {
-                    warn!("received empty request, skipping it");
+                    debug!("received empty request, skipping it");
                     ctx.periodic_wait().unwrap();
                     continue;
                 }
@@ -121,7 +121,7 @@ mod crypto_partition {
                 let info_str = b"ARINC 653 crypto partition example";
                 match received_msg[0] {
                     // setup
-                    0 => {
+                    1 => {
                         // setup() -> pk
                         //   sk_kem, pk_kem <- KEM.keygen()
                         //   sk_sig, pk_sig <- Signature.keygen()
@@ -134,7 +134,7 @@ mod crypto_partition {
                             let (sk, pk) = Kem::gen_keypair(&mut rng);
 
                             pk_store.insert(i, pk).unwrap();
-                            sk_store.insert(i, sk).unwrap();
+                            sk_store.insert(i, sk).map_err(|_| "impossible").unwrap();
                         }
 
                         let pk = pk_store.get(&i).unwrap();
@@ -148,7 +148,7 @@ mod crypto_partition {
                     //   rest of bytes is pt
                     // OUT:
                     //   ct
-                    1 => {
+                    2 => {
                         // encrypt(pk_peer, pt) -> ct
                         //   concat(sk_kem, sk_sig) <- sk
                         //   concat(pk_peer_kem, pk_peer_sig) <- pk_peer
@@ -189,7 +189,7 @@ mod crypto_partition {
                     // OUT:
                     //   pt (if valid)
                     //   empty array (if invalid)
-                    2 => {
+                    3 => {
                         // decrypt(pk_peer, ct') -> pt
                         //   concat(sk_kem, sk_sig) <- sk
                         //   concat(pk_peer_kem, pk_peer_sig) <- pk_peer

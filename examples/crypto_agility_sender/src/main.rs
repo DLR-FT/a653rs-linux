@@ -23,9 +23,10 @@ mod sender {
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         info!("initalize");
-        ctx.create_crypto_req().unwrap();
-        ctx.create_crypto_resp().unwrap();
-        ctx.create_sender_process().unwrap();
+        // ctx.create_crypto_req().unwrap();
+        // ctx.create_crypto_resp().unwrap();
+        // ctx.create_sender_process().unwrap();
+        ctx.create_dummy_process().unwrap();
         info!("init done");
     }
 
@@ -35,25 +36,41 @@ mod sender {
         cold_start(ctx);
     }
 
+    #[aperiodic(
+        time_capacity = "Infinite",
+        stack_size = "8KB",
+        base_priority = 1,
+        deadline = "Soft"
+    )]
+    fn dummy_process(ctx: dummy_process::Context) {
+        info!("does it work, ehh?!");
+    }
+
     #[periodic(
-        period = "0ms",
+        period = "0s",
         time_capacity = "Infinite",
         stack_size = "8KB",
         base_priority = 1,
         deadline = "Soft"
     )]
     fn sender_process(ctx: sender_process::Context) {
+        info!("started process");
         let mut my_pk = vec![0u8; 0x1000000]; // 16 KiB
+        let mut pk_initialized = false;
         loop {
+            info!("enter loop");
             // request own pk if it is missing
-            if my_pk.is_empty() {
-                ctx.crypto_req.unwrap().send(&[0]).unwrap();
+            if !pk_initialized {
+                info!("my_pk empty, requesting a new one");
+                ctx.crypto_req.unwrap().send(&[1]).unwrap();
                 ctx.periodic_wait().unwrap();
                 let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut my_pk).unwrap();
 
                 // truncate my_pk to a suitable size
                 let len = received_msg.len();
                 my_pk.truncate(len);
+                pk_initialized = true;
+                info!("received public key, storing it in my_pk")
             }
 
             // send a message to other peer
