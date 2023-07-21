@@ -164,6 +164,7 @@ mod crypto_partition {
                             &received_msg[1..1 + pk_size],
                         ) else {
                             warn!("could not extract public key");
+                            resp_port.send(&[]).unwrap();
                             continue;
                         };
 
@@ -206,6 +207,7 @@ mod crypto_partition {
                             &received_msg[1..1 + pk_size],
                         ) else {
                             warn!("could not extract secret key");
+                            resp_port.send(&[]).unwrap();
                             continue;
                         };
 
@@ -220,6 +222,26 @@ mod crypto_partition {
                             ct,
                             &[],
                         );
+                    }
+                    // request another peers pk
+                    4 => {
+                        // let peer_id_bytes: [u8; core::mem::size_of::<usize>() ]  =
+                        // received_msg[1..].try_into()
+
+                        let Ok(peer_id_bytes) = received_msg[1..].try_into() else {
+                            warn!("received a request for another peer id, but request length was wrong");
+                            resp_port.send(&[]).unwrap();
+                            continue;
+                        };
+                        let peer_id = usize::from_le_bytes(peer_id_bytes);
+
+                        let Some(pk) = pk_store.get(&peer_id) else {
+                            warn!("received pk request for a peer that does not exist");
+                            resp_port.send(&[]).unwrap();
+                            continue;
+                        };
+
+                        resp_port.send(&pk.to_bytes()).unwrap();
                     }
                     opcode => {
                         warn!("unknown opcode {opcode:02x} received, ignoring it");

@@ -15,16 +15,17 @@ mod receiver {
     use log::info;
 
     #[sampling_out(name = "crypto_api_req_p2", msg_size = "16MB")]
-    struct P2Req;
+    struct CryptoReq;
 
     #[sampling_in(name = "crypto_api_resp_p2", msg_size = "16MB", refresh_period = "1s")]
-    struct P2Resp;
+    struct CryptoResp;
 
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         info!("initialize");
-        ctx.create_p_2_req().unwrap();
-        ctx.create_p_2_resp().unwrap();
+        ctx.create_crypto_req().unwrap();
+        ctx.create_crypto_resp().unwrap();
+        ctx.create_receiver_process().unwrap().start().unwrap();
         info!("init done")
     }
 
@@ -32,5 +33,56 @@ mod receiver {
     #[start(warm)]
     fn warm_start(ctx: start::Context) {
         cold_start(ctx);
+    }
+
+    #[periodic(
+        period = "0s",
+        time_capacity = "Infinite",
+        stack_size = "8KB",
+        base_priority = 1,
+        deadline = "Soft"
+    )]
+    fn receiver_process(ctx: receiver_process::Context) {
+        info!("started process");
+        let mut my_pk = vec![0u8; 0x1000000]; // 16 KiB
+        let mut their_pk = vec![0u8; 0x1000000]; // 16 KiB
+        let mut my_pk_initialized = false;
+        let mut their_pk_initialized = false;
+        let mut i = 0;
+        loop {
+            info!("enter loop");
+            // request own pk if it is missing
+            if !my_pk_initialized {
+                info!("my_pk empty, requesting a new one");
+                ctx.crypto_req.unwrap().send(&[1]).unwrap();
+                ctx.periodic_wait().unwrap();
+                let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut my_pk).unwrap();
+
+                // truncate my_pk to a suitable size
+                let len = received_msg.len();
+                my_pk.truncate(len);
+                my_pk_initialized = true;
+                info!("received public key, storing it in my_pk")
+            }
+
+            // request other pk if it is missing
+            if !their_pk_initialized {
+                let mut req = vec![4];
+                let other_peer_idx: usize = 0; // the other peer goes by the id 0
+                req.extend_from_slice(&other_peer_idx.to_le_bytes());
+                info!("their_pk empty, requesting a new one");
+                ctx.crypto_req.unwrap().send(&req).unwrap();
+                ctx.periodic_wait().unwrap();
+                let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut their_pk).unwrap();
+
+                // truncate their_pk to a suitable size
+                let len = received_msg.len();
+                their_pk.truncate(len);
+                their_pk_initialized = true;
+                info!("received public key, storing it in their_pk")
+            }
+
+            ctx.periodic_wait().unwrap();
+        }
     }
 }
