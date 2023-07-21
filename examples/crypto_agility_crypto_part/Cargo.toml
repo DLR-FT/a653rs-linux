@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 a653rs = { workspace = true, features = ["macros"] }
 a653rs-linux = { path = "../../partition" }
-aes-gcm = "0.10.2"
+heapless = "0.7.16"
+hpke = "0.10.0"
 log.workspace = true
-pqc_kyber = "0.6.0"
-tiny-keccak = { version = "2.0.2", features = ["kmac", "sha3"] }
+rand = "0.8.5"
 

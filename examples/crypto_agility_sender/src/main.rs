@@ -15,16 +15,16 @@ mod sender {
     use log::info;
 
     #[sampling_out(name = "crypto_api_req_p1"_p1, msg_size = "16MB")]
-    struct P1Req;
+    struct CryptoReq;
 
     #[sampling_in(name = "crypto_api_resp_p1", msg_size = "16MB", refresh_period = "1s")]
-    struct P1Resp;
+    struct CryptoResp;
 
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         info!("initalize");
-        ctx.create_p_1_req().unwrap();
-        ctx.create_p_1_resp().unwrap();
+        ctx.create_crypto_req().unwrap();
+        ctx.create_crypto_resp().unwrap();
         ctx.create_sender_process().unwrap();
         info!("init done");
     }
@@ -43,7 +43,21 @@ mod sender {
         deadline = "Soft"
     )]
     fn sender_process(ctx: sender_process::Context) {
+        let mut my_pk = vec![0u8; 0x1000000]; // 16 KiB
         loop {
+            // request own pk if it is missing
+            if my_pk.is_empty() {
+                ctx.crypto_req.unwrap().send(&[0]).unwrap();
+                ctx.periodic_wait().unwrap();
+                let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut my_pk).unwrap();
+
+                // truncate my_pk to a suitable size
+                let len = received_msg.len();
+                my_pk.truncate(len);
+            }
+
+            // send a message to other peer
+
             ctx.periodic_wait().unwrap();
         }
     }
