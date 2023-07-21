@@ -913,7 +913,7 @@ dependencies = [
 [[package]]
 name = "hpke"
 version = "0.10.0"
-source = "git+https://github.com/rozbb/rust-hpke#2867b0ae90a36f27e2c312fe741f268ad558abbd"
+source = "git+https://github.com/rozbb/rust-hpke?branch=unstable-pq-xyber#e519560ce3dcc1818474a8b030b2b96458f5c25a"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -925,6 +925,7 @@ dependencies = [
  "hmac",
  "p256",
  "rand_core 0.6.4",
+ "safe_pqc_kyber",
  "sha2",
  "subtle",
  "x25519-dalek",
@@ -1561,6 +1562,14 @@ name = "ryu"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe232bdf6be8c8de797b22184ee71118d63780ea42ac85b61d1baa6d3b782ae9"
+
+[[package]]
+name = "safe_pqc_kyber"
+version = "0.6.0"
+source = "git+https://github.com/bwesterb/argyle-kyber#a22715936522c3d11bc5f1c6455612f681209855"
+dependencies = [
+ "rand_core 0.6.4",
+]
 
 [[package]]
 name = "safemem"

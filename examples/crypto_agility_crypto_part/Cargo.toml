@@ -9,7 +9,7 @@ edition = "2021"
 a653rs = { workspace = true, features = ["macros"] }
 a653rs-linux = { path = "../../partition" }
 heapless = "0.7.16"
-hpke = "0.10.0"
+hpke = { version = "0.10.0", features = ["xyber768d00"] }
 log.workspace = true
 rand = "0.8.5"
 

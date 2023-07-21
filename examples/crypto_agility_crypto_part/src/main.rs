@@ -31,7 +31,7 @@ mod crypto_partition {
     static mut SAMPLING_SOURCES: heapless::Vec<SamplingPortSource<PORT_SIZE, Hypervisor>, SLOTS> =
         heapless::Vec::new();
 
-    type Kem = hpke::kem::X25519HkdfSha256;
+    type Kem = hpke::kem::X25519Kyber768Draft00;
     type Aead = hpke::aead::ChaCha20Poly1305;
     type Kdf = hpke::kdf::HkdfSha384;
 
@@ -92,6 +92,7 @@ mod crypto_partition {
         let mut rng = rand::thread_rng();
         let pk_size = <Kem as hpke::Kem>::PublicKey::size();
         let sk_size = <Kem as hpke::Kem>::PrivateKey::size();
+        let shk_ct_size = <Kem as hpke::Kem>::EncappedKey::size();
 
         // a periodic process does not actually return at the end of a partition window,
         // it just pauses itself once it is done with the work from the current MiF
@@ -170,7 +171,7 @@ mod crypto_partition {
 
                         let pt = &received_msg[1 + pk_size..];
 
-                        let (shk_ct, tx_buf) = hpke::single_shot_seal::<Aead, Kdf, Kem, _>(
+                        let (shk_ct, ct) = hpke::single_shot_seal::<Aead, Kdf, Kem, _>(
                             &OpModeS::Base,
                             &pk_recip,
                             info_str,
@@ -180,6 +181,12 @@ mod crypto_partition {
                         )
                         .unwrap();
 
+                        // concat shk_ct and ct
+                        let mut tx_buf = Vec::with_capacity(shk_ct_size + ct.len());
+                        tx_buf.extend(shk_ct.to_bytes());
+                        tx_buf.extend(ct);
+
+                        // sent it
                         resp_port.send(&tx_buf).unwrap();
                     }
                     // decrypt
@@ -211,17 +218,27 @@ mod crypto_partition {
                             continue;
                         };
 
-                        let ct = &received_msg[1..1 + pk_size];
-                        let encapped_key = todo!();
+                        let ct_shk = <Kem as hpke::Kem>::EncappedKey::from_bytes(
+                            &received_msg[1..1 + shk_ct_size],
+                        )
+                        .unwrap();
 
-                        let pt = hpke::single_shot_open::<Aead, Kdf, Kem>(
+                        let ct = &received_msg[1 + shk_ct_size..];
+
+                        let Ok(pt) = hpke::single_shot_open::<Aead, Kdf, Kem>(
                             &OpModeR::Base,
                             &sk_recip,
-                            encapped_key,
+                            &ct_shk,
                             info_str,
                             ct,
                             &[],
-                        );
+                        ) else {
+                            warn!("message doesn't match");
+                            resp_port.send(&[]).unwrap();
+                            continue;
+                        };
+
+                        resp_port.send(&pt).unwrap();
                     }
                     // request another peers pk
                     4 => {
