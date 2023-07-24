@@ -45,7 +45,7 @@ mod crypto_partition {
                 .ctx
                 .create_sampling_port_destination::<PORT_SIZE>(
                     samp_req_name,
-                    Duration::from_millis(500), // equal to partition period
+                    Duration::from_millis(1000), // equal to partition period
                 )
                 .unwrap();
             unsafe {
@@ -78,7 +78,8 @@ mod crypto_partition {
     #[periodic(
         period = "0ms",
         time_capacity = "Infinite",
-        stack_size = "8KB",
+        // crypto ops needs a lot of stack memory
+        stack_size = "16KB",
         base_priority = 1,
         deadline = "Soft"
     )]
@@ -91,7 +92,6 @@ mod crypto_partition {
         let mut pk_store = heapless::FnvIndexMap::<_, _, SLOTS>::new();
         let mut rng = rand::thread_rng();
         let pk_size = <Kem as hpke::Kem>::PublicKey::size();
-        let sk_size = <Kem as hpke::Kem>::PrivateKey::size();
         let shk_ct_size = <Kem as hpke::Kem>::EncappedKey::size();
 
         // a periodic process does not actually return at the end of a partition window,
@@ -119,6 +119,7 @@ mod crypto_partition {
                     continue;
                 }
 
+                debug!("received msg[0] == {}", received_msg[0]);
                 let info_str = b"ARINC 653 crypto partition example";
                 match received_msg[0] {
                     // setup
@@ -129,10 +130,20 @@ mod crypto_partition {
                         //   sk <- concat(sk_kem, sk_sig)
                         //   return concat(pk_kem, pk_sig)
 
+                        // check size
+                        let expected = 1;
+                        if received_msg.len() != expected {
+                            debug!("request size is {} while {expected} was expected, skipping request", received_msg.len());
+                            // resp_port.send(&[]).unwrap();
+                            continue;
+                        }
+
                         if pk_store.get(&i).is_none() {
                             info!("initializing key-slot {i}");
 
                             let (sk, pk) = Kem::gen_keypair(&mut rng);
+
+                            debug!("pk len = {}", pk.to_bytes().len());
 
                             pk_store.insert(i, pk).unwrap();
                             sk_store.insert(i, sk).map_err(|_| "impossible").unwrap();
@@ -161,11 +172,19 @@ mod crypto_partition {
                         // <- AEAD.enc(shk_for_encryption, 0, null, pt)
                         //   return concat(shk_ct, sig, ct)
 
+                        // check size
+                        let expected_min = 1 + pk_size;
+                        if received_msg.len() < expected_min {
+                            debug!("request size is {} while at least {expected_min} was expected, skipping request", received_msg.len());
+                            // resp_port.send(&[]).unwrap();
+                            continue;
+                        }
+
                         let Ok(pk_recip) = <Kem as hpke::Kem>::PublicKey::from_bytes(
                             &received_msg[1..1 + pk_size],
                         ) else {
                             warn!("could not extract public key");
-                            resp_port.send(&[]).unwrap();
+                            // resp_port.send(&[]).unwrap();
                             continue;
                         };
 
@@ -185,6 +204,7 @@ mod crypto_partition {
                         let mut tx_buf = Vec::with_capacity(shk_ct_size + ct.len());
                         tx_buf.extend(shk_ct.to_bytes());
                         tx_buf.extend(ct);
+                        debug!("shk_ct + ct len = {}", tx_buf.len());
 
                         // sent it
                         resp_port.send(&tx_buf).unwrap();
@@ -210,11 +230,20 @@ mod crypto_partition {
                         //   dec(shk_for_encryption, 0, null, ct) # This abort
                         //   return pt
 
-                        let Ok(sk_recip) = <Kem as hpke::Kem>::PrivateKey::from_bytes(
-                            &received_msg[1..1 + pk_size],
-                        ) else {
+                        // check size
+                        let expected_min = 1 + pk_size;
+                        if received_msg.len() < expected_min {
+                            debug!("request size is {} while at least {expected_min} was expected, skipping request", received_msg.len());
+                            // resp_port.send(&[]).unwrap();
+                            continue;
+                        }
+
+                        debug!("ct len = {}", received_msg.len());
+
+                        // &received_msg[1..1 + pk_size],
+                        let Some(sk_recip) = sk_store.get(&i) else {
                             warn!("could not extract secret key");
-                            resp_port.send(&[]).unwrap();
+                            // resp_port.send(&[]).unwrap();
                             continue;
                         };
 
@@ -234,7 +263,7 @@ mod crypto_partition {
                             &[],
                         ) else {
                             warn!("message doesn't match");
-                            resp_port.send(&[]).unwrap();
+                            // resp_port.send(&[]).unwrap();
                             continue;
                         };
 
@@ -242,19 +271,17 @@ mod crypto_partition {
                     }
                     // request another peers pk
                     4 => {
-                        // let peer_id_bytes: [u8; core::mem::size_of::<usize>() ]  =
-                        // received_msg[1..].try_into()
-
+                        // check size
                         let Ok(peer_id_bytes) = received_msg[1..].try_into() else {
                             warn!("received a request for another peer id, but request length was wrong");
-                            resp_port.send(&[]).unwrap();
+                            // resp_port.send(&[]).unwrap();
                             continue;
                         };
                         let peer_id = usize::from_le_bytes(peer_id_bytes);
 
                         let Some(pk) = pk_store.get(&peer_id) else {
                             warn!("received pk request for a peer that does not exist");
-                            resp_port.send(&[]).unwrap();
+                            // resp_port.send(&[]).unwrap();
                             continue;
                         };
 

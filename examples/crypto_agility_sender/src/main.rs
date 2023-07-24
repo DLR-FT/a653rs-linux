@@ -12,7 +12,7 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod sender {
-    use log::info;
+    use log::{debug, info};
 
     #[sampling_out(name = "crypto_api_req_p1"_p1, msg_size = "16MB")]
     struct CryptoReq;
@@ -20,11 +20,15 @@ mod sender {
     #[sampling_in(name = "crypto_api_resp_p1", msg_size = "16MB", refresh_period = "1s")]
     struct CryptoResp;
 
+    #[sampling_out(name = "comm_channel", msg_size = "2KB")]
+    struct CommChannel;
+
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         info!("initalize");
         ctx.create_crypto_req().unwrap();
         ctx.create_crypto_resp().unwrap();
+        ctx.create_comm_channel().unwrap();
         ctx.create_sender_process().unwrap().start().unwrap();
         info!("init done");
     }
@@ -86,16 +90,25 @@ mod sender {
             let very_secrete_msg = format!(
                 "This message must not leak to the public! We sent {i} messages previously"
             );
+
             i += 1;
 
             // encrypt the message
-
-            // let
-
-            // let mut buffer = vec![];
-            // ctx.crypto_req()
-
+            let mut tx_buf = vec![2];
+            tx_buf.extend_from_slice(&their_pk);
+            tx_buf.extend_from_slice(very_secrete_msg.as_bytes());
+            info!("requested encryption of pt");
+            ctx.crypto_req.unwrap().send(&tx_buf).unwrap();
             ctx.periodic_wait().unwrap();
+
+            // send encrypted message to receiver partition
+            tx_buf.clear();
+            tx_buf.reserve(0x1000000);
+            tx_buf.extend(core::iter::repeat(0).take(tx_buf.capacity() - tx_buf.len()));
+
+            let (_, ct) = ctx.crypto_resp.unwrap().receive(&mut tx_buf).unwrap();
+            info!("received ct, sending it to receiver partition");
+            ctx.comm_channel.unwrap().send(&ct).unwrap();
         }
     }
 }

@@ -20,11 +20,15 @@ mod receiver {
     #[sampling_in(name = "crypto_api_resp_p2", msg_size = "16MB", refresh_period = "1s")]
     struct CryptoResp;
 
+    #[sampling_in(name = "comm_channel"_p1, msg_size = "2KB", refresh_period = "1s")]
+    struct CommChannel;
+
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         info!("initialize");
         ctx.create_crypto_req().unwrap();
         ctx.create_crypto_resp().unwrap();
+        ctx.create_comm_channel().unwrap();
         ctx.create_receiver_process().unwrap().start().unwrap();
         info!("init done")
     }
@@ -48,7 +52,8 @@ mod receiver {
         let mut their_pk = vec![0u8; 0x1000000]; // 16 KiB
         let mut my_pk_initialized = false;
         let mut their_pk_initialized = false;
-        let mut i = 0;
+        let mut rx_buf = Vec::new();
+
         loop {
             info!("enter loop");
             // request own pk if it is missing
@@ -81,6 +86,29 @@ mod receiver {
                 their_pk_initialized = true;
                 info!("received public key, storing it in their_pk")
             }
+
+            // receive encrypted message from sender partition
+            rx_buf.clear();
+            rx_buf.reserve(0x1000000);
+            rx_buf.push(3); // operation decrypt
+            rx_buf.extend_from_slice(&their_pk); // push the pkA
+            rx_buf.extend(core::iter::repeat(0).take(rx_buf.capacity() - rx_buf.len()));
+            let (_, received_msg) = ctx
+                .comm_channel
+                .unwrap()
+                .receive(&mut rx_buf[1 + their_pk.len()..])
+                .unwrap();
+            let received_msg_len = received_msg.len();
+
+            // decrypt the message
+            ctx.crypto_req
+                .unwrap()
+                .send(&rx_buf[..1 + their_pk.len() + received_msg_len])
+                .unwrap();
+            ctx.periodic_wait().unwrap();
+            let (_, ct) = ctx.crypto_resp.unwrap().receive(&mut rx_buf).unwrap();
+
+            info!("received a message:\n{}", std::str::from_utf8(ct).unwrap());
 
             ctx.periodic_wait().unwrap();
         }

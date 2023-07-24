@@ -19,6 +19,7 @@ partitions:
     period: 1s
     image: target/x86_64-unknown-linux-musl/release/crypto_agility_receiver
 channel:
+  # crypto API stubs for sender partition
   - !Sampling
     name: crypto_api_req_p1
     msg_size: 16MB
@@ -31,6 +32,7 @@ channel:
     source: crypto_part
     destination:
       - sender
+  # crypto API stubs for sender partition
   - !Sampling
     name: crypto_api_req_p2
     msg_size: 16MB
@@ -41,5 +43,12 @@ channel:
     name: crypto_api_resp_p2
     msg_size: 16MB
     source: crypto_part
+    destination:
+      - receiver
+  # channel from sender to receiver
+  - !Sampling
+    name: comm_channel
+    msg_size: 2KB
+    source: sender
     destination:
       - receiver
