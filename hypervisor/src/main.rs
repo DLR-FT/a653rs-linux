@@ -35,8 +35,20 @@ pub struct Args {
     duration: Option<humantime::Duration>,
 }
 
+/// Helper to print top-level errors through [log::error]
 #[quit::main]
-fn main() -> LeveledResult<()> {
+fn main() {
+    match run_hypervisor() {
+        Ok(_) => {}
+        Err(e) => {
+            error!("{e}");
+            quit::with_code(1);
+        }
+    }
+}
+
+/// Hypervisor entrypoint
+fn run_hypervisor() -> LeveledResult<()> {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
     std::env::set_var("RUST_LOG", level.clone());
 
