@@ -14,7 +14,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { self, nixpkgs, utils, fenix, naersk, devshell, ... }@inputs:
+  outputs = { self, nixpkgs, utils, naersk, devshell, ... }@inputs:
     utils.lib.eachSystem [ "x86_64-linux" "i686-linux" "aarch64-linux" ] (system:
       let
         lib = nixpkgs.lib;
@@ -29,7 +29,10 @@
         # converts a string to SHOUT_CASE
         shout = string: builtins.replaceStrings [ "-" ] [ "_" ] (nixpkgs.lib.toUpper string);
 
-        rust-toolchain = with fenix.packages.${system};
+        # Rust distribution for our hostSystem
+        fenix = inputs.fenix.packages.${system};
+
+        rust-toolchain = with fenix;
           combine [
             latest.rustc
             latest.cargo
@@ -132,7 +135,7 @@
             {
               name = "udeps";
               command = ''
-                PATH="${fenix.packages.${system}.latest.rustc}/bin:$PATH"
+                PATH="${fenix.latest.rustc}/bin:$PATH"
                 cargo udeps $@
               '';
               help = pkgs.cargo-udeps.meta.description;
@@ -150,7 +153,7 @@
             {
               name = "expand";
               command = ''
-                PATH="${fenix.packages.${system}.latest.rustc}/bin:$PATH"
+                PATH="${fenix.latest.rustc}/bin:$PATH"
                 cargo expand $@
               '';
               help = pkgs.cargo-expand.meta.description;
