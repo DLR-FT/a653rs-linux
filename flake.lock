@@ -2,15 +2,15 @@
   "nodes": {
     "devshell": {
       "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "systems": "systems"
       },
       "locked": {
-        "lastModified": 1678957337,
-        "narHash": "sha256-Gw4nVbuKRdTwPngeOZQOzH/IFowmz4LryMPDiJN/ah4=",
+        "lastModified": 1688380630,
+        "narHash": "sha256-8ilApWVb1mAi4439zS3iFeIT0ODlbrifm/fegWwgHjA=",
         "owner": "numtide",
         "repo": "devshell",
-        "rev": "3e0e60ab37cd0bf7ab59888f5c32499d851edb47",
+        "rev": "f9238ec3d75cefbb2b42a44948c4e8fb1ae9a205",
         "type": "github"
       },
       "original": {
@@ -27,11 +27,11 @@
         "rust-analyzer-src": "rust-analyzer-src"
       },
       "locked": {
-        "lastModified": 1681712564,
-        "narHash": "sha256-14QeQU5m1iJg4v+HnLnH1X5W2V1d0lHfaHxDJP/6aig=",
+        "lastModified": 1690438856,
+        "narHash": "sha256-OM5x1jls18TZTkGgvG3A9SA8726gBYeXS50v1mUXueo=",
         "ref": "main",
-        "rev": "0d8c0d08db5fe6e5d995f4584f991ad60bbb1673",
-        "revCount": 1436,
+        "rev": "931d63b40e0aa3e7f65d242361d7fc15bbcbfd74",
+        "revCount": 1546,
         "type": "git",
         "url": "https://github.com/nix-community/fenix.git"
       },
@@ -39,21 +39,6 @@
         "ref": "main",
         "type": "git",
         "url": "https://github.com/nix-community/fenix.git"
-      }
-    },
-    "flake-utils": {
-      "locked": {
-        "lastModified": 1642700792,
-        "narHash": "sha256-XqHrk7hFb+zBvRg6Ghl+AZDq03ov6OshJLiSWOoX5es=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "846b2ae0fc4cc943637d3d1def4454213e203cba",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
       }
     },
     "naersk": {
@@ -63,11 +48,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1679567394,
-        "narHash": "sha256-ZvLuzPeARDLiQUt6zSZFGOs+HZmE+3g4QURc8mkBsfM=",
+        "lastModified": 1690373729,
+        "narHash": "sha256-e136hTT7LqQ2QjOTZQMW+jnsevWwBpMj78u6FRUsH9I=",
         "ref": "refs/heads/master",
-        "rev": "88cd22380154a2c36799fe8098888f0f59861a15",
-        "revCount": 309,
+        "rev": "d9a33d69a9c421d64c8d925428864e93be895dcc",
+        "revCount": 321,
         "type": "git",
         "url": "https://github.com/nix-community/naersk.git"
       },
@@ -94,11 +79,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1681648924,
-        "narHash": "sha256-pzi3HISK8+7mpEtv08Yr80wswyHKsz+RP1CROG1Qf6s=",
+        "lastModified": 1690272529,
+        "narHash": "sha256-MakzcKXEdv/I4qJUtq/k/eG+rVmyOZLnYNC2w1mB59Y=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "f294325aed382b66c7a188482101b0f336d1d7db",
+        "rev": "ef99fa5c5ed624460217c31ac4271cfb5cb2502c",
         "type": "github"
       },
       "original": {
@@ -120,11 +105,11 @@
     "rust-analyzer-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1681679582,
-        "narHash": "sha256-bijdVXzzfVSMHCjRuQ+PysNJt0Ei2mIhs+CPnR6yP4w=",
+        "lastModified": 1690216158,
+        "narHash": "sha256-TUF0YoWweQj0hNHWykC1vtBQVUncARlLLPmQP9hUeME=",
         "owner": "rust-lang",
         "repo": "rust-analyzer",
-        "rev": "bab80dae445fd576cb4cc22ba208e9fbc39dc18d",
+        "rev": "b64e5b3919b24bc784f36248e6e1f921ee7bb71b",
         "type": "github"
       },
       "original": {
@@ -149,16 +134,31 @@
         "type": "github"
       }
     },
+    "systems_2": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
     "utils": {
       "inputs": {
-        "systems": "systems"
+        "systems": "systems_2"
       },
       "locked": {
-        "lastModified": 1681202837,
-        "narHash": "sha256-H+Rh19JDwRtpVPAWp64F+rlEtxUWBAQW28eAi3SRSzg=",
+        "lastModified": 1689068808,
+        "narHash": "sha256-6ixXo3wt24N/melDWjq70UuHQLxGV8jZvooRanIHXw0=",
         "ref": "refs/heads/main",
-        "rev": "cfacdce06f30d2b68473a46042957675eebb3401",
-        "revCount": 77,
+        "rev": "919d646de7be200f3bf08cb76ae1f09402b6f9b4",
+        "revCount": 81,
         "type": "git",
         "url": "https://github.com/numtide/flake-utils.git"
       },

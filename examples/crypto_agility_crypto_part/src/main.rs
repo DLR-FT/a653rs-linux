@@ -15,7 +15,7 @@ mod crypto_partition {
     use a653rs::prelude::*;
     use core::str::FromStr;
     use core::time::Duration;
-    use hpke::{Deserializable, Kem as KemTrait, OpModeR, OpModeS, Serializable};
+    use crypto_agility_crypto_api::server::{example::ExampleEndpoint, CipherServer};
     use log::{debug, info, warn};
 
     /// Number of API stubs to generate
@@ -30,11 +30,6 @@ mod crypto_partition {
     > = heapless::Vec::new();
     static mut SAMPLING_SOURCES: heapless::Vec<SamplingPortSource<PORT_SIZE, Hypervisor>, SLOTS> =
         heapless::Vec::new();
-
-    type Kem = hpke::kem::X25519Kyber768Draft00;
-    type Aead = hpke::aead::ChaCha20Poly1305;
-    type Kdf = hpke::kdf::HkdfSha384;
-
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
         // initialize all endpoints
@@ -76,8 +71,8 @@ mod crypto_partition {
     // this process requests a ping from the server at the beginning of each
     // partition window / MiF
     #[periodic(
-        period = "0ms",
-        time_capacity = "Infinite",
+        period = "500ms",
+        time_capacity = "100ms",
         // crypto ops needs a lot of stack memory
         stack_size = "16KB",
         base_priority = 1,
@@ -86,17 +81,16 @@ mod crypto_partition {
     fn server(ctx: server::Context) {
         info!("started server process with id {}", ctx.proc_self.id());
 
-        // TODO make this heapless
-        let mut rx_buf: Vec<u8> = vec![0u8; 0x1000000];
-        let mut sk_store = heapless::FnvIndexMap::<_, _, SLOTS>::new();
-        let mut pk_store = heapless::FnvIndexMap::<_, _, SLOTS>::new();
-        let mut rng = rand::thread_rng();
-        let pk_size = <Kem as hpke::Kem>::PublicKey::size();
-        let shk_ct_size = <Kem as hpke::Kem>::EncappedKey::size();
+        let mut rx_buf: Vec<u8> = vec![0u8; PORT_SIZE as usize];
+        // let salt = b"ARINC 653 crypto partition example";
+        let salt = &[0, 1, 2, 3];
+        let mut cipher_server = CipherServer::new();
+        for i in 0..2 {
+            cipher_server.insert_endpoint(i, ExampleEndpoint::new(salt))
+        }
 
-        // a periodic process does not actually return at the end of a partition window,
-        // it just pauses itself once it is done with the work from the current MiF
-        // see below at the `ctx.periodic_wait().unwrap()` call.
+        // a periodic process does not actually return at the end of a it just pauses
+        // itself once it is done see below at the `ctx.periodic_wait().unwrap()` call.
         loop {
             for i in 0..SLOTS {
                 debug!("processing slot {}", i + 1);
@@ -109,188 +103,18 @@ mod crypto_partition {
                 // second, check that the message is valid i.e. has to be processed
                 if validity != Validity::Valid {
                     debug!("message validity flag indicates it is outdated, skipping it");
-                    ctx.periodic_wait().unwrap();
                     continue;
                 }
 
                 if received_msg.is_empty() {
                     debug!("received empty request, skipping it");
-                    ctx.periodic_wait().unwrap();
                     continue;
                 }
 
-                debug!("received msg[0] == {}", received_msg[0]);
-                let info_str = b"ARINC 653 crypto partition example";
-                match received_msg[0] {
-                    // setup
-                    1 => {
-                        // setup() -> pk
-                        //   sk_kem, pk_kem <- KEM.keygen()
-                        //   sk_sig, pk_sig <- Signature.keygen()
-                        //   sk <- concat(sk_kem, sk_sig)
-                        //   return concat(pk_kem, pk_sig)
-
-                        // check size
-                        let expected = 1;
-                        if received_msg.len() != expected {
-                            debug!("request size is {} while {expected} was expected, skipping request", received_msg.len());
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        }
-
-                        if pk_store.get(&i).is_none() {
-                            info!("initializing key-slot {i}");
-
-                            let (sk, pk) = Kem::gen_keypair(&mut rng);
-
-                            debug!("pk len = {}", pk.to_bytes().len());
-
-                            pk_store.insert(i, pk).unwrap();
-                            sk_store.insert(i, sk).map_err(|_| "impossible").unwrap();
-                        }
-
-                        let pk = pk_store.get(&i).unwrap();
-
-                        resp_port.send(&pk.to_bytes()).unwrap();
-                    }
-                    // encrypt
-                    // IN:
-                    //   first byte msg type
-                    //   n bytes receipient pk
-                    //   rest of bytes is pt
-                    // OUT:
-                    //   ct
-                    2 => {
-                        // encrypt(pk_peer, pt) -> ct
-                        //   concat(sk_kem, sk_sig) <- sk
-                        //   concat(pk_peer_kem, pk_peer_sig) <- pk_peer
-                        //   base_shk, shk_ct <- KEM.encaps(pk_kem)
-                        //   key_for_encryption, commitment <- KDF(base_shk ,
-                        // "My product name is beautiful
-                        // thing")   sig <- Signature.
-                        // sign(sk_sig, commitment)   ct
-                        // <- AEAD.enc(shk_for_encryption, 0, null, pt)
-                        //   return concat(shk_ct, sig, ct)
-
-                        // check size
-                        let expected_min = 1 + pk_size;
-                        if received_msg.len() < expected_min {
-                            debug!("request size is {} while at least {expected_min} was expected, skipping request", received_msg.len());
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        }
-
-                        let Ok(pk_recip) = <Kem as hpke::Kem>::PublicKey::from_bytes(
-                            &received_msg[1..1 + pk_size],
-                        ) else {
-                            warn!("could not extract public key");
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        };
-
-                        let pt = &received_msg[1 + pk_size..];
-
-                        let (shk_ct, ct) = hpke::single_shot_seal::<Aead, Kdf, Kem, _>(
-                            &OpModeS::Base,
-                            &pk_recip,
-                            info_str,
-                            pt,
-                            &[],
-                            &mut rng,
-                        )
-                        .unwrap();
-
-                        // concat shk_ct and ct
-                        let mut tx_buf = Vec::with_capacity(shk_ct_size + ct.len());
-                        tx_buf.extend(shk_ct.to_bytes());
-                        tx_buf.extend(ct);
-                        debug!("shk_ct + ct len = {}", tx_buf.len());
-
-                        // sent it
-                        resp_port.send(&tx_buf).unwrap();
-                    }
-                    // decrypt
-                    // IN:
-                    //   first byte msg type
-                    //   n bytes sender pk
-                    //   rest of bytes ct
-                    // OUT:
-                    //   pt (if valid)
-                    //   empty array (if invalid)
-                    3 => {
-                        // decrypt(pk_peer, ct') -> pt
-                        //   concat(sk_kem, sk_sig) <- sk
-                        //   concat(pk_peer_kem, pk_peer_sig) <- pk_peer
-                        //   concat(shk_ct, sig, ct) <- ct'
-                        //   base_shk <- KEM.decaps(sk, shk_ct)
-                        //   shk_for_encryption, commitment <- KDF(base_shk, "My
-                        //   product name is beautiful thing") sig
-                        //   <- Signature.validate(pk_peer_sig, commitment) #
-                        // This   aborts pt <- AEAD.
-                        //   dec(shk_for_encryption, 0, null, ct) # This abort
-                        //   return pt
-
-                        // check size
-                        let expected_min = 1 + pk_size;
-                        if received_msg.len() < expected_min {
-                            debug!("request size is {} while at least {expected_min} was expected, skipping request", received_msg.len());
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        }
-
-                        debug!("ct len = {}", received_msg.len());
-
-                        // &received_msg[1..1 + pk_size],
-                        let Some(sk_recip) = sk_store.get(&i) else {
-                            warn!("could not extract secret key");
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        };
-
-                        let ct_shk = <Kem as hpke::Kem>::EncappedKey::from_bytes(
-                            &received_msg[1..1 + shk_ct_size],
-                        )
-                        .unwrap();
-
-                        let ct = &received_msg[1 + shk_ct_size..];
-
-                        let Ok(pt) = hpke::single_shot_open::<Aead, Kdf, Kem>(
-                            &OpModeR::Base,
-                            &sk_recip,
-                            &ct_shk,
-                            info_str,
-                            ct,
-                            &[],
-                        ) else {
-                            warn!("message doesn't match");
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        };
-
-                        resp_port.send(&pt).unwrap();
-                    }
-                    // request another peers pk
-                    4 => {
-                        // check size
-                        let Ok(peer_id_bytes) = received_msg[1..].try_into() else {
-                            warn!("received a request for another peer id, but request length was wrong");
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        };
-                        let peer_id = usize::from_le_bytes(peer_id_bytes);
-
-                        let Some(pk) = pk_store.get(&peer_id) else {
-                            warn!("received pk request for a peer that does not exist");
-                            // resp_port.send(&[]).unwrap();
-                            continue;
-                        };
-
-                        resp_port.send(&pk.to_bytes()).unwrap();
-                    }
-                    opcode => {
-                        warn!("unknown opcode {opcode:02x} received, ignoring it");
-                    }
-                }
+                match cipher_server.process_endpoint_request(i, received_msg) {
+                    Ok(msg) => resp_port.send(&msg).unwrap(),
+                    Err(err) => warn!("{err:?}"),
+                };
             }
 
             // wait until the beginning of this partitions next MiF. In scheduling terms

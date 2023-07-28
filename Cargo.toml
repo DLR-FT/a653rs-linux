@@ -17,6 +17,7 @@ members = [
     "examples/dev_random",
 
     "examples/crypto_agility_crypto_part",
+    "examples/crypto_agility_crypto_api",
     "examples/crypto_agility_sender",
     "examples/crypto_agility_receiver",
 ]

@@ -108,7 +108,7 @@ mod sender {
 
             let (_, ct) = ctx.crypto_resp.unwrap().receive(&mut tx_buf).unwrap();
             info!("received ct, sending it to receiver partition");
-            ctx.comm_channel.unwrap().send(&ct).unwrap();
+            ctx.comm_channel.unwrap().send(ct).unwrap();
         }
     }
 }

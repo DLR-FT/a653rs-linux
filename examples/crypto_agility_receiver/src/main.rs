@@ -91,24 +91,19 @@ mod receiver {
             rx_buf.clear();
             rx_buf.reserve(0x1000000);
             rx_buf.push(3); // operation decrypt
-            rx_buf.extend_from_slice(&their_pk); // push the pkA
             rx_buf.extend(core::iter::repeat(0).take(rx_buf.capacity() - rx_buf.len()));
-            let (_, received_msg) = ctx
-                .comm_channel
-                .unwrap()
-                .receive(&mut rx_buf[1 + their_pk.len()..])
-                .unwrap();
+            let (_, received_msg) = ctx.comm_channel.unwrap().receive(&mut rx_buf[1..]).unwrap();
             let received_msg_len = received_msg.len();
 
             // decrypt the message
             ctx.crypto_req
                 .unwrap()
-                .send(&rx_buf[..1 + their_pk.len() + received_msg_len])
+                .send(&rx_buf[..1 + received_msg_len])
                 .unwrap();
             ctx.periodic_wait().unwrap();
             let (_, ct) = ctx.crypto_resp.unwrap().receive(&mut rx_buf).unwrap();
 
-            info!("received a message:\n{}", std::str::from_utf8(ct).unwrap());
+            info!("received a message:\n{:?}", std::str::from_utf8(ct));
 
             ctx.periodic_wait().unwrap();
         }
