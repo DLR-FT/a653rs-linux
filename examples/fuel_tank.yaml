@@ -5,12 +5,12 @@ partitions:
     duration: 10ms
     offset: 0ms
     period: 20ms
-    image: target/x86_64-unknown-linux-musl/release/fuel_tank_simulation
+    image: fuel_tank_simulation
   - id: 1
     name: fuel_tank_controller
     offset: 10ms
     duration: 10ms
-    image: target/x86_64-unknown-linux-musl/release/fuel_tank_simulation
+    image: fuel_tank_simulation # TODO make this the controller
     period: 20ms
 channel:
   - !Sampling

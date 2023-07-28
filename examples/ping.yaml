@@ -5,13 +5,13 @@ partitions:
     duration: 10ms
     offset: 0ms
     period: 1s
-    image: target/x86_64-unknown-linux-musl/release/ping_client
+    image: ping_client
   - id: 1
     name: ping_server
     duration: 20ms
     offset: 450ms
     period: 1s
-    image: target/x86_64-unknown-linux-musl/release/ping_server
+    image: ping_server
 channel:
   - !Sampling
     name: ping_request

@@ -5,12 +5,12 @@ partitions:
     duration: 10ms
     offset: 0ms
     period: 500ms
-    image: target/x86_64-unknown-linux-musl/release/hello_part
+    image: hello_part
   - id: 1
     name: Bar
     offset: 100ms
     duration: 10ms
-    image: target/x86_64-unknown-linux-musl/release/hello_part
+    image: hello_part
     period: 1s
 channel:
   - !Sampling

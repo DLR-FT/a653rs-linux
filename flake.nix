@@ -178,6 +178,9 @@
                     # build partitions
                     cargo build --package ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target} --release
 
+                    # prepend PATH so that partition images can be found
+                    PATH="target/${rust-target}/release:$PATH"
+
                     # (build &) run hypervisor
                     RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@
                   '';

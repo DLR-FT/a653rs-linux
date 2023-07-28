@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
-use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::path::{Path, PathBuf};
+use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
+use std::path::{self, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -31,6 +31,7 @@ use super::scheduler::{PartitionTimeWindow, Timeout};
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::linux::SYSTEM_START_TIME;
 use crate::hypervisor::syscall;
+use crate::problem;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionAction {
@@ -570,12 +571,13 @@ impl Partition {
 
         let working_dir = tempdir().typ(SystemError::PartitionInit)?;
         trace!("CGroup Working directory: {:?}", working_dir.path());
+        let bin = config.get_partition_bin()?;
 
         let base = Base {
             name: config.name,
             id: config.id,
             cgroup,
-            bin: config.image,
+            bin,
             mounts: config.mounts,
             duration: config.duration,
             period: config.period,
@@ -670,5 +672,63 @@ impl Partition {
 
     pub(crate) fn rm(self) -> TypedResult<()> {
         self.base.cgroup.rm().typ(SystemError::CGroup)
+    }
+}
+
+impl PartitionConfig {
+    /// Get the path to a partition binary
+    ///
+    /// The [PartitionConfig::image] field must either:
+    /// - not contain any path separators, in which case `$PATH` is searched for
+    ///   a matching executable (like the `which` command in the shell would do)
+    /// - be an absolute path, in which case the path is used verbatim after
+    ///   verification that it:
+    ///   - exists
+    ///   - is a file
+    ///   - is executable
+    /// - be a relative path starting with `./`, in which case it is resolved
+    ///   relative to the hypervisors current workind directory
+    fn get_partition_bin(&self) -> TypedResult<PathBuf> {
+        let PartitionConfig { image, name, .. } = self;
+
+        // if image is either an absolute path or starts with ./ , it is left as is
+        let bin = if image.is_absolute() || image.starts_with(path::Component::CurDir) {
+            // verify image exists
+            if !image.exists() {
+                problem!(Panic, "partition image {image:?} does not exist");
+            } else if !image.is_file() {
+                problem!(Panic, "partition image {image:?} is not a file");
+            } else if image
+                .metadata()
+                .typ(SystemError::Panic)?
+                .permissions()
+                .mode()
+                & 0b100
+                == 0
+            {
+                problem!(Panic, "partition image {image:?} is not executable")
+            } else {
+                image.clone()
+            }
+        }
+        // if image does not contain any path separators, try to search it in $PATH
+        else if image.components().count() == 1 {
+            if let Ok(image_from_path) = which::which(&image) {
+                image_from_path
+            } else {
+                problem!(
+                    Panic,
+                    "could not find image {image:?} for partition {name} in path"
+                );
+            }
+        // other cases are **not** supported
+        } else {
+            problem!(
+                Panic,
+                "image {image:?} for partition {name} must start with / or ./",
+            );
+        };
+
+        Ok(bin)
     }
 }
