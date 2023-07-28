@@ -18,7 +18,7 @@ use crate::SYSCALL;
 /// Sends a vector of file descriptors through a Unix socket
 fn send_fds<const COUNT: usize>(hv: RawFd, fds: &[RawFd; COUNT]) -> Result<()> {
     let cmsg = [ControlMessage::ScmRights(fds)];
-    let buffer = (0 as u64).to_ne_bytes();
+    let buffer = 0_u64.to_ne_bytes();
     let iov = [IoSlice::new(buffer.as_slice())];
     sendmsg::<()>(hv, &iov, &cmsg, MsgFlags::empty(), None)?;
     Ok(())
@@ -66,7 +66,7 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
 
     wait_event(event_fd)?;
 
-    let resp = SyscallResp::deserialize(&mut resp_fd.read_all()?)?;
+    let resp = SyscallResp::deserialize(&resp_fd.read_all()?)?;
     Ok(resp)
 }
 

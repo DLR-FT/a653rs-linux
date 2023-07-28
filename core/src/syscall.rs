@@ -215,7 +215,7 @@ impl SyscallRequ {
     /// Deserializes a serialized SyscallRequ back into its internal
     /// representation
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
-        let mut serialized: &[u8] = &serialized;
+        let mut serialized: &[u8] = serialized;
 
         let id = ApexSyscall::from_u64(serialized.read_u64::<NativeEndian>()?)
             .ok_or(anyhow!("deserialization of ApexSyscall failed"))?;
@@ -251,7 +251,7 @@ impl SyscallResp {
     /// Deserializes a serialized SyscallResp back into its internal
     /// representation
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
-        let mut serialized: &[u8] = &serialized;
+        let mut serialized: &[u8] = serialized;
 
         let id = ApexSyscall::from_u64(serialized.read_u64::<NativeEndian>()?)
             .ok_or(anyhow!("deserialization of ApexSyscall failed"))?;

@@ -713,7 +713,7 @@ impl PartitionConfig {
         }
         // if image does not contain any path separators, try to search it in $PATH
         else if image.components().count() == 1 {
-            if let Ok(image_from_path) = which::which(&image) {
+            if let Ok(image_from_path) = which::which(image) {
                 image_from_path
             } else {
                 problem!(

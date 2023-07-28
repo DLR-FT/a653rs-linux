@@ -82,7 +82,7 @@ pub fn handle(fd: RawFd, timeout: Option<Duration>) -> Result<u32> {
         let event_fd = fds[2];
 
         // Fetch the request
-        let requ = SyscallRequ::deserialize(&mut requ_fd.read_all()?)?;
+        let requ = SyscallRequ::deserialize(&requ_fd.read_all()?)?;
         debug!("Received system call {:?}", requ);
 
         // Write the response (dummy response right now)

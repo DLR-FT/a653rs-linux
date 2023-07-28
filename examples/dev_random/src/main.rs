@@ -39,13 +39,13 @@ mod dev_random {
 
         // open the device file and read its metadata
         let filename = "/dev/random";
-        let mut f = File::open(&filename).expect("no file found");
-        let metadata = metadata(&filename).expect("unable to read metadata");
+        let mut f = File::open(filename).expect("no file found");
+        let metadata = metadata(filename).expect("unable to read metadata");
         info!("metadata: {metadata:#?}");
 
         // read 16 bytes from the device
         let mut buffer = [0u8; 16];
-        f.read(&mut buffer).expect("buffer overflow");
+        f.read_exact(&mut buffer).expect("buffer overflow");
         info!("got some randomness: {buffer:?}");
 
         info!("terminating this partitiong by setting the operating mode to idle");
