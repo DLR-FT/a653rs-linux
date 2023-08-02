@@ -5,7 +5,7 @@ use log::debug;
 
 use super::Endpoint;
 
-type Kem = hpke::kem::X25519Kyber768Draft00;
+type Kem = hpke::kem::X25519Kyber768Dilithium;
 type Aead = hpke::aead::ChaCha20Poly1305;
 type Kdf = hpke::kdf::HkdfSha384;
 type EncappedKey = <Kem as KemTrait>::EncappedKey;

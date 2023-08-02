@@ -20,7 +20,7 @@ pqc_sphincsplus = {version = "0.2", features = ["sha2", "f128", "simple"]}
 num-traits = "0.2"
 num-derive = "0.4"
 heapless = "0.7.16"
-hpke = { version = "0.10.0", features = ["xyber768d00"] }
+hpke = { version = "0.10.0", features = ["xyber768dilithium"] }
 log.workspace = true
 rand = "0.8.5"
 

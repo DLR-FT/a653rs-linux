@@ -26,7 +26,5 @@ members = [
 a653rs = "0.3.2"
 log = "0"
 
-# TODO remove this once there is a release **after** v0.10.0
-# that includes https://github.com/rozbb/rust-hpke/pull/43
 [patch.crates-io]
-hpke = { git = "https://github.com/rozbb/rust-hpke", branch = "unstable-pq-xyber" }
+hpke = { git = "ssh://git@github.com/rosenpass/pq-hpke-in-avionics", branch = "main" }
