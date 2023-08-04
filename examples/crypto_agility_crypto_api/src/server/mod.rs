@@ -4,24 +4,26 @@ use anyhow::{bail, Context, Result};
 use log::{debug, warn};
 use num_traits::FromPrimitive;
 
-use crate::{OpCode, ResultCode};
+use crate::{OpCode, ResultCode, SizedSliceFiled};
 
 pub mod example;
 
 #[cfg_attr(test, mockall::automock)]
 pub trait Endpoint {
-    fn signature_key_size(&self) -> usize;
-    fn encryption_key_size(&self) -> usize;
-    fn get_public_encryption_key(&self) -> Vec<u8>;
-    fn get_secret_encryption_key(&self) -> Vec<u8>;
-    fn get_public_signature_key(&self) -> Vec<u8>;
-    fn get_secret_signature_key(&self) -> Vec<u8>;
-    fn sign_and_encrypt(&self, peer_encryption_key: &[u8], message: &[u8]) -> Result<Vec<u8>>;
-    fn decrypt_and_verify(
+    fn public_key_size(&self) -> usize;
+    fn get_public_key(&self) -> Vec<u8>;
+    fn seal(
         &self,
-        peer_signature_key: &[u8],
+        additional_data: &[u8],
+        peer_public_key: &[u8],
+        message: &[u8],
+    ) -> Result<Vec<u8>>;
+    fn open(
+        &self,
+        additional_data: &[u8],
+        peer_public_key: &[u8],
         encrypted_message: &[u8],
-    ) -> Result<(bool, Vec<u8>)>;
+    ) -> Result<Vec<u8>>;
 }
 
 pub struct CipherServer<E: Endpoint> {
@@ -53,8 +55,7 @@ impl<E: Endpoint> CipherServer<E> {
         match opcode {
             OpCode::Encrypt => Self::process_encrypt(endpoint, payload),
             OpCode::Decrypt => Self::process_decrypt(endpoint, payload),
-            OpCode::RequestPeerEncryptionKey => self.process_peer_encryption_key_request(payload),
-            OpCode::RequestPeerSignatureKey => self.process_peer_signature_key_request(payload),
+            OpCode::RequestPeerPublicKey => self.process_peer_public_key_request(payload),
         }
     }
 
@@ -71,30 +72,21 @@ impl<E: Endpoint> CipherServer<E> {
     }
 
     fn process_encrypt(endpoint: &E, request: &[u8]) -> Result<Vec<u8>> {
-        let encryption_key_size = endpoint.encryption_key_size();
-        if request.len() < encryption_key_size {
-            bail!("encryption request ({}) is smaller than encryption key size ({encryption_key_size})", request.len())
-        }
-        let (encryption_key, message) = request.split_at(encryption_key_size);
-        endpoint.sign_and_encrypt(encryption_key, message)
+        let (additional_data, rest) = request.extract_sized_field()?;
+        let (encryption_key, message) =
+            Self::extract_peer_public_key(endpoint.public_key_size(), rest)?;
+        endpoint.seal(additional_data, encryption_key, message)
     }
 
     fn process_decrypt(endpoint: &E, request: &[u8]) -> Result<Vec<u8>> {
-        let signature_key_size = endpoint.signature_key_size();
-        if request.len() < signature_key_size {
-            bail!(
-                "decryption request ({}) is smaller than signature key size ({signature_key_size})",
-                request.len()
-            )
-        }
-        let (signature_key, encrypted_message) = request.split_at(signature_key_size);
-        let (signed, message) = endpoint.decrypt_and_verify(signature_key, encrypted_message)?;
-        let mut result = vec![signed as u8];
-        result.extend_from_slice(&message);
-        Ok(result)
+        let (additional_data, rest) = request.extract_sized_field()?;
+        let (public_key, encrypted_message) =
+            Self::extract_peer_public_key(endpoint.public_key_size(), rest)?;
+        let message = endpoint.open(additional_data, public_key, encrypted_message)?;
+        Ok(message)
     }
 
-    fn process_peer_encryption_key_request(&self, request: &[u8]) -> Result<Vec<u8>> {
+    fn process_peer_public_key_request(&self, request: &[u8]) -> Result<Vec<u8>> {
         debug!("answer public encryption key request");
         let peer_bytes = request.try_into().context("peer request bytes issue")?;
         let peer_id = u32::from_le_bytes(peer_bytes);
@@ -102,18 +94,17 @@ impl<E: Endpoint> CipherServer<E> {
             .endpoints
             .get(&peer_id)
             .context(format!("endpoint {peer_id} does not exist"))?;
-        Ok(peer.get_public_encryption_key())
+        Ok(peer.get_public_key())
     }
 
-    fn process_peer_signature_key_request(&self, request: &[u8]) -> Result<Vec<u8>> {
-        debug!("answer public signature key request");
-        let peer_bytes = request.try_into().context("peer request bytes issue")?;
-        let peer_id = u32::from_le_bytes(peer_bytes);
-        let peer = self
-            .endpoints
-            .get(&peer_id)
-            .context(format!("endpoint {peer_id} does not exist"))?;
-        Ok(peer.get_public_signature_key())
+    fn extract_peer_public_key(key_size: usize, request: &[u8]) -> Result<(&[u8], &[u8])> {
+        if request.len() < key_size {
+            bail!(
+                "request ({}) is smaller than key size ({key_size})",
+                request.len()
+            )
+        }
+        Ok(request.split_at(key_size))
     }
 }
 
@@ -148,20 +139,32 @@ mod tests {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint
-        endpoint.expect_encryption_key_size().return_const(1usize);
+        endpoint.expect_public_key_size().return_const(1usize);
         endpoint
-            .expect_sign_and_encrypt()
-            .withf(|public_key, message| public_key == [1] && message == [2, 3])
-            .returning(|_, _| Ok(Vec::from("encrypted-data")));
+            .expect_seal()
+            .withf(|addition_data, public_key, message| {
+                addition_data == [1] && public_key == [1] && message == [2, 3]
+            })
+            .returning(|_, _, _| Ok(Vec::from("encrypted-data")));
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Perform the test for OpCode::Encrypt
-        let request = vec![OpCode::Encrypt as u8, 1, 2, 3];
+        let additional_data = [1];
+        let additional_data: Vec<_> = [
+            (additional_data.len() as u32).to_le_bytes().as_slice(),
+            additional_data.as_slice(),
+        ]
+        .concat();
+        let message = [1, 2, 3];
+        let mut request = vec![OpCode::Encrypt as u8];
+        request.extend_from_slice(&additional_data);
+        request.extend_from_slice(&message);
         let response = cipher_server.process_endpoint_request(1, &request);
 
+        println!("{:?}", std::str::from_utf8(&response));
         assert_eq!(response[0], ResultCode::Ok as u8);
         assert_eq!(response[1], OpCode::Encrypt as u8);
         assert_eq!(&response[2..], b"encrypted-data");
@@ -172,40 +175,48 @@ mod tests {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(3usize);
+        endpoint.expect_public_key_size().return_const(3usize);
         endpoint
-            .expect_decrypt_and_verify()
-            .withf(|signature, encrypted_message| {
-                signature == [4, 5, 6] && encrypted_message == [7, 8, 9]
+            .expect_open()
+            .withf(|additional_data, public_key, encrypted_message| {
+                additional_data == [10, 11]
+                    && public_key == [4, 5, 6]
+                    && encrypted_message == [7, 8, 9]
             })
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
+            .returning(|_, _, _| Ok(Vec::from("decrypted-data")));
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Perform the test for OpCode::Decrypt
-        let signature = &[4, 5, 6];
+        let additional_data = [10, 11];
+        let additional_data: Vec<_> = [
+            (additional_data.len() as u32).to_le_bytes().as_slice(),
+            additional_data.as_slice(),
+        ]
+        .concat();
+        let public_key = &[4, 5, 6];
         let encrypted_message = &[7, 8, 9];
         let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature);
+        request.extend_from_slice(&additional_data);
+        request.extend_from_slice(public_key);
         request.extend_from_slice(encrypted_message);
         let response = cipher_server.process_endpoint_request(1, &request);
 
         assert_eq!(response[0], ResultCode::Ok as u8);
         assert_eq!(response[1], OpCode::Decrypt as u8);
-        assert!(response[2] > 0);
-        assert_eq!(&response[3..], b"decrypted-data");
+        assert_eq!(&response[2..], b"decrypted-data");
     }
 
     #[test]
-    fn test_cipher_server_process_request_peer_encryption_key() {
+    fn test_cipher_server_process_request_peer_public_key() {
         let endpoint1 = MockEndpoint::new();
         let mut endpoint2 = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoints
         endpoint2
-            .expect_get_public_encryption_key()
+            .expect_get_public_key()
             .return_const(Vec::from("public-encryption-key-2"));
 
         // Insert the mock endpoints into the CipherServer
@@ -215,39 +226,13 @@ mod tests {
 
         // Perform the test to check public encryption keys of both endpoints
         let peer_id = 2_u32.to_le_bytes();
-        let request = vec![OpCode::RequestPeerEncryptionKey as u8];
+        let request = vec![OpCode::RequestPeerPublicKey as u8];
         let request = [request.as_slice(), &peer_id].concat();
         let response = cipher_server.process_endpoint_request(1, &request);
 
         assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::RequestPeerEncryptionKey as u8);
+        assert_eq!(response[1], OpCode::RequestPeerPublicKey as u8);
         assert_eq!(&response[2..], b"public-encryption-key-2");
-    }
-
-    #[test]
-    fn test_cipher_server_process_request_peer_signature_key() {
-        let endpoint1 = MockEndpoint::new();
-        let mut endpoint2 = MockEndpoint::new();
-
-        // Define the expected behavior for the mock endpoints
-        endpoint2
-            .expect_get_public_signature_key()
-            .return_const(Vec::from("public-signature-key-2"));
-
-        // Insert the mock endpoints into the CipherServer
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint1);
-        cipher_server.insert_endpoint(2, endpoint2);
-
-        // Perform the test to check public signature keys of both endpoints
-        let peer_id = 2_u32.to_le_bytes();
-        let request = vec![OpCode::RequestPeerSignatureKey as u8];
-        let request = [request.as_slice(), &peer_id].concat();
-        let response = cipher_server.process_endpoint_request(1, &request);
-
-        assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::RequestPeerSignatureKey as u8);
-        assert_eq!(&response[2..], b"public-signature-key-2");
     }
 
     #[test]
@@ -270,18 +255,20 @@ mod tests {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint.
-        endpoint.expect_encryption_key_size().return_const(0usize);
+        endpoint.expect_public_key_size().return_const(0usize);
         endpoint
-            .expect_sign_and_encrypt()
-            .withf(|public_key, message| public_key.is_empty() && message.is_empty())
-            .returning(|_, _| Ok(Vec::from("encrypted-data")));
+            .expect_seal()
+            .withf(|additional_data, public_key, message| {
+                additional_data.is_empty() && public_key.is_empty() && message.is_empty()
+            })
+            .returning(|_, _, _| Ok(Vec::from("encrypted-data")));
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Perform the test for OpCode::Encrypt with an empty request.
-        let request = vec![OpCode::Encrypt as u8];
+        let request = vec![OpCode::Encrypt as u8, 0, 0, 0, 0];
         let response = cipher_server.process_endpoint_request(1, &request);
 
         assert_eq!(response[0], ResultCode::Ok as u8);
@@ -294,18 +281,20 @@ mod tests {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint.
-        endpoint.expect_encryption_key_size().return_const(0usize);
+        endpoint.expect_public_key_size().return_const(0usize);
         endpoint
-            .expect_sign_and_encrypt()
-            .withf(|public_key, message| public_key.is_empty() && message.is_empty())
-            .returning(|_, _| Err(anyhow::anyhow!("empty request not allowed")));
+            .expect_seal()
+            .withf(|additional_data, public_key, message| {
+                additional_data.is_empty() && public_key.is_empty() && message.is_empty()
+            })
+            .returning(|_, _, _| Err(anyhow::anyhow!("empty request not allowed")));
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Perform the test for OpCode::Encrypt with an empty request.
-        let request = vec![OpCode::Encrypt as u8];
+        let request = vec![OpCode::Encrypt as u8, 0, 0, 0, 0];
         let response = cipher_server.process_endpoint_request(1, &request);
 
         assert_eq!(response[0], ResultCode::Error as u8); // The test should
@@ -318,7 +307,7 @@ mod tests {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
+        endpoint.expect_public_key_size().return_const(4usize);
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
@@ -335,135 +324,31 @@ mod tests {
     }
 
     #[test]
-    fn test_cipher_server_process_decrypt_large_signature_key() {
-        let mut endpoint = MockEndpoint::new();
-
-        // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
-        endpoint
-            .expect_decrypt_and_verify()
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
-
-        // Insert the mock endpoint into the CipherServer
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint);
-
-        // Perform the test for OpCode::Decrypt with a large signature key
-        let signature = &[1, 2, 3, 4, 5]; // Larger than the signature key size
-        let encrypted_message = &[6, 7, 8, 9];
-        let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature);
-        request.extend_from_slice(encrypted_message);
-        let response = cipher_server.process_endpoint_request(1, &request);
-
-        assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::Decrypt as u8);
-        assert!(response[2] > 0);
-        assert_eq!(&response[3..], b"decrypted-data");
-    }
-
-    #[test]
-    fn test_cipher_server_process_decrypt_exact_signature_key_size() {
-        let mut endpoint = MockEndpoint::new();
-
-        // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
-        endpoint
-            .expect_decrypt_and_verify()
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
-
-        // Insert the mock endpoint into the CipherServer
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint);
-
-        // Perform the test for OpCode::Decrypt with a signature key of the exact size
-        let signature = &[1, 2, 3, 4];
-        let encrypted_message = &[6, 7, 8, 9];
-        let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature);
-        request.extend_from_slice(encrypted_message);
-        let response = cipher_server.process_endpoint_request(1, &request);
-
-        assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::Decrypt as u8);
-        assert!(response[2] > 0);
-        assert_eq!(&response[3..], b"decrypted-data");
-    }
-
-    #[test]
-    fn test_cipher_server_process_decrypt_empty_encrypted_message_success() {
-        let mut endpoint = MockEndpoint::new();
-
-        // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
-        endpoint
-            .expect_decrypt_and_verify()
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
-
-        // Insert the mock endpoint into the CipherServer
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint);
-
-        // Perform the test for OpCode::Decrypt with an empty encrypted message.
-        let signature_key = &[1, 2, 3, 4];
-        let encrypted_message = &[];
-        let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature_key);
-        request.extend_from_slice(encrypted_message);
-        let response = cipher_server.process_endpoint_request(1, &request);
-
-        assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::Decrypt as u8);
-        assert!(response[2] > 0);
-        assert_eq!(&response[3..], b"decrypted-data");
-    }
-    #[test]
-    fn test_cipher_server_process_decrypt_empty_signature_key() {
-        let mut endpoint = MockEndpoint::new();
-
-        // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
-        endpoint
-            .expect_decrypt_and_verify()
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
-
-        // Insert the mock endpoint into the CipherServer
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint);
-
-        // Perform the test for OpCode::Decrypt with an empty signature key.
-        let signature_key = &[];
-        let encrypted_message = &[1, 2, 3, 4];
-        let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature_key);
-        request.extend_from_slice(encrypted_message);
-        let response = cipher_server.process_endpoint_request(1, &request);
-
-        assert_eq!(response[0], ResultCode::Ok as u8);
-        assert_eq!(response[1], OpCode::Decrypt as u8);
-        assert!(response[2] > 0);
-        assert_eq!(&response[3..], b"decrypted-data");
-    }
-    #[test]
     fn test_cipher_server_process_decrypt_empty_encrypted_message_fail() {
         let mut endpoint = MockEndpoint::new();
 
         // Define the expected behavior for the mock endpoint
-        endpoint.expect_signature_key_size().return_const(4usize);
+        endpoint.expect_public_key_size().return_const(4usize);
         endpoint
-            .expect_decrypt_and_verify()
-            .withf(|_, encrypted_message| encrypted_message.is_empty())
-            .returning(|_, _| Err(anyhow::anyhow!("Empty encrypted message")));
+            .expect_open()
+            .withf(|additional_data, public_key, encrypted_message| {
+                additional_data == [10, 11, 12]
+                    && public_key == [1, 2, 3, 4]
+                    && encrypted_message.is_empty()
+            })
+            .returning(|_, _, _| Err(anyhow::anyhow!("Empty encrypted message")));
 
         // Insert the mock endpoint into the CipherServer
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Perform the test for OpCode::Decrypt with an empty encrypted message.
-        let signature_key = &[1, 2, 3, 4];
+        let additional_data = &[3, 10, 11, 12];
+        let public_key = &[1, 2, 3, 4];
         let encrypted_message = &[];
         let mut request = vec![OpCode::Decrypt as u8];
-        request.extend_from_slice(signature_key);
+        request.extend_from_slice(additional_data);
+        request.extend_from_slice(public_key);
         request.extend_from_slice(encrypted_message);
         let response = cipher_server.process_endpoint_request(1, &request);
 
@@ -484,23 +369,28 @@ mod integration_tests {
     fn test_cipher_server_encrypt() {
         // Define a mock endpoint for the test
         let mut endpoint = MockEndpoint::new();
-        endpoint.expect_encryption_key_size().return_const(4usize);
+        endpoint.expect_public_key_size().return_const(4usize);
         endpoint
-            .expect_sign_and_encrypt()
-            .withf(|public_key, message| public_key == [1, 2, 3, 4] && message == [1, 2, 3])
-            .returning(|_, _| Ok(Vec::from("encrypted-data-1")));
+            .expect_seal()
+            .withf(|additional_data, public_key, message| {
+                additional_data == [10, 11, 12]
+                    && public_key == [1, 2, 3, 4]
+                    && message == [1, 2, 3]
+            })
+            .returning(|_, _, _| Ok(Vec::from("encrypted-data-1")));
 
         // Create the CipherServer and insert the mock endpoint
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Test OpCode::Encrypt
+        let additional_data = vec![10, 11, 12];
         let message = vec![1, 2, 3];
         let encryption_key: Key<4> = [1, 2, 3, 4].as_slice().try_into().unwrap();
         let mut request_builder_buffer = [0u8; 32768];
         let mut request_builder = RequestBuilder::new(&mut request_builder_buffer);
         let request = request_builder
-            .build_encryption_request(&encryption_key, &message)
+            .build_encryption_request(&encryption_key, &message, &additional_data)
             .unwrap();
         let response = cipher_server.process_endpoint_request(1, request);
         let response = Response::try_from(response.as_slice()).unwrap();
@@ -515,30 +405,32 @@ mod integration_tests {
     fn test_cipher_server_decrypt() {
         // Define a mock endpoint for the test
         let mut endpoint = MockEndpoint::new();
-        endpoint.expect_signature_key_size().return_const(4usize);
+        endpoint.expect_public_key_size().return_const(4usize);
         endpoint
-            .expect_decrypt_and_verify()
-            .withf(|signature, encrypted_message| {
-                signature == [1, 2, 3, 4] && encrypted_message == [5, 6, 7]
+            .expect_open()
+            .withf(|additional_data, public_key, encrypted_message| {
+                additional_data == [13, 14]
+                    && public_key == [1, 2, 3, 4]
+                    && encrypted_message == [5, 6, 7]
             })
-            .returning(|_, _| Ok((true, Vec::from("decrypted-data"))));
+            .returning(|_, _, _| Ok(Vec::from("decrypted-data")));
 
         // Create the CipherServer and insert the mock endpoint
         let mut cipher_server = CipherServer::new();
         cipher_server.insert_endpoint(1, endpoint);
 
         // Test OpCode::Decrypt
-        let signature: Key<4> = [1, 2, 3, 4].as_slice().try_into().unwrap();
+        let public_key: Key<4> = [1, 2, 3, 4].as_slice().try_into().unwrap();
+        let additional_data = [13, 14];
         let encrypted_message = [5, 6, 7];
         let mut request_builder_buffer = [0u8; 32768];
         let mut request_builder = RequestBuilder::new(&mut request_builder_buffer);
         let request = request_builder
-            .build_decrypt_request(&signature, &encrypted_message)
+            .build_decrypt_request(&public_key, &encrypted_message, &additional_data)
             .unwrap();
         let response = cipher_server.process_endpoint_request(1, request);
         let response = Response::try_from(response.as_slice()).unwrap();
-        if let Response::DecryptedMessage { signed, message } = response {
-            assert!(signed);
+        if let Response::DecryptedMessage(message) = response {
             assert_eq!(message, b"decrypted-data");
         } else {
             panic!("Unexpected response type for OpCode::Decrypt");
@@ -551,7 +443,7 @@ mod integration_tests {
         let endpoint1 = MockEndpoint::new();
         let mut endpoint2 = MockEndpoint::new();
         endpoint2
-            .expect_get_public_encryption_key()
+            .expect_get_public_key()
             .return_const(Vec::from("public-encryption-key-2"));
 
         // Create the CipherServer and insert the mock endpoints
@@ -562,50 +454,16 @@ mod integration_tests {
         // Test OpCode::RequestPeerEncryptionKey
         let mut request_builder_buffer = [0u8; 32768];
         let mut request_builder = RequestBuilder::new(&mut request_builder_buffer);
-        let request = request_builder
-            .build_peer_public_encryption_key_request(2)
-            .unwrap();
+        let request = request_builder.build_peer_public_key_request(2).unwrap();
         let response = cipher_server.process_endpoint_request(1, request);
         let response = Response::try_from(response.as_slice()).unwrap();
-        if let Response::PeerPublicEncryptionKey(key_response) = response {
+        if let Response::PeerPublicKey(key_response) = response {
             assert_eq!(
                 key_response.into_key::<64>().unwrap().read(),
                 b"public-encryption-key-2"
             );
         } else {
             panic!("Unexpected response type for OpCode::RequestPeerEncryptionKey. {response:?}");
-        }
-    }
-
-    #[test]
-    fn test_cipher_server_request_peer_signature_key() {
-        // Define mock endpoints for the test
-        let endpoint1 = MockEndpoint::new();
-        let mut endpoint2 = MockEndpoint::new();
-        endpoint2
-            .expect_get_public_signature_key()
-            .return_const(Vec::from("public-signature-key-2"));
-
-        // Create the CipherServer and insert the mock endpoints
-        let mut cipher_server = CipherServer::new();
-        cipher_server.insert_endpoint(1, endpoint1);
-        cipher_server.insert_endpoint(2, endpoint2);
-
-        // Test OpCode::RequestPeerSignatureKey
-        let mut request_builder_buffer = [0u8; 32768];
-        let mut request_builder = RequestBuilder::new(&mut request_builder_buffer);
-        let request = request_builder
-            .build_peer_public_signature_key_request(2)
-            .unwrap();
-        let response = cipher_server.process_endpoint_request(1, request);
-        let response = Response::try_from(response.as_slice()).unwrap();
-        if let Response::PeerPublicSignatureKey(key_response) = response {
-            assert_eq!(
-                key_response.into_key::<64>().unwrap().read(),
-                b"public-signature-key-2"
-            );
-        } else {
-            panic!("Unexpected response type for OpCode::RequestPeerSignatureKey. {response:?}");
         }
     }
 }

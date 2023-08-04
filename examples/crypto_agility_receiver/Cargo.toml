@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 a653rs = { workspace = true, features = ["macros"] }
 a653rs-linux = { path = "../../partition" }
+crypto_agility_crypto_api.path = "../crypto_agility_crypto_api"
 log.workspace = true

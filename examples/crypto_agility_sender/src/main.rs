@@ -12,7 +12,9 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod sender {
-    use log::{debug, info};
+    use a653rs::prelude::Validity;
+    use crypto_agility_crypto_api::client::{request::RequestBuilder, response::Response, Key};
+    use log::{error, info};
 
     #[sampling_out(name = "crypto_api_req_p1"_p1, msg_size = "16MB")]
     struct CryptoReq;
@@ -20,7 +22,7 @@ mod sender {
     #[sampling_in(name = "crypto_api_resp_p1", msg_size = "16MB", refresh_period = "1s")]
     struct CryptoResp;
 
-    #[sampling_out(name = "comm_channel", msg_size = "2KB")]
+    #[sampling_out(name = "comm_channel", msg_size = "1MB")]
     struct CommChannel;
 
     #[start(cold)]
@@ -42,50 +44,20 @@ mod sender {
     #[periodic(
         period = "0s",
         time_capacity = "Infinite",
-        stack_size = "8KB",
+        stack_size = "32MB",
         base_priority = 1,
         deadline = "Soft"
     )]
     fn sender_process(ctx: sender_process::Context) {
         info!("started process");
-        let mut my_pk = vec![0u8; 0x1000000]; // 16 KiB
-        let mut their_pk = vec![0u8; 0x1000000]; // 16 KiB
-        let mut my_pk_initialized = false;
-        let mut their_pk_initialized = false;
+        let mut builder_buffer = [0u8; 0x1000000];
+        let mut request_builder = RequestBuilder::new(&mut builder_buffer);
+        let other_peer_idx: u32 = 1; // the other peer goes by the id 1
+        let their_pk = receive_their_public_key(&ctx, other_peer_idx, &mut request_builder);
+        info!("received public key, storing it in their_pk");
         let mut i = 0;
         loop {
             info!("enter loop");
-            // request own pk if it is missing
-            if !my_pk_initialized {
-                info!("my_pk empty, requesting a new one");
-                ctx.crypto_req.unwrap().send(&[1]).unwrap();
-                ctx.periodic_wait().unwrap();
-                let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut my_pk).unwrap();
-
-                // truncate my_pk to a suitable size
-                let len = received_msg.len();
-                my_pk.truncate(len);
-                my_pk_initialized = true;
-                info!("received public key, storing it in my_pk")
-            }
-
-            // request other pk if it is missing
-            if !their_pk_initialized {
-                let mut req = vec![4];
-                let other_peer_idx: usize = 1; // the other peer goes by the id 1
-                req.extend_from_slice(&other_peer_idx.to_le_bytes());
-                info!("their_pk empty, requesting a new one");
-                ctx.crypto_req.unwrap().send(&req).unwrap();
-                ctx.periodic_wait().unwrap();
-                let (_, received_msg) = ctx.crypto_resp.unwrap().receive(&mut their_pk).unwrap();
-
-                // truncate their_pk to a suitable size
-                let len = received_msg.len();
-                their_pk.truncate(len);
-                their_pk_initialized = true;
-                info!("received public key, storing it in their_pk")
-            }
-
             // send a message to other peer
             let very_secrete_msg = format!(
                 "This message must not leak to the public! We sent {i} messages previously"
@@ -94,21 +66,60 @@ mod sender {
             i += 1;
 
             // encrypt the message
-            let mut tx_buf = vec![2];
-            tx_buf.extend_from_slice(&their_pk);
-            tx_buf.extend_from_slice(very_secrete_msg.as_bytes());
-            info!("requested encryption of pt");
-            ctx.crypto_req.unwrap().send(&tx_buf).unwrap();
-            ctx.periodic_wait().unwrap();
-
-            // send encrypted message to receiver partition
-            tx_buf.clear();
-            tx_buf.reserve(0x1000000);
-            tx_buf.extend(core::iter::repeat(0).take(tx_buf.capacity() - tx_buf.len()));
-
-            let (_, ct) = ctx.crypto_resp.unwrap().receive(&mut tx_buf).unwrap();
+            let encrypted_message =
+                encrypt_message(&ctx, &their_pk, &very_secrete_msg, &mut request_builder);
             info!("received ct, sending it to receiver partition");
-            ctx.comm_channel.unwrap().send(ct).unwrap();
+            ctx.comm_channel.unwrap().send(encrypted_message).unwrap();
+        }
+    }
+
+    fn receive_their_public_key(
+        ctx: &sender_process::Context,
+        their_id: u32,
+        builder: &mut RequestBuilder,
+    ) -> Key<0x10000> {
+        let request = builder.build_peer_public_key_request(their_id).unwrap();
+        ctx.crypto_req.unwrap().send(request).unwrap();
+        info!("requested encryption of pt");
+        loop {
+            ctx.periodic_wait().unwrap();
+            let (validity, resp) = ctx.crypto_resp.unwrap().receive(builder).unwrap();
+            if validity == Validity::Invalid {
+                continue;
+            }
+            let resp = Response::try_from(resp).unwrap();
+            if let Response::PeerPublicKey(key) = resp {
+                return key.into_key().unwrap();
+            } else {
+                panic!("{resp:?}")
+            }
+        }
+    }
+
+    fn encrypt_message<'a>(
+        ctx: &sender_process::Context,
+        their_key: &Key<0x10000>,
+        msg: &str,
+        builder: &'a mut RequestBuilder,
+    ) -> &'a [u8] {
+        let additional_data = b"This data is identical between sender and receiver";
+        let request = builder
+            .build_encryption_request(their_key, msg.as_bytes(), additional_data)
+            .unwrap();
+        ctx.crypto_req.unwrap().send(request).unwrap();
+        loop {
+            ctx.periodic_wait().unwrap();
+            let (validity, resp) = ctx.crypto_resp.unwrap().receive(builder).unwrap();
+            if validity == Validity::Invalid {
+                continue;
+            }
+            let len = resp.len();
+            let resp = Response::try_from(&builder[..len]).unwrap();
+            if let Response::EncryptedMessage(msg) = resp {
+                return msg;
+            } else {
+                panic!("{resp:?}")
+            }
         }
     }
 }

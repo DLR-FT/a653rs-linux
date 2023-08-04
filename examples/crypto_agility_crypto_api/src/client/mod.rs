@@ -6,6 +6,7 @@ pub enum Error {
     OutOfSpace,
 }
 
+#[derive(Debug, Clone)]
 pub struct Key<const MAX_KEYSIZE: usize> {
     key: heapless::Vec<u8, MAX_KEYSIZE>,
 }

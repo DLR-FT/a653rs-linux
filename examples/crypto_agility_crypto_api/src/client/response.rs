@@ -6,11 +6,9 @@ use num_traits::FromPrimitive;
 
 #[derive(Debug)]
 pub enum Response<'a> {
-    OwnSecretKey(KeyResponse<'a>),
     EncryptedMessage(&'a [u8]),
-    DecryptedMessage { signed: bool, message: &'a [u8] },
-    PeerPublicEncryptionKey(KeyResponse<'a>),
-    PeerPublicSignatureKey(KeyResponse<'a>),
+    DecryptedMessage(&'a [u8]),
+    PeerPublicKey(KeyResponse<'a>),
     Error { opcode: OpCode, err: &'a str },
 }
 
@@ -32,21 +30,9 @@ impl<'a> Response<'a> {
     fn parse_ok(opcode: OpCode, buffer: &[u8]) -> Result<Response<'_>, ()> {
         match opcode {
             OpCode::Encrypt => Ok(Response::EncryptedMessage(buffer)),
-            OpCode::Decrypt => Self::parse_decrypted_message(buffer),
-            OpCode::RequestPeerEncryptionKey => {
-                Ok(Response::PeerPublicEncryptionKey(buffer.into()))
-            }
-            OpCode::RequestPeerSignatureKey => Ok(Response::PeerPublicSignatureKey(buffer.into())),
+            OpCode::Decrypt => Ok(Response::DecryptedMessage(buffer)),
+            OpCode::RequestPeerPublicKey => Ok(Response::PeerPublicKey(buffer.into())),
         }
-    }
-
-    fn parse_decrypted_message(response: &[u8]) -> Result<Response<'_>, ()> {
-        if response.is_empty() {
-            return Err(());
-        }
-        let (signed, message) = response.split_first().ok_or(())?;
-        let signed = *signed == true as u8;
-        Ok(Response::DecryptedMessage { signed, message })
     }
 
     fn parse_err(opcode: OpCode, buffer: &'a [u8]) -> Result<Response<'a>, ()> {

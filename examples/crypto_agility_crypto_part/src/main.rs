@@ -15,7 +15,7 @@ mod crypto_partition {
     use a653rs::prelude::*;
     use core::str::FromStr;
     use core::time::Duration;
-    use crypto_agility_crypto_api::server::{example::ExampleEndpoint, CipherServer};
+    use crypto_agility_crypto_api::server::{example::HpkeEndpoint, CipherServer};
     use log::{debug, info, warn};
 
     /// Number of API stubs to generate
@@ -40,7 +40,7 @@ mod crypto_partition {
                 .ctx
                 .create_sampling_port_destination::<PORT_SIZE>(
                     samp_req_name,
-                    Duration::from_millis(1000), // equal to partition period
+                    Duration::from_millis(450), // equal to partition period
                 )
                 .unwrap();
             unsafe {
@@ -86,7 +86,7 @@ mod crypto_partition {
         let salt = &[0, 1, 2, 3];
         let mut cipher_server = CipherServer::new();
         for i in 0..2 {
-            cipher_server.insert_endpoint(i, ExampleEndpoint::new(salt))
+            cipher_server.insert_endpoint(i, HpkeEndpoint::new(salt))
         }
 
         // a periodic process does not actually return at the end of a it just pauses
@@ -111,10 +111,8 @@ mod crypto_partition {
                     continue;
                 }
 
-                match cipher_server.process_endpoint_request(i, received_msg) {
-                    Ok(msg) => resp_port.send(&msg).unwrap(),
-                    Err(err) => warn!("{err:?}"),
-                };
+                let msg = cipher_server.process_endpoint_request(i as u32, received_msg);
+                resp_port.send(&msg).unwrap();
             }
 
             // wait until the beginning of this partitions next MiF. In scheduling terms
