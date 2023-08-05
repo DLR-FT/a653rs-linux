@@ -1,4 +1,8 @@
-# An ARINC 653 emulator for Linux
+# An ARINC 653 emulator for Linux &emsp; [![Latest Version]][crates.io] [![Docs]][docs.rs] [![Docs (macros)]][docs.rs (macros)]
+
+[crates.io]: https://crates.io/crates/a653rs
+[docs.rs]: https://docs.rs/a653rs/latest/a653rs
+[docs.rs (macros)]: https://docs.rs/a653rs/latest/a653rs_macros
 
 This repository contains a hypervisor for the APEX API defined in the
 ARINC 653 standard.
