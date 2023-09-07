@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use hpke::kem::{Kem as KemTrait, PrivateKey, PublicKey};
+use hpke::kem::Kem as KemTrait;
 use hpke::{Deserializable, OpModeR, OpModeS, Serializable};
 use log::debug;
 
@@ -9,6 +9,8 @@ type Kem = hpke::kem::X25519Kyber768Dilithium;
 type Aead = hpke::aead::ChaCha20Poly1305;
 type Kdf = hpke::kdf::HkdfSha384;
 type EncappedKey = <Kem as KemTrait>::EncappedKey;
+type PrivateKey = <hpke::kem::X25519Kyber768Dilithium as hpke::Kem>::PrivateKey;
+type PublicKey = <hpke::kem::X25519Kyber768Dilithium as hpke::Kem>::PublicKey;
 
 pub struct HpkeEndpoint {
     info: Vec<u8>,
