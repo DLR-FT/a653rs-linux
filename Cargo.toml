@@ -25,6 +25,4 @@ members = [
 [workspace.dependencies]
 a653rs = "0.3.2"
 log = "0"
-
-[patch.crates-io]
 hpke = { git = "ssh://git@github.com/rosenpass/pq-hpke-in-avionics", branch = "main" }

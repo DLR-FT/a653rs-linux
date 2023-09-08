@@ -15,7 +15,7 @@ mod crypto_partition {
     use a653rs::prelude::*;
     use core::str::FromStr;
     use core::time::Duration;
-    use crypto_agility_crypto_api::server::{example::HpkeEndpoint, CipherServer};
+    use crypto_agility_crypto_api::server::{hpke::HpkeEndpoint, CipherServer};
     use log::{debug, info, warn};
 
     /// Number of API stubs to generate
@@ -84,7 +84,8 @@ mod crypto_partition {
         let mut rx_buf: Vec<u8> = vec![0u8; PORT_SIZE as usize];
         // let salt = b"ARINC 653 crypto partition example";
         let salt = &[0, 1, 2, 3];
-        let mut cipher_server = CipherServer::new();
+        let mut cipher_server: CipherServer<HpkeEndpoint<hpke::kem::X25519Kyber768Dilithium>> =
+            CipherServer::new();
         for i in 0..2 {
             cipher_server.insert_endpoint(i, HpkeEndpoint::new(salt))
         }

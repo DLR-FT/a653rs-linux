@@ -4,9 +4,9 @@ use anyhow::{bail, Context, Result};
 use log::{debug, warn};
 use num_traits::FromPrimitive;
 
-use crate::{OpCode, ResultCode, SizedSliceFiled};
+use crate::{OpCode, ResultCode, SizedSliceField};
 
-pub mod example;
+pub mod hpke;
 
 #[cfg_attr(test, mockall::automock)]
 pub trait Endpoint {

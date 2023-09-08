@@ -18,12 +18,12 @@ pub enum ResultCode {
     Ok = 1,
 }
 
-pub trait SizedSliceFiled {
+pub trait SizedSliceField {
     fn extract_sized_field(&self) -> Result<(&[u8], &[u8]), anyhow::Error>;
     fn insert_sized_field(&mut self, field: &[u8]);
 }
 
-impl SizedSliceFiled for [u8] {
+impl SizedSliceField for [u8] {
     fn extract_sized_field(&self) -> Result<(&[u8], &[u8]), anyhow::Error> {
         let field_size_field_size = core::mem::size_of::<u32>();
         if self.len() < field_size_field_size {

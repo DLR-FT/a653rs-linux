@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 
-use crate::{OpCode, SizedSliceFiled};
+use crate::{OpCode, SizedSliceField};
 
 use super::{Error, Key};
 
