@@ -30,7 +30,6 @@ use tempfile::{tempdir, TempDir};
 use super::scheduler::{PartitionTimeWindow, Timeout};
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::linux::SYSTEM_START_TIME;
-use crate::hypervisor::syscall;
 use crate::problem;
 
 #[derive(Debug, Clone, Copy)]
