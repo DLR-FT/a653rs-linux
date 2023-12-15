@@ -10,7 +10,7 @@ partitions:
     name: fuel_tank_controller
     offset: 10ms
     duration: 10ms
-    image: fuel_tank_simulation # TODO make this the controller
+    image: fuel_tank_controller
     period: 20ms
 channel:
   - !Sampling
