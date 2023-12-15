@@ -16,12 +16,18 @@ channel:
   - !Sampling
     name: ping_request
     msg_size: 16B
-    source: ping_client
+    source:
+      partition: ping_client
+      port: PingReq
     destination:
-      - ping_server
+      - partition: ping_server
+        port: ping_request
   - !Sampling
     name: ping_response
     msg_size: 32B
-    source: ping_server
+    source:
+      partition: ping_server
+      port: ping_response
     destination:
-      - ping_client
+      - partition: ping_client
+        port: PingRes

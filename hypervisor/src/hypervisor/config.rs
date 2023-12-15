@@ -37,9 +37,12 @@
 //!   - !Sampling
 //!     name: Hello
 //!     msg_size: 10KB
-//!     source: Foo
+//!     source:
+//!       partition: Foo
+//!       port: HelloSend
 //!     destination:
-//!       - Bar
+//!       - partition: Bar
+//!         port: Hello
 //! # ";
 //! # serde_yaml::from_str::<Config>(yaml).unwrap();
 //! ```
