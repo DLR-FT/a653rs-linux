@@ -14,7 +14,6 @@ partitions:
     period: 20ms
 channel:
   - !Sampling
-    name: fuel_sensors
     msg_size: 10KB
     source:
       partition: fuel_tank_simulation
@@ -23,7 +22,6 @@ channel:
       - partition: fuel_tank_controller
         port: fuel_sensors
   - !Sampling
-    name: fuel_actuators
     msg_size: 10KB
     source:
       partition: fuel_tank_controller

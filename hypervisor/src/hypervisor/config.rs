@@ -35,7 +35,6 @@
 //!     period: 1s
 //! channel:
 //!   - !Sampling
-//!     name: Hello
 //!     msg_size: 10KB
 //!     source:
 //!       partition: Foo

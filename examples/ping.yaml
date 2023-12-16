@@ -14,7 +14,6 @@ partitions:
     image: ping_server
 channel:
   - !Sampling
-    name: ping_request
     msg_size: 16B
     source:
       partition: ping_client
@@ -23,7 +22,6 @@ channel:
       - partition: ping_server
         port: ping_request
   - !Sampling
-    name: ping_response
     msg_size: 32B
     source:
       partition: ping_server

@@ -67,7 +67,6 @@ impl<'a> Datagram<'a> {
 
 #[derive(Debug)]
 pub struct Sampling {
-    name: String,
     msg_size: usize,
     source_receiver: Mmap,
     source: OwnedFd,
@@ -82,14 +81,14 @@ impl TryFrom<SamplingChannelConfig> for Sampling {
     type Error = TypedError;
 
     fn try_from(config: SamplingChannelConfig) -> TypedResult<Self> {
-        let name = config.name;
         let msg_size = config.msg_size.as_u64() as usize;
-        let (source_receiver, source) = Self::source(format!("sampling_{name}_source"), msg_size)?;
+        let source_port_name = config.source.name();
+        let (source_receiver, source) =
+            Self::source(format!("sampling_{source_port_name}_source"), msg_size)?;
         let (destination_sender, destination) =
-            Self::destination(format!("sampling_{name}_destination"), msg_size)?;
+            Self::destination(format!("sampling_{source_port_name}_destination"), msg_size)?;
 
         Ok(Self {
-            name,
             msg_size,
             source,
             source_receiver,
@@ -132,8 +131,8 @@ impl Sampling {
         })
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> String {
+        format!("{}:{}", &self.source_port.partition, &self.source_port.port)
     }
 
     fn memfd<T: AsRef<str>>(name: T, msg_size: usize) -> TypedResult<Memfd> {
@@ -187,8 +186,10 @@ impl Sampling {
     }
 
     pub fn replace_source(&mut self) -> TypedResult<()> {
-        let (source_receiver, source) =
-            Self::source(format!("sampling_{}_source", self.name), self.msg_size)?;
+        let (source_receiver, source) = Self::source(
+            format!("sampling_{}_source", self.source_port.port),
+            self.msg_size,
+        )?;
 
         self.source = source;
         self.source_receiver = source_receiver;
