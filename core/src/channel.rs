@@ -8,21 +8,43 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SamplingChannelConfig {
-    pub name: String,
     #[serde(deserialize_with = "de_size_str")]
     pub msg_size: ByteSize,
-    pub source: String,
-    pub destination: HashSet<String>,
+    pub source: PortConfig,
+    pub destination: HashSet<PortConfig>,
+}
+
+impl SamplingChannelConfig {
+    pub fn name(&self) -> &str {
+        &self.source.port
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QueuingChannelConfig {
-    pub name: String,
     #[serde(deserialize_with = "de_size_str")]
     pub msg_size: ByteSize,
     pub msg_num: usize,
-    pub source: String,
-    pub destination: String,
+    pub source: PortConfig,
+    pub destination: PortConfig,
+}
+
+impl QueuingChannelConfig {
+    pub fn name(&self) -> &str {
+        &self.source.port
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct PortConfig {
+    pub partition: String,
+    pub port: String,
+}
+
+impl PortConfig {
+    pub fn name(&self) -> String {
+        format!("{}:{}", self.partition, self.port)
+    }
 }
 
 fn de_size_str<'de, D>(de: D) -> Result<ByteSize, D::Error>

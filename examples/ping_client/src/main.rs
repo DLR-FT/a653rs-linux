@@ -15,10 +15,10 @@ mod ping_client {
     use core::time::Duration;
     use log::{info, warn};
 
-    #[sampling_out(name = "ping_request", msg_size = "16B")]
+    #[sampling_out(name = "PingReq", msg_size = "16B")]
     struct PingRequest;
 
-    #[sampling_in(name = "ping_response", msg_size = "32B", refresh_period = "10s")]
+    #[sampling_in(name = "PingRes", msg_size = "32B", refresh_period = "10s")]
     struct PingResponse;
 
     #[start(cold)]

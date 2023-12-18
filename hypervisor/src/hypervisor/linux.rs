@@ -80,14 +80,13 @@ impl Hypervisor {
         match channel {
             Channel::Queuing(_) => todo!(),
             Channel::Sampling(s) => {
-                if self.sampling_channel.contains_key(&s.name) {
-                    return Err(anyhow!("Sampling Channel \"{}\" already exists", s.name))
+                if self.sampling_channel.contains_key(&s.name().to_string()) {
+                    return Err(anyhow!("Sampling Channel \"{}\" already exists", s.name()))
                         .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
                 }
 
                 let sampling = Sampling::try_from(s).lev(ErrorLevel::ModuleInit)?;
-                self.sampling_channel
-                    .insert(sampling.name().to_string(), sampling);
+                self.sampling_channel.insert(sampling.name(), sampling);
             }
         }
 

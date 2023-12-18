@@ -16,6 +16,9 @@ channel:
   - !Sampling
     name: Hello
     msg_size: 10KB
-    source: Foo
+    source:
+      partition: Foo
+      port: Hello
     destination:
-      - Bar
+      - partition: Bar
+        port: Hello

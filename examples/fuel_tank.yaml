@@ -10,18 +10,22 @@ partitions:
     name: fuel_tank_controller
     offset: 10ms
     duration: 10ms
-    image: fuel_tank_simulation # TODO make this the controller
+    image: fuel_tank_controller
     period: 20ms
 channel:
   - !Sampling
-    name: fuel_sensors
     msg_size: 10KB
-    source: fuel_tank_simulation
+    source:
+      partition: fuel_tank_simulation
+      port: fuel_sensors
     destination:
-      - fuel_tank_controller
+      - partition: fuel_tank_controller
+        port: fuel_sensors
   - !Sampling
-    name: fuel_actuators
     msg_size: 10KB
-    source: fuel_tank_controller
+    source:
+      partition: fuel_tank_controller
+      port: fuel_actuators
     destination:
-      - fuel_tank_simulation
+      - partition: fuel_tank_simulation
+        port: fuel_actuators
