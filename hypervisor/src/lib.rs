@@ -170,7 +170,7 @@ mod test {
     fn problem_manual() -> TypedResult<()> {
         let extra_info = "problem";
         let problem = anyhow!("a {extra_info} description");
-        return Err(TypedError::new(SystemError::Panic, problem));
+        Err(TypedError::new(SystemError::Panic, problem))
     }
 
     fn problem_macro() -> TypedResult<()> {

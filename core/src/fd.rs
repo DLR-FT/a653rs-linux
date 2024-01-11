@@ -61,8 +61,7 @@ impl PidFd {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     if e.kind() != ErrorKind::Interrupted {
-                        return Err(e)
-                            .map_err(anyhow::Error::from)
+                        return Err(anyhow::Error::from(e))
                             .typ(SystemError::Panic)
                             .map_err(PidWaitError::Err);
                     }

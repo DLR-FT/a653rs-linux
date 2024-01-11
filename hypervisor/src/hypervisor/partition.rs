@@ -382,10 +382,9 @@ impl Run {
     }
 
     pub fn periodic_events(&self) -> TypedResult<OwnedFd> {
-        OwnedFd::try_from(
-            std::fs::File::open(self.cgroup_periodic.get_events_path()).typ(SystemError::CGroup)?,
-        )
-        .typ(SystemError::CGroup)
+        Ok(std::fs::File::open(self.cgroup_periodic.get_events_path())
+            .typ(SystemError::CGroup)?
+            .into())
     }
 
     pub fn is_periodic_frozen(&self) -> TypedResult<bool> {

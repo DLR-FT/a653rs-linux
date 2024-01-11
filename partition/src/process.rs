@@ -86,10 +86,10 @@ impl Process {
 
         // Files for dropping fd
         let mut fds = Vec::new();
-        let activated = TempFile::create(&format!("state_{name}")).lev(ErrorLevel::Partition)?;
+        let activated = TempFile::create(format!("state_{name}")).lev(ErrorLevel::Partition)?;
         fds.push(unsafe { OwnedFd::from_raw_fd(activated.fd()) });
         activated.write(&false).lev(ErrorLevel::Partition)?;
-        let pid = TempFile::create(&format!("pid_{name}")).lev(ErrorLevel::Partition)?;
+        let pid = TempFile::create(format!("pid_{name}")).lev(ErrorLevel::Partition)?;
         fds.push(unsafe { OwnedFd::from_raw_fd(pid.fd()) });
 
         let process = Self {

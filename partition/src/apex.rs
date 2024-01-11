@@ -62,7 +62,7 @@ impl ApexProcessP4 for ApexLinuxPartition {
     ) -> Result<ProcessId, ErrorReturnCode> {
         // TODO do not unwrap both
         // Check current State (only allowed in warm and cold start)
-        let attr = attributes.clone().try_into().unwrap();
+        let attr = attributes.clone().into();
         Ok(LinuxProcess::create(attr).unwrap())
     }
 

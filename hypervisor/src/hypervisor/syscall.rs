@@ -147,7 +147,7 @@ mod tests {
             {
                 let fds = [requ_fd.get_fd(), resp_fd.get_fd(), event_fd];
                 let cmsg = [ControlMessage::ScmRights(&fds)];
-                let buffer = (0 as u64).to_be_bytes();
+                let buffer = 0_u64.to_be_bytes();
                 let iov = [IoSlice::new(buffer.as_slice())];
                 sendmsg::<()>(requester, &iov, &cmsg, MsgFlags::empty(), None).unwrap();
             }
