@@ -179,6 +179,10 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
                     .unwrap()
                     .read(message);
 
+                if msg_len == 0 {
+                    return Err(ErrorReturnCode::NoAction);
+                }
+
                 let valid = if copied.elapsed() <= *val {
                     Validity::Valid
                 } else {
