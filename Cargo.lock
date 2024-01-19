@@ -938,6 +938,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ping_queue_client"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "log",
+]
+
+[[package]]
+name = "ping_queue_server"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "log",
+]
+
+[[package]]
 name = "ping_server"
 version = "0.1.0"
 dependencies = [

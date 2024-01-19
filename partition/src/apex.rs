@@ -3,9 +3,11 @@ use std::thread::sleep;
 
 use a653rs::bindings::*;
 use a653rs::prelude::{Name, SystemTime};
-use a653rs_linux_core::error::SystemError;
-use a653rs_linux_core::sampling::{SamplingDestination, SamplingSource};
 use nix::libc::EAGAIN;
+
+use a653rs_linux_core::error::SystemError;
+use a653rs_linux_core::queuing::{QueuingDestination, QueuingSource};
+use a653rs_linux_core::sampling::{SamplingDestination, SamplingSource};
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;
@@ -192,6 +194,117 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         }
 
         Err(ErrorReturnCode::InvalidParam)
+    }
+}
+
+impl ApexQueuingPortP4 for ApexLinuxPartition {
+    fn create_queuing_port(
+        queuing_port_name: QueuingPortName,
+        max_message_size: MessageSize,
+        max_nb_message: MessageRange,
+        port_direction: PortDirection,
+        queuing_discipline: QueuingDiscipline,
+    ) -> Result<QueuingPortId, ErrorReturnCode> {
+        // TODO perform necessary checks
+
+        let name = Name::new(queuing_port_name);
+        let name = name.to_str().map_err(|e| {
+            trace!("yielding InvalidConfig, because queuing port is not valid UTF-8:\n{e}");
+            ErrorReturnCode::InvalidConfig
+        })?;
+
+        if let Some((i, q)) = CONSTANTS
+            .queuing
+            .iter()
+            .enumerate()
+            .find(|(_, q)| q.name.eq(name))
+        {
+            if q.dir != port_direction {
+                trace!("yielding InvalidConfig, because queuing port has mismatching port direction:\nexpected {:?}, got {port_direction:?}", q.dir);
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+
+            let ch = i;
+
+            let mut channels = QUEUING_PORTS.read().unwrap();
+            if channels.try_push(ch).is_some() {
+                trace!(
+                    "yielding InvalidConfig, maximum number of queuing ports already reached: {}",
+                    channels.len()
+                );
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+            QUEUING_PORTS.write(&channels).unwrap();
+
+            return Ok(channels.len() as QueuingPortId);
+        }
+
+        trace!("yielding InvalidConfig, configuration does not declare queuing port {name}");
+        Err(ErrorReturnCode::InvalidConfig)
+    }
+
+    fn send_queuing_message(
+        queuing_port_id: QueuingPortId,
+        message: &[ApexByte],
+        time_out: ApexSystemTime,
+    ) -> Result<(), ErrorReturnCode> {
+        if let Some(port) = QUEUING_PORTS
+            .read()
+            .unwrap()
+            .get(queuing_port_id as usize - 1)
+        {
+            if let Some(port) = CONSTANTS.queuing.get(*port) {
+                if message.len() > port.msg_size {
+                    return Err(ErrorReturnCode::InvalidConfig);
+                } else if message.is_empty() {
+                    return Err(ErrorReturnCode::InvalidParam);
+                } else if port.dir != PortDirection::Source {
+                    return Err(ErrorReturnCode::InvalidMode);
+                }
+                QueuingSource::try_from(port.fd).unwrap().write(message);
+                return Ok(());
+            }
+        }
+
+        Err(ErrorReturnCode::InvalidParam)
+    }
+
+    unsafe fn receive_queuing_message(
+        queuing_port_id: QueuingPortId,
+        time_out: ApexSystemTime,
+        message: &mut [ApexByte],
+    ) -> Result<(MessageSize, QueueOverflow), ErrorReturnCode> {
+        let read = if let Ok(read) = QUEUING_PORTS.read() {
+            read
+        } else {
+            return Err(ErrorReturnCode::NotAvailable);
+        };
+        if let Some(port) = read.get(queuing_port_id as usize - 1) {
+            if let Some(port) = CONSTANTS.queuing.get(*port) {
+                if message.is_empty() {
+                    return Err(ErrorReturnCode::InvalidParam);
+                } else if port.dir != PortDirection::Destination {
+                    return Err(ErrorReturnCode::InvalidMode);
+                }
+                let msg_len = QueuingDestination::try_from(port.fd).unwrap().read(message);
+
+                // TODO: validity like with sampling ports?
+
+                return Ok((msg_len as MessageSize, false));
+            }
+        }
+
+        Err(ErrorReturnCode::InvalidParam)
+    }
+
+    fn get_queuing_port_status(
+        queuing_port_id: QueuingPortId,
+    ) -> Result<QueuingPortStatus, ErrorReturnCode> {
+        todo!()
+    }
+
+    fn clear_queuing_port(queuing_port_id: QueuingPortId) -> Result<(), ErrorReturnCode> {
+        todo!()
     }
 }
 

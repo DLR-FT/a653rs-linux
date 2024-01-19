@@ -83,6 +83,10 @@
             name = "dev_random";
             partitions = [ "dev_random" ];
           }
+          {
+            name = "ping_queue";
+            partitions = [ "ping_queue_server" "ping_queue_client" ];
+          }
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;

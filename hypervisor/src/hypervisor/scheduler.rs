@@ -6,6 +6,7 @@ use a653rs::bindings::PartitionId;
 use a653rs::prelude::OperatingMode;
 
 use a653rs_linux_core::error::{LeveledResult, TypedResult};
+use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
 pub(crate) use schedule::{PartitionSchedule, ScheduledTimeframe};
 pub(crate) use timeout::Timeout;
@@ -32,6 +33,7 @@ impl Scheduler {
         current_frame_start: Instant,
         partitions: &mut HashMap<PartitionId, Partition>,
         sampling_channels_by_name: &mut HashMap<String, Sampling>,
+        queuing_channels_by_name: &mut HashMap<String, Queuing>,
     ) -> LeveledResult<()> {
         for timeframe in self.schedule.iter() {
             sleep(
@@ -46,7 +48,7 @@ impl Scheduler {
                 .expect("partition to exist because its name comes from `timeframe`");
             PartitionTimeframeScheduler::new(partition, timeframe_timeout).run()?;
 
-            partition.run_post_timeframe(sampling_channels_by_name);
+            partition.run_post_timeframe(sampling_channels_by_name, queuing_channels_by_name);
         }
 
         Ok(())

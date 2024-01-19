@@ -16,7 +16,7 @@ use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError
 use a653rs_linux_core::health::ModuleRecoveryAction;
 use hypervisor::config::Config;
 
-use crate::hypervisor::Hypervisor;
+use crate::hypervisor::linux::Hypervisor;
 
 pub mod hypervisor;
 

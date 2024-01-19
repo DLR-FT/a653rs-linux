@@ -24,6 +24,7 @@ pub struct PartitionConstants {
     pub io_fd: RawFd,
 
     pub sampling: Vec<SamplingConstant>,
+    pub queuing: Vec<QueuingConstant>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -31,6 +32,15 @@ pub struct SamplingConstant {
     pub name: String,
     pub dir: PortDirection,
     pub msg_size: usize,
+    pub fd: RawFd,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueuingConstant {
+    pub name: String,
+    pub dir: PortDirection,
+    pub msg_size: usize,
+    pub max_num_msg: usize,
     pub fd: RawFd,
 }
 
