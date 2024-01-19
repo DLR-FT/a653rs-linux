@@ -7,18 +7,14 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use super::config::PosixSocket;
+use super::scheduler::Timeout;
+use crate::hypervisor::config::Partition as PartitionConfig;
+use crate::hypervisor::linux::SYSTEM_START_TIME;
+use crate::problem;
+
 use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
-use anyhow::{anyhow, Context};
-use bytesize::ByteSize;
-use clone3::Clone3;
-use itertools::Itertools;
-use nix::mount::{umount2, MntFlags};
-use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Uid};
-use polling::{Event, Events, Poller};
-use procfs::process::Process;
-use tempfile::{tempdir, TempDir};
-
 use a653rs_linux_core::cgroup::{self, CGroup};
 use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
@@ -27,16 +23,19 @@ use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::health::{ModuleRecoveryAction, PartitionHMTable, RecoveryAction};
 use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::{bind_receiver, io_pair, IoReceiver, IoSender, IpcReceiver};
-use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
+use a653rs_linux_core::partition::{PartitionConstants, QueuingConstant, SamplingConstant};
+use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
+use anyhow::{anyhow, Context};
+use bytesize::ByteSize;
+use clone3::Clone3;
+use itertools::Itertools;
 pub use mounting::FileMounter;
-
-use crate::hypervisor::config::Partition as PartitionConfig;
-use crate::hypervisor::SYSTEM_START_TIME;
-use crate::problem;
-
-use super::config::PosixSocket;
-use super::scheduler::Timeout;
+use nix::mount::{umount2, MntFlags};
+use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Uid};
+use polling::{Event, Events, Poller};
+use procfs::process::Process;
+use tempfile::{tempdir, TempDir};
 
 mod mounting;
 
@@ -159,6 +158,7 @@ impl Run {
                 // Release all unneeded fd's
 
                 let mut keep = base.sampling_fds();
+                keep.extend_from_slice(&base.queuing_fds());
                 keep.push(sys_time.as_raw_fd());
                 keep.push(mode_file.as_raw_fd());
                 keep.push(udp_io_rx.as_raw_fd());
@@ -229,6 +229,12 @@ impl Run {
                         .clone()
                         .drain()
                         .map(|(_, s)| s)
+                        .collect_vec(),
+                    queuing: base
+                        .queuing_channel
+                        .clone()
+                        .drain()
+                        .map(|(_, q)| q)
                         .collect_vec(),
                 }
                 .try_into()
@@ -469,6 +475,7 @@ pub(crate) struct Base {
     mounts: Vec<(PathBuf, PathBuf)>,
     cgroup: CGroup,
     sampling_channel: HashMap<String, SamplingConstant>,
+    queuing_channel: HashMap<String, QueuingConstant>,
     duration: Duration,
     period: Duration,
     working_dir: TempDir,
@@ -486,6 +493,10 @@ impl Base {
 
     pub fn sampling_fds(&self) -> Vec<RawFd> {
         self.sampling_channel.values().map(|s| s.fd).collect_vec()
+    }
+
+    pub fn queuing_fds(&self) -> Vec<RawFd> {
+        self.queuing_channel.values().map(|q| q.fd).collect_vec()
     }
 
     pub fn freeze(&self) -> TypedResult<()> {
@@ -516,6 +527,7 @@ impl Partition {
         cgroup_root: P,
         config: PartitionConfig,
         sampling: &HashMap<String, Sampling>,
+        queuing: &HashMap<String, Queuing>,
     ) -> TypedResult<Self> {
         // Todo implement drop for cgroup (in error case)
         let cgroup = CGroup::new_root(cgroup_root, &config.name).typ(SystemError::PartitionInit)?;
@@ -523,6 +535,11 @@ impl Partition {
         let sampling_channel = sampling
             .iter()
             .filter_map(|(n, s)| s.constant(&config.name).map(|s| (n.clone(), s)))
+            .collect();
+
+        let queuing_channel = queuing
+            .iter()
+            .filter_map(|(n, q)| q.constant(&config.name).map(|q| (n.clone(), q)))
             .collect();
 
         let working_dir = tempdir().typ(SystemError::PartitionInit)?;
@@ -541,6 +558,7 @@ impl Partition {
             hm: config.hm_table,
             sampling_channel,
             sockets: config.sockets,
+            queuing_channel,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =
@@ -618,7 +636,11 @@ impl Partition {
         self.base.cgroup.rm().typ(SystemError::CGroup)
     }
 
-    pub fn run_post_timeframe(&mut self, sampling_channels: &mut HashMap<String, Sampling>) {
+    pub fn run_post_timeframe(
+        &mut self,
+        sampling_channels: &mut HashMap<String, Sampling>,
+        queuing: &mut HashMap<String, Queuing>,
+    ) {
         // TODO remove because a base freeze is not necessary here, as all run_* methods
         // should freeze base themself after execution. Before removal of this, check
         // all run_* methods.
@@ -631,6 +653,15 @@ impl Partition {
             .filter(|(_, s)| s.dir == PortDirection::Source)
         {
             sampling_channels.get_mut(name).unwrap().swap();
+        }
+
+        for (name, _) in self
+            .base
+            .queuing_channel
+            .iter()
+            .filter(|(_, q)| q.dir == PortDirection::Source)
+        {
+            queuing.get_mut(name).unwrap().swap();
         }
     }
 

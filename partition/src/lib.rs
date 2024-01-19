@@ -39,6 +39,7 @@ pub(crate) mod process;
 
 const SAMPLING_PORTS_FILE: &str = "sampling_channels";
 // const MAX_SAMPLING_PORTS: usize = 32;
+const QUEUING_PORTS_FILE: &str = "queuing_channels";
 
 pub(crate) static CONSTANTS: Lazy<PartitionConstants> =
     Lazy::new(|| PartitionConstants::open().unwrap());
@@ -63,6 +64,18 @@ pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 32]
             TempFile::try_from(fd).unwrap()
         } else {
             let file = TempFile::create(SAMPLING_PORTS_FILE).unwrap();
+            file.write(&Default::default()).unwrap();
+            file
+        }
+    });
+
+pub(crate) type QueuingPortsType = usize;
+pub(crate) static QUEUING_PORTS: Lazy<TempFile<ArrayVec<[QueuingPortsType; 32]>>> =
+    Lazy::new(|| {
+        if let Ok(fd) = get_memfd(QUEUING_PORTS_FILE) {
+            TempFile::try_from(fd).unwrap()
+        } else {
+            let file = TempFile::create(QUEUING_PORTS_FILE).unwrap();
             file.write(&Default::default()).unwrap();
             file
         }
