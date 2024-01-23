@@ -8,13 +8,13 @@ fn main() {
     ApexLogger::install_panic_hook();
     ApexLogger::install_logger(LevelFilter::Trace).unwrap();
 
-    ping_server::Partition.run()
+    ping_queue_server::Partition.run()
 }
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
-mod ping_server {
+mod ping_queue_server {
     use core::time::Duration;
-    use log::info;
+    use log::{info, warn};
 
     #[queuing_in(
         name = "req_dest",
@@ -39,9 +39,13 @@ mod ping_server {
         ctx.create_ping_response().unwrap();
 
         // create and start a periodic process
-        ctx.create_periodic_ping_server().unwrap().start().unwrap();
+        ctx.create_periodic_ping_queue_server()
+            .unwrap()
+            .start()
+            .unwrap();
     }
 
+    // do the same as a cold_start
     #[start(warm)]
     fn warm_start(ctx: start::Context) {
         cold_start(ctx);
@@ -56,17 +60,26 @@ mod ping_server {
         base_priority = 1,
         deadline = "Soft"
     )]
-    fn periodic_ping_server(ctx: periodic_ping_server::Context) {
-        info!("started ping_server process");
+    fn periodic_ping_queue_server(ctx: periodic_ping_queue_server::Context) {
+        info!("started ping_queue_server process");
         loop {
             // allocate a buffer to receive into
             let mut buf = [0u8; 32];
 
-            // receive a request, storing it to `buf`
-            ctx.ping_request
+            // receive a request into `&mut buf`, and save the slice of actual received data
+            // as `bytes`
+            let (bytes, _) = ctx
+                .ping_request
                 .unwrap()
                 .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)))
-                .unwrap();
+                .expect("receiving request to succeed");
+
+            // check if there were actually any bytes received
+            if bytes.len() == 0 {
+                warn!("Failed to receive request");
+                ctx.periodic_wait().unwrap();
+                continue;
+            }
 
             // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
             // normal time. Thus we have to check that indeed a normal time was returned.
@@ -74,18 +87,18 @@ mod ping_server {
                 panic!("could not read time");
             };
 
-            // convert the current time to an u128 integer representing nanoseconds, and
-            // serialize the integer to a byte array
+            // convert current time to bytes and store in upper 16 bytes of request
             let time_in_nanoseconds = time.as_nanos();
             buf[16..32].copy_from_slice(&time_in_nanoseconds.to_le_bytes());
 
-            info!("received request (time={time:?}), forwarding request");
+            info!("Forwarding request with timestamp as response");
 
             // send the contents of `buf` back as response
-            ctx.ping_response
+            let send_result = ctx
+                .ping_response
                 .unwrap()
                 .send(&buf, SystemTime::Normal(Duration::from_secs(10)))
-                .unwrap();
+                .expect("sending response to succeed");
 
             // wait until the next partition window / MiF
             ctx.periodic_wait().unwrap();

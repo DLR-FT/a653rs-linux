@@ -1,11 +1,10 @@
-use std::ops::{Deref, DerefMut};
+use std::fmt::{Debug, Formatter};
 use std::os::fd::RawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use a653rs::bindings::PortDirection;
-use itertools::Itertools;
 use memfd::{FileSeal, Memfd, MemfdOptions};
 use memmap2::MmapMut;
 
@@ -25,24 +24,48 @@ use crate::partition::QueuingConstant;
 /// - `usize`: Num of max msgs (capacity)
 /// - `AtomicUsize`: Current read index
 /// - `AtomicUsize`: Current number of messages in the queue
+/// - `AtomicBool`: Flag that signals if source port contains unswapped changes
 /// - List of messages:
 ///   - `usize`: Data size of this message
 ///   - `[u8; msg_size]`: Data of this message
-#[derive(Debug)]
 struct Datagram<'m> {
     msg_size: usize,
     msg_capacity: usize,
     read_idx: &'m AtomicUsize,
     current_num_msgs: &'m AtomicUsize,
+    /// A flag that signals whether new messages were written into a source port since its last swap.
+    /// This is needed for recovering from a full source port queue.
+    /// Note: Even though it is only relevant for source port, it should also be properly initialized for the destination port, just to prevent any UB when accessing it via this reference.
+    has_unswapped_changes: &'m AtomicBool,
     /// As of now mutable references are stored
     /// Possible improvement: Maybe each message can be wrapped into its own [Mutex]. This would sacrifice some performance and memory for a little more safety when multiple processes are working on the same memory.
     messages: Vec<Message<'m>>,
 }
 
-#[derive(Debug)]
+impl<'m> Datagram<'m> {}
+
 struct Message<'m> {
     len: &'m mut usize,
     data: &'m mut [u8], // this slice is actually of length msg_size which will be equal for all messages in a queue
+}
+
+impl Debug for Datagram<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Datagram")
+            .field("msg_size", &self.msg_size)
+            .field("msg_capacity", &self.msg_capacity)
+            .field("read_idx", &self.read_idx)
+            .field("current_num_msgs", &self.current_num_msgs)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for Message<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Message")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> Message<'a> {
@@ -82,6 +105,7 @@ impl Datagram<'_> {
         + size_of::<usize>() // Msg num capacity
         + size_of::<AtomicUsize>() // Current read index
         + size_of::<AtomicUsize>() // Current number of messages in the queue
+        + size_of::<AtomicUsize>() // Flag if this datagram has unswapped changes
         + msg_num * (size_of::<usize>() + msg_size) // Message length header and contents
     }
 
@@ -92,7 +116,8 @@ impl Datagram<'_> {
         let (msg_size_ref, rest) = unsafe { Self::strip_field_mut::<usize>(mmap_bytes) };
         let (queue_capacity_ref, rest) = unsafe { Self::strip_field_mut::<usize>(rest) };
         let (read_idx, rest) = unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
-        let (current_num_msgs, _) = unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
+        let (current_num_msgs, rest) = unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
+        let (has_unswapped_changes, _) = unsafe { Self::strip_field_mut::<AtomicBool>(rest) };
 
         *msg_size_ref = msg_size;
         *queue_capacity_ref = queue_capacity;
@@ -103,8 +128,16 @@ impl Datagram<'_> {
         unsafe {
             ptr::write(current_num_msgs as *mut AtomicUsize, AtomicUsize::new(0));
         }
+        unsafe {
+            ptr::write(
+                has_unswapped_changes as *mut AtomicBool,
+                AtomicBool::new(true),
+            );
+        }
     }
 
+    /// # Safety
+    /// It is required for `bytes` to contain a T at the beginning
     unsafe fn strip_field_mut<T>(bytes: &mut [u8]) -> (&mut T, &mut [u8]) {
         debug_assert!(bytes.len() >= std::mem::size_of::<T>());
         let (field, rest) = bytes.split_at_mut(std::mem::size_of::<T>());
@@ -112,8 +145,9 @@ impl Datagram<'_> {
         (field, rest)
     }
 
-    fn read(mmap: &mut MmapMut) -> Datagram {
-        /// Unsafe as it is required for `bytes` to contain a T starting from index 0
+    /// # Safety
+    /// It is required for the mapped memory to be initialized with [Datagram::init_at]
+    unsafe fn read(mmap: &mut MmapMut) -> Datagram {
         // Get the bytes from the mapped memory
         let mmap_bytes = (*mmap).as_mut();
 
@@ -121,8 +155,9 @@ impl Datagram<'_> {
         let (&mut msg_size, rest) = unsafe { Self::strip_field_mut::<usize>(mmap_bytes) };
         let (&mut queue_capacity, rest) = unsafe { Self::strip_field_mut::<usize>(rest) };
         let (read_idx, rest) = unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
-        let (current_num_msgs, mut msg_data) =
-            unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
+        let (current_num_msgs, rest) = unsafe { Self::strip_field_mut::<AtomicUsize>(rest) };
+        let (has_unswapped_changes, mut msg_data) =
+            unsafe { Self::strip_field_mut::<AtomicBool>(rest) };
 
         let msg_size_with_header = msg_size + std::mem::size_of::<usize>();
 
@@ -144,7 +179,12 @@ impl Datagram<'_> {
             current_num_msgs: &*current_num_msgs,
             read_idx: &*read_idx,
             messages,
+            has_unswapped_changes,
         }
+    }
+
+    fn clear(&self) {
+        self.current_num_msgs.store(0, Ordering::Release);
     }
 }
 
@@ -277,83 +317,95 @@ impl Queuing {
         Ok((mmap, mem.into_file().into()))
     }
 
-    fn perform_swap(mut source_datagram: Datagram, mut destination_datagram: Datagram) {
+    /// Returns number of copied messages
+    fn perform_swap(source: &Datagram, destination: &mut Datagram) -> usize {
         // First get some necessary values for both source and destination
-        debug_assert_eq!(
-            source_datagram.msg_capacity,
-            destination_datagram.msg_capacity
-        );
-        let capacity = source_datagram.msg_capacity;
+        debug_assert_eq!(source.msg_capacity, destination.msg_capacity);
+        let capacity = source.msg_capacity;
 
-        let read_idx_source = source_datagram.read_idx.load(Ordering::Acquire);
-        let read_idx_destination = destination_datagram.read_idx.load(Ordering::Acquire);
+        // Then calculate how many messages were read by the destination...
+        let num_msgs_read = (destination.read_idx.load(Ordering::Acquire) + capacity
+            - source.read_idx.load(Ordering::Acquire))
+            % capacity;
+        // ...and how many were written by the source
+        let num_msgs_written = (source.current_num_msgs.load(Ordering::Acquire)
+            - destination.current_num_msgs.load(Ordering::Acquire)
+            - num_msgs_read);
 
-        let num_msgs_in_destination = destination_datagram
+        // Now we can
+        // # 1. Advance source by number of read messages / Data transfer from destination to source
+        // - Calculate num msgs read by destination through difference of read indices
+        // - Copy read idx from destination to source
+        // - Subtract num msgs read from source.num
+
+        // # 2. Copy messages / Data transfer from source to destination
+        // - Copy messages from dest.read_idx+dest.num until source.read_idx+source.num
+        // - Increment dest.num
+
+        // 1.
+        let read_idx_destination = destination.read_idx.load(Ordering::Acquire);
+
+        source
+            .read_idx
+            .store(read_idx_destination, Ordering::Release);
+        source
             .current_num_msgs
-            .load(Ordering::Acquire);
-        let num_msgs_in_source = source_datagram.current_num_msgs.load(Ordering::Acquire);
+            .fetch_sub(num_msgs_read, Ordering::AcqRel);
 
-        let write_idx_source = (read_idx_source + num_msgs_in_source) % capacity;
-        let write_idx_destination = (read_idx_destination + num_msgs_in_destination) % capacity;
+        // 2.
+        let num_msgs_in_destination = destination.current_num_msgs.load(Ordering::Acquire);
+        let start_new_msgs = (read_idx_destination + num_msgs_in_destination) % capacity;
 
-        let num_msgs_read_by_destination =
-            ((read_idx_destination + capacity) - read_idx_source) % capacity;
-        let num_msgs_written_by_source =
-            ((write_idx_source + capacity) - write_idx_destination) % capacity;
-
-        // Now we will perform the actual swap in three ordered steps:
-        // 1. Shorten length of source and advance its read_idx by the same amount, because the destination may have advanced
-        //    its read_idx through reading messages.
-        // 2. Copy all new messages from source to destination.
-        //    This includes all messages in range `destination.write_idx..source.write_idx`.
-        // 3. Increase length of destination, because the source may have more messages now through sending messages.
-
-        // Step 1.
-        // Add capacity before modulo to prevent usize underflow
-        source_datagram.read_idx.swap(
-            read_idx_destination, //(num_msgs_in_source + num_msgs_read_by_destination) % capacity,
-            Ordering::AcqRel,
-        );
-        source_datagram.current_num_msgs.swap(
-            num_msgs_in_source - num_msgs_read_by_destination,
-            Ordering::AcqRel,
-        );
-
-        // Step 2.
-        // Now read_idx_destination=read_idx_source
-        let new_message_indices = (write_idx_destination..(write_idx_source + capacity))
-            .map(|i| i % source_datagram.msg_capacity);
-        new_message_indices.for_each(|msg_idx| {
-            let src_msg = &source_datagram.messages[msg_idx];
-            let mut destination_msg = &mut destination_datagram.messages[msg_idx];
+        let new_messages = (start_new_msgs..(start_new_msgs + num_msgs_written + capacity))
+            .map(|i| i % source.msg_capacity);
+        new_messages.for_each(|msg_idx| {
+            let src_msg = &source.messages[msg_idx];
+            let mut destination_msg = &mut destination.messages[msg_idx];
 
             destination_msg.copy_from_msg(src_msg)
         });
 
-        // Step 3.
-        let _ = destination_datagram.current_num_msgs.fetch_update(
-            Ordering::Release,
-            Ordering::Acquire,
-            |x| Some((x + num_msgs_written_by_source) % capacity),
-        );
+        destination
+            .current_num_msgs
+            .fetch_add(num_msgs_written, Ordering::Release);
+
+        num_msgs_written
     }
 
+    /// Returns true if messages have been transferred
     pub fn swap(&mut self) -> bool {
-        let source_datagram = Datagram::read(&mut self.source_receiver);
-        let num_msgs_in_source = source_datagram.current_num_msgs.load(Ordering::Acquire);
-
-        // Check if there are any new messages
-        if self.last_num_msgs_in_source == num_msgs_in_source {
-            return false;
-        }
-        self.last_num_msgs_in_source = num_msgs_in_source;
+        let source_datagram = unsafe { Datagram::read(&mut self.source_receiver) };
 
         // Parse destination datagram
-        let destination_datagram = Datagram::read(&mut self.destination_sender);
+        let mut destination_datagram = unsafe { Datagram::read(&mut self.destination_sender) };
 
-        Self::perform_swap(source_datagram, destination_datagram);
+        // If the source does not contain any unswapped messages and there are no messages left in the destination,
+        // we can assume that all messages (those residing in source) are already swapped and read.
+        // Thus we can must clear the source to make room for new messages.
+        if !source_datagram
+            .has_unswapped_changes
+            .load(Ordering::Acquire)
+            && source_datagram.current_num_msgs.load(Ordering::Acquire)
+                == source_datagram.msg_capacity
+            && destination_datagram
+                .current_num_msgs
+                .load(Ordering::Acquire)
+                == 0
+        {
+            source_datagram.clear();
+        }
 
-        true
+        let num_msg_swapped = Self::perform_swap(&source_datagram, &mut destination_datagram);
+
+        if num_msg_swapped == source_datagram.current_num_msgs.load(Ordering::Acquire) {
+            source_datagram
+                .has_unswapped_changes
+                .store(false, Ordering::Release);
+        }
+
+        trace!("Swapped {num_msg_swapped} messages: Destination={destination_datagram:?} Source={source_datagram:?}");
+
+        num_msg_swapped > 0
     }
 
     pub fn source_fd(&self) -> RawFd {
@@ -369,26 +421,23 @@ pub struct QueuingSource(MmapMut);
 
 impl QueuingSource {
     pub fn write(&mut self, data: &[u8]) -> usize {
-        let mut datagram = Datagram::read(&mut self.0);
+        let mut datagram = unsafe { Datagram::read(&mut self.0) };
         let read_idx = datagram.read_idx.load(Ordering::Acquire);
         let current_num_msgs = datagram.current_num_msgs.load(Ordering::Acquire);
 
         // Check if queue is full
         if current_num_msgs == datagram.msg_capacity {
-            trace!(
-                "tried to write to full queue, maximum capacity of messages is {}",
-                datagram.msg_capacity
-            );
             return 0;
         }
 
         datagram.current_num_msgs.fetch_add(1, Ordering::Release);
+        datagram
+            .has_unswapped_changes
+            .store(true, Ordering::Release);
 
         let write_idx = (read_idx + current_num_msgs) % datagram.msg_capacity;
 
-        let message = &mut datagram.messages[write_idx];
-
-        message.set_data(data)
+        datagram.messages[write_idx].set_data(data)
     }
 }
 
@@ -406,7 +455,7 @@ impl QueuingDestination {
     /// Reads the current message from the queue into a buffer and increments the current read index.
     /// Returns the number of bytes read.
     pub fn read(&mut self, data: &mut [u8]) -> usize {
-        let datagram = Datagram::read(&mut self.0);
+        let datagram = unsafe { Datagram::read(&mut self.0) };
         let read_idx = datagram.read_idx.load(Ordering::Acquire);
         let current_num_msgs = datagram.current_num_msgs.load(Ordering::Acquire);
 
@@ -440,148 +489,5 @@ impl TryFrom<RawFd> for QueuingDestination {
         let mmap = unsafe { MmapMut::map_mut(file).typ(SystemError::Panic)? };
 
         Ok(Self(mmap))
-    }
-}
-
-mod datagram_swap_tests {
-    use std::sync::atomic::AtomicUsize;
-
-    use itertools::Itertools;
-
-    use crate::queuing::{Datagram, Message, Queuing};
-
-    // TODO these tests do not even make sense, we need separate data buffers for source, destination and their expected contents
-
-    /// No changes, destination and source buffer data is equal
-    ///
-    /// # Source
-    /// | Messages                 | X | X | X | - |
-    /// |-------------------------:|:-:|:-:|:-:|:-:|
-    /// | read_idx                 | - | X | - | - |
-    /// | write_idx                | - | - | - | X |
-    ///
-    /// # Destination
-    /// | Messages                 | - | X | X | - |
-    /// |-------------------------:|:-:|:-:|:-:|:-:|
-    /// | read_idx                 | - | X | - | - |
-    /// | write_idx                | - | - | - | X |
-    #[test]
-    fn no_changes() {
-        test_swap(0, 0, 0, 0, &[&[], &[], &[], &[]], &[&[], &[], &[], &[]], 4);
-    }
-
-    /// The destination has read a single message
-    ///
-    /// # Source
-    /// | Messages                 | X | X   | X     | - |
-    /// |-------------------------:|:-:|:---:|:-----:|:-:|
-    /// | data                     | 1 | 2,3 | 4,5,6 | - |
-    /// | read_idx                 | X | -   | -     | - |
-    /// | write_idx                | - | -   | -     | X |
-    ///
-    /// # Destination
-    /// | Messages                 | - | X | X | - |
-    /// |-------------------------:|:-:|:-:|:-:|:-:|
-    /// | read_idx                 | - | X | - | - |
-    /// | write_idx                | - | - | - | X |
-    #[test]
-    fn read_advanced() {
-        test_swap(
-            0,
-            3,
-            1,
-            2,
-            &[&[1], &[2, 3], &[4, 5, 6], &[7, 8, 9, 10]],
-            &[&[1], &[2, 3], &[4, 5, 6], &[7, 8, 9, 10]],
-            4,
-        );
-    }
-
-    fn test_swap(
-        source_read_idx: usize,
-        source_num_msgs: usize,
-        destination_read_idx: usize,
-        destination_num_msgs: usize,
-        initial_msg_data: &[&[u8]],
-        expected_msg_data: &[&[u8]],
-        msg_size: usize,
-    ) {
-        let source_read_idx = AtomicUsize::new(source_read_idx);
-        let source_num_msgs = AtomicUsize::new(source_num_msgs);
-
-        let destination_read_idx = AtomicUsize::new(destination_read_idx);
-        let destination_num_msgs = AtomicUsize::new(destination_num_msgs);
-
-        let mut message_lengths = initial_msg_data.iter().map(|x| x.len()).collect_vec();
-        assert!(*message_lengths.iter().max().unwrap() <= msg_size);
-
-        let mut message_data = initial_msg_data
-            .iter()
-            .flat_map(|msg| msg.iter().copied().pad_using(msg_size, |_| 0))
-            .collect_vec();
-
-        unsafe {
-            let (source_datagram, destination_datagram) = initialize_swap_testing(
-                &source_read_idx,
-                &source_num_msgs,
-                &destination_read_idx,
-                &destination_num_msgs,
-                message_lengths.as_mut_slice(),
-                message_data.as_mut_slice(),
-                msg_size,
-            );
-
-            Queuing::perform_swap(source_datagram, destination_datagram);
-        }
-
-        let expected_message_data = expected_msg_data
-            .iter()
-            .flat_map(|msg| msg.iter().copied().pad_using(msg_size, |_| 0))
-            .collect_vec();
-
-        assert_eq!(message_data, expected_message_data);
-    }
-
-    /// This function makes msg_data be shared mutably by both returned datagrams.
-    /// Thus the returned datagrams may not be used to access msg_data simultaneously.
-    unsafe fn initialize_swap_testing<'a>(
-        source_read_idx: &'a AtomicUsize,
-        source_num_msgs: &'a AtomicUsize,
-        destination_read_idx: &'a AtomicUsize,
-        destination_num_msgs: &'a AtomicUsize,
-        msg_lengths: &'a mut [usize],
-        msg_data: &'a mut [u8],
-        msg_size: usize,
-    ) -> (Datagram<'a>, Datagram<'a>) {
-        assert_eq!(msg_lengths.len() * msg_size, msg_data.len());
-
-        let mut messages = Vec::new();
-        let mut remaining_msg_data: &mut [u8] = msg_data;
-        for length in msg_lengths {
-            let (data, rest) = remaining_msg_data.split_at_mut(4);
-            remaining_msg_data = rest;
-            messages.push(Message { len: length, data })
-        }
-
-        let source = Datagram {
-            msg_size: 4,
-            msg_capacity: 4,
-            read_idx: source_read_idx,
-            current_num_msgs: source_num_msgs,
-            messages: messages
-                .iter()
-                .map(|x| unsafe { std::mem::transmute_copy(x) })
-                .collect_vec(), // Here we do a little trolling 💀
-        };
-
-        let destination = Datagram {
-            msg_size: 4,
-            msg_capacity: 4,
-            read_idx: destination_read_idx,
-            current_num_msgs: destination_num_msgs,
-            messages,
-        };
-
-        (source, destination)
     }
 }
