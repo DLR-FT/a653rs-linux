@@ -12,7 +12,7 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_server {
-    use log::info;
+    use log::{info, warn};
 
     #[sampling_in(name = "ping_request", msg_size = "16B", refresh_period = "10s")]
     struct PingRequest;
@@ -55,7 +55,10 @@ mod ping_server {
             let mut buf = [0u8; 32];
 
             // receive a request, storing it to `buf`
-            ctx.ping_request.unwrap().receive(&mut buf).unwrap();
+            if let Err(e) = ctx.ping_request.unwrap().receive(&mut buf) {
+                warn!("Failed to receive ping request: {e:?}");
+                continue;
+            }
 
             // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
             // normal time. Thus we have to check that indeed a normal time was returned.

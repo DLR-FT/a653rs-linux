@@ -80,7 +80,13 @@ mod ping_client {
             //   for no more than the refresh_period
             // - `bytes` is a subslice of `buf`, containing only the bytes actually read
             //   from the sampling port
-            let (validity, bytes) = ctx.ping_response.unwrap().receive(&mut buf).unwrap();
+            let (validity, bytes) = match ctx.ping_response.unwrap().receive(&mut buf) {
+                Ok((validity, bytes)) => (validity, bytes),
+                Err(e) => {
+                    warn!("Failed to receive ping response: {e:?}");
+                    continue;
+                }
+            };
 
             // only if the message is valid and has the expected length try to process it
             if validity == Validity::Valid && bytes.len() == 32 {
