@@ -83,7 +83,11 @@ mod ping_queue_client {
                 .unwrap()
                 .send(&buf, SystemTime::Normal(Duration::from_secs(10)))
                 .expect("sending request to succeed");
-            info!("Sending request");
+
+            let SystemTime::Normal(time_after_send) = ctx.get_time() else {
+                panic!("could not read time");
+            };
+            info!("Sending request took {:?}", time_after_send - time);
 
             // then receive a response, if any:
 

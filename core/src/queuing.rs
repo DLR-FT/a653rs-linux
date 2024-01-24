@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::mem::size_of;
 use std::os::fd::RawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -18,7 +18,6 @@ use crate::partition::QueuingConstant;
 /// It will not use any additional memory and thus not allocate or free memory.
 /// For usage one can initialize a ring buffer inside a provided buffer through [RingBufferRef::init_at].
 /// Using [RingBufferRef::load] one may then create a reference to this ring buffer and access it.
-#[derive(Debug)]
 struct RingBufferRef<'a> {
     entry_size: usize,
     capacity: usize,
@@ -147,6 +146,17 @@ impl<'a> RingBufferRef<'a> {
         }
 
         ret
+    }
+}
+
+impl Debug for RingBufferRef<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RingBufferRef")
+            .field("entry_size", &self.entry_size)
+            .field("capacity", &self.capacity)
+            .field("len", &self.len)
+            .field("first", &self.first)
+            .finish_non_exhaustive()
     }
 }
 
