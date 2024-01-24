@@ -12,7 +12,7 @@ use crate::process::Process as LinuxProcess;
 use crate::*;
 
 impl ApexPartitionP4 for ApexLinuxPartition {
-    fn get_partition_status<L: Locked>() -> ApexPartitionStatus {
+    fn get_partition_status() -> ApexPartitionStatus {
         let operating_mode = PARTITION_MODE.read().unwrap();
 
         ApexPartitionStatus {
@@ -26,7 +26,7 @@ impl ApexPartitionP4 for ApexLinuxPartition {
         }
     }
 
-    fn set_partition_mode<L: Locked>(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
+    fn set_partition_mode(operating_mode: OperatingMode) -> Result<(), ErrorReturnCode> {
         let current_mode = PARTITION_MODE.read().unwrap();
 
         if let OperatingMode::Idle = current_mode {
@@ -57,16 +57,14 @@ impl ApexPartitionP4 for ApexLinuxPartition {
 }
 
 impl ApexProcessP4 for ApexLinuxPartition {
-    fn create_process<L: Locked>(
-        attributes: &ApexProcessAttribute,
-    ) -> Result<ProcessId, ErrorReturnCode> {
+    fn create_process(attributes: &ApexProcessAttribute) -> Result<ProcessId, ErrorReturnCode> {
         // TODO do not unwrap both
         // Check current State (only allowed in warm and cold start)
         let attr = attributes.clone().into();
         Ok(LinuxProcess::create(attr).unwrap())
     }
 
-    fn start<L: Locked>(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
+    fn start(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
         let proc = match process_id {
             1 => APERIODIC_PROCESS.read().unwrap(),
             2 => PERIODIC_PROCESS.read().unwrap(),
@@ -86,7 +84,7 @@ impl ApexProcessP4 for ApexLinuxPartition {
 }
 
 impl ApexSamplingPortP4 for ApexLinuxPartition {
-    fn create_sampling_port<L: Locked>(
+    fn create_sampling_port(
         sampling_port_name: SamplingPortName,
         // TODO Return ErrorCode for wrong max message size
         _max_message_size: MessageSize,
@@ -134,7 +132,7 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         Err(ErrorReturnCode::InvalidConfig)
     }
 
-    fn write_sampling_message<L: Locked>(
+    fn write_sampling_message(
         sampling_port_id: SamplingPortId,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
@@ -159,7 +157,7 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         Err(ErrorReturnCode::InvalidParam)
     }
 
-    unsafe fn read_sampling_message<L: Locked>(
+    unsafe fn read_sampling_message(
         sampling_port_id: SamplingPortId,
         message: &mut [ApexByte],
     ) -> Result<(Validity, MessageSize), ErrorReturnCode> {
@@ -218,7 +216,7 @@ impl ApexTimeP4 for ApexLinuxPartition {
 }
 
 impl ApexErrorP4 for ApexLinuxPartition {
-    fn report_application_message<L: Locked>(message: &[ApexByte]) -> Result<(), ErrorReturnCode> {
+    fn report_application_message(message: &[ApexByte]) -> Result<(), ErrorReturnCode> {
         if message.len() > MAX_ERROR_MESSAGE_SIZE {
             return Err(ErrorReturnCode::InvalidParam);
         }
@@ -238,12 +236,12 @@ impl ApexErrorP4 for ApexLinuxPartition {
         Ok(())
     }
 
-    fn raise_application_error<L: Locked>(
+    fn raise_application_error(
         error_code: ErrorCode,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
         if let ErrorCode::ApplicationError = error_code {
-            Self::report_application_message::<L>(message).unwrap();
+            Self::report_application_message(message).unwrap();
             Self::raise_system_error(SystemError::ApplicationError);
             Ok(())
         } else {
