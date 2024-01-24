@@ -8,6 +8,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 a653rs.workspace = true
+a653rs.features = [ "bindings" ]
+
 nix = "0.25"
 anyhow = "1.0"
 procfs = "0.14"
