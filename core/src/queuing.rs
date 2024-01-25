@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::os::fd::RawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -13,204 +13,299 @@ use memmap2::MmapMut;
 use crate::channel::{PortConfig, QueuingChannelConfig};
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 use crate::partition::QueuingConstant;
+use crate::queuing::concurrent_queue::ConcurrentQueue;
 
-/// This is a reference to a ring buffer containing byte data living somewhere else im memory.
-/// It will not use any additional memory and thus not allocate or free memory.
-/// For usage one can initialize a ring buffer inside a provided buffer through [RingBufferRef::init_at].
-/// Using [RingBufferRef::load] one may then create a reference to this ring buffer and access it.
-struct RingBufferRef<'a> {
-    entry_size: usize,
-    capacity: usize,
+pub mod concurrent_queue {
+    use std::cell::UnsafeCell;
+    use std::fmt::{Debug, Formatter};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{mem, ptr};
 
-    len: &'a mut usize,
-    first: &'a mut usize, // idx of first entry in data
-    data: &'a mut [u8],   // is of size `capacity * entry_size`
-}
+    use anyhow::bail;
 
-impl<'a> RingBufferRef<'a> {
-    pub fn size(entry_size: usize, capacity: usize) -> usize {
-        use std::mem::size_of;
-        size_of::<usize>() // entry_size
-            + size_of::<usize>() // capacity
-            + size_of::<usize>() // len
-            + size_of::<usize>() // first
-            + entry_size * capacity // data
+    /// An unsized bounded concurrent queue (Fifo) that makes use of atomics and does not use pointers internally.
+    /// This allows the queue to be created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
+    /// The required buffer size can be requested in advance via [ConcurrentQueue::size] by providing the size and number of maximum entries.
+    /// # Example
+    /// ```
+    /// # use a653rs_linux_core::queuing::concurrent_queue::ConcurrentQueue;
+    /// // Create a ConcurrentQueue inside of a Vec<u8> buffer object
+    /// let required_size = ConcurrentQueue::size(1, 4);
+    /// let mut  buffer = vec![0u8; required_size];
+    /// ConcurrentQueue::init_at(&mut buffer, 1, 4);
+    /// let queue1 = unsafe { ConcurrentQueue::load_from(&buffer) };
+    /// let queue2 = unsafe { ConcurrentQueue::load_from(&buffer) };
+    ///
+    /// // Let's push some values in the queue
+    /// assert!(queue1.push(&[1]).is_ok());
+    /// assert!(queue2.push(&[2]).is_ok());
+    ///
+    /// // Now pop them using the Fifo method
+    /// assert_eq!(queue2.pop().unwrap()[0], 1);
+    /// assert_eq!(queue1.pop().unwrap()[0], 2);
+    ///
+    /// // When the queue is empty, pop will return None
+    /// assert_eq!(queue1.pop(), None);
+    /// assert_eq!(queue2.pop(), None);
+    /// ```
+    #[repr()]
+    pub struct ConcurrentQueue {
+        pub msg_size: usize,
+        pub msg_capacity: usize,
+
+        len: AtomicUsize,
+        first: AtomicUsize,
+        data: UnsafeCell<[u8]>,
     }
 
-    /// Takes a FnMut that creates a buffer object of type `B` with a provided size.
-    /// The RingBuffer will calculate its required size, call the FnMut and then initialize itself in the buffers raw data.
-    pub fn init_at(entry_size: usize, capacity: usize, buffer: &'a mut [u8]) -> Self {
-        let required_size = Self::size(entry_size, capacity);
-        assert_eq!(buffer.len(), required_size);
+    unsafe impl Send for ConcurrentQueue {}
+    unsafe impl Sync for ConcurrentQueue {}
 
-        let (entry_size_field, capacity_field, len_field, first_field, data_field) =
-            unsafe { Self::load_fields(buffer) };
+    impl ptr_meta::Pointee for ConcurrentQueue {
+        type Metadata = usize;
+    }
 
-        *entry_size_field = entry_size;
-        *capacity_field = capacity;
-        *len_field = 0;
-        *first_field = 0;
+    impl ConcurrentQueue {
+        /// Calculates the required buffer size to fit a MessageQueue object with `capacity` maximum elements and a fixed size of `element_size` bytes per element.
+        pub fn size(element_size: usize, capacity: usize) -> usize {
+            let mut size = Self::fields_size() + element_size * capacity; // data
 
-        Self {
-            entry_size,
-            capacity,
-            len: len_field,
-            first: first_field,
-            data: data_field,
+            // We need to include extra padding for calculating this structs size,
+            // because the Rust compiler may add padding to this struct for alignment purposes,
+            let alignment = Self::align();
+            let sub_alignment_mask = alignment - 1;
+            if size & sub_alignment_mask > 0 {
+                // If the size ended with non-aligned bytes, we add the necessary padding.
+                size = (size & !sub_alignment_mask) + alignment;
+            }
+
+            size
+        }
+
+        /// Returns the size of bytes of this struct's fields
+        fn fields_size() -> usize {
+            mem::size_of::<usize>() // entry_size
+                + mem::size_of::<usize>() // capacity
+                + mem::size_of::<AtomicUsize>() // len
+                + mem::size_of::<AtomicUsize>() // first
+        }
+
+        /// Returns this struct's alignment
+        fn align() -> usize {
+            // This structs maximum alignment is that of a usize (or AtomicUsize, which has the same data layout)
+            mem::align_of::<usize>()
+        }
+
+        /// Creates a new empty ConcurrentQueue in given buffer.
+        /// Even though this function returns a reference to the newly created ConcurrentQueue,
+        /// it should be dropped to release the mutable reference to the buffer.
+        ///
+        /// # Panics
+        /// If the buffer size is not exactly the required size to fit this MessageQueue object.
+        pub fn init_at(buffer: &mut [u8], element_size: usize, capacity: usize) -> &Self {
+            assert_eq!(buffer.len(), Self::size(element_size, capacity));
+
+            // We cast the `buffer` reference to a `Self` pointer, which can then safely be dereferenced
+            let queue = unsafe { &mut *Self::buf_to_self_mut(buffer) };
+
+            queue.msg_size = element_size;
+            queue.msg_capacity = capacity;
+            // Use `ptr::write` to prevent the compiler from trying to drop previous values.
+            unsafe {
+                ptr::write(&mut queue.len, AtomicUsize::new(0));
+                ptr::write(&mut queue.first, AtomicUsize::new(0));
+            }
+
+            queue
+        }
+
+        /// Converts the given buffer pointer to a ConcurrentQueue pointer and handles shortening the wide-pointer metadata.
+        fn buf_to_self(buffer: *const [u8]) -> *const Self {
+            let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+            buf_len -= Self::fields_size();
+
+            ptr_meta::from_raw_parts(buf_ptr, buf_len)
+        }
+
+        /// Converts the given mutable buffer pointer to a ConcurrentQueue pointer and handles shortening the wide-pointer metadata.
+        fn buf_to_self_mut(buffer: *mut [u8]) -> *mut Self {
+            let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+            buf_len -= Self::fields_size();
+
+            ptr_meta::from_raw_parts_mut(buf_ptr, buf_len)
+        }
+
+        /// Loads a `ConcurrentQueue` from the specified buffer.
+        /// # Safety
+        /// The buffer must contain exactly one valid ConcurrentQueue, which has to be initialized
+        /// through [ConcurrentQueue::init_at]. Also mutating or reading raw values from the buffer
+        /// may result in UB, because the ConcurrentQueue relies on internal safety mechanisms to
+        /// prevent UB due to shared mutable state.
+        pub unsafe fn load_from(buffer: &[u8]) -> &Self {
+            let obj = &*Self::buf_to_self(buffer);
+
+            // Perform some validity checks
+            debug_assert!(obj.len.load(Ordering::SeqCst) <= obj.msg_capacity); // Check length
+            debug_assert!(obj.first.load(Ordering::SeqCst) < obj.msg_capacity); // Check first idx
+
+            // Also check if unsized data field is of correct size
+            // Note: obj_data may be longer than `obj.msg_size * obj.msg_capacity` due to alignment padding. To correct we call `Self::size`.
+            let obj_data = obj.data.get().as_ref().unwrap();
+            debug_assert_eq!(
+                obj_data.len(),
+                Self::size(obj.msg_size, obj.msg_capacity) - Self::fields_size()
+            );
+
+            obj
+        }
+
+        /// Calculates the physical starting index of an element inside of the data array.
+        fn to_physical_idx(&self, first: usize, idx: usize) -> usize {
+            (first + idx) % self.msg_capacity * self.msg_size
+        }
+
+        /// Gets an element from the queue at a specific index
+        pub fn get(&self, idx: usize) -> Option<&[u8]> {
+            assert!(idx < self.msg_capacity);
+
+            let current_len = self.len.load(Ordering::SeqCst);
+            if idx > current_len {
+                return None;
+            }
+
+            let idx = self.to_physical_idx(self.first.load(Ordering::SeqCst), idx);
+
+            let msg = &unsafe { self.data.get().as_mut().unwrap() }[idx..(idx + self.msg_size)];
+            Some(msg)
+        }
+
+        /// Pushes an element to the back of the queue
+        pub fn push(&self, data: &[u8]) -> anyhow::Result<&mut [u8]> {
+            assert_eq!(data.len(), self.msg_size);
+
+            self.push_with(|entry| entry.copy_from_slice(data))
+        }
+
+        /// Pushes an uninitialized element and then calls a closure to set its memory in-place.
+        pub fn push_with<F: FnOnce(&'_ mut [u8])>(
+            &self,
+            set_element: F,
+        ) -> anyhow::Result<&mut [u8]> {
+            let current_len = self.len.load(Ordering::SeqCst);
+            if current_len == self.msg_capacity {
+                bail!("queue reached maximum capacity");
+            }
+
+            let insert_idx = self.len.fetch_add(1, Ordering::SeqCst);
+
+            let idx = self.to_physical_idx(self.first.load(Ordering::SeqCst), insert_idx);
+            let element_slot =
+                &mut unsafe { self.data.get().as_mut().unwrap() }[idx..(idx + self.msg_size)];
+
+            set_element(element_slot);
+
+            Ok(element_slot)
+        }
+
+        /// Tries to pop an element from the front of the queue.
+        pub fn pop(&self) -> Option<Vec<u8>> {
+            self.pop_with(|entry| Vec::from(entry))
+        }
+
+        /// Calls a mapping closure on the popped first element in the queue.
+        /// Only the return value of the closure is returned by this function.
+        /// If the popped element is needed as owned data, consider using [ConcurrentQueue::pop] instead.
+        pub fn pop_with<F: FnOnce(&'_ [u8]) -> T, T>(&'_ self, map_element: F) -> Option<T> {
+            // Decrement length
+            self.len
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |len| len.checked_sub(1))
+                .ok()?;
+
+            let prev_first = self
+                .first
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+                    Some((x + 1) % self.msg_capacity)
+                })
+                .unwrap();
+
+            let idx = self.to_physical_idx(prev_first, 0);
+
+            let msg = &unsafe { &*self.data.get() }[idx..(idx + self.msg_size)];
+
+            Some(map_element(msg))
+        }
+
+        /// Returns the current length of this queue
+        pub fn len(&self) -> usize {
+            self.len.load(Ordering::SeqCst)
         }
     }
 
-    unsafe fn load_fields(
-        buffer: &mut [u8],
-    ) -> (&mut usize, &mut usize, &mut usize, &mut usize, &mut [u8]) {
-        let (entry_size, rest) = unsafe { buffer.strip_field_mut::<usize>() };
-        let (capacity, rest) = unsafe { rest.strip_field_mut::<usize>() };
-        let (len, rest) = unsafe { rest.strip_field_mut::<usize>() };
-        let (first, data) = unsafe { rest.strip_field_mut::<usize>() };
-
-        (entry_size, capacity, len, first, data)
-    }
-
-    pub unsafe fn load_from(buffer: &'a mut [u8]) -> Self {
-        let buffer_size = buffer.len();
-        let (&mut entry_size, &mut capacity, len, first, data) = Self::load_fields(buffer);
-
-        assert_eq!(Self::size(entry_size, capacity), buffer_size);
-
-        Self {
-            entry_size,
-            capacity,
-            len,
-            first,
-            data,
+    impl Debug for ConcurrentQueue {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ConcurrentQueue")
+                .field("msg_size", &self.msg_size)
+                .field("msg_capacity", &self.msg_capacity)
+                .field("len", &self.len)
+                .field("first", &self.first)
+                .finish_non_exhaustive()
         }
-    }
-
-    fn to_physical_idx(&self, idx: usize) -> usize {
-        (*self.first + idx) % self.capacity * self.entry_size
-    }
-
-    pub fn get(&self, idx: usize) -> Option<&[u8]> {
-        assert!(idx < self.capacity);
-
-        (idx < *self.len).then(|| {
-            let idx = self.to_physical_idx(idx);
-            &self.data[idx..(idx + self.entry_size)]
-        })
-    }
-
-    pub fn get_mut(&mut self, idx: usize) -> Option<&mut [u8]> {
-        assert!(idx < self.capacity);
-
-        (idx < *self.len).then(|| {
-            let idx = self.to_physical_idx(idx);
-            &mut self.data[idx..(idx + self.entry_size)]
-        })
-    }
-
-    pub fn push(&mut self, entry_data: &[u8]) -> anyhow::Result<&mut [u8]> {
-        assert_eq!(entry_data.len(), self.entry_size);
-        self.push_with(|entry| entry.copy_from_slice(entry_data))
-    }
-
-    pub fn push_with<F: FnOnce(&'_ mut [u8])>(&mut self, f: F) -> anyhow::Result<&mut [u8]> {
-        if *self.len == self.capacity {
-            bail!("ring buffer reached maximum capacity");
-        }
-
-        *self.len += 1;
-
-        let entry = self
-            .get_mut(*self.len - 1)
-            .expect("entry to exist, as length was just incremented");
-
-        f(entry);
-
-        Ok(entry)
-    }
-    fn pop(&mut self) -> Option<Vec<u8>> {
-        self.pop_with(|entry| Vec::from(entry))
-    }
-
-    /// Pops the first entry and maps it with given closure.
-    /// This is useful if the caller wants to prevent any allocations.
-    /// Otherwise the [RingBufferRef::pop] function may be preferred.
-    fn pop_with<F: FnOnce(&'_ [u8]) -> T, T>(&'_ mut self, mapper: F) -> Option<T> {
-        let ret = self.get(0).map(mapper);
-
-        if ret.is_some() {
-            *self.first += 1;
-            *self.first %= self.capacity;
-
-            *self.len -= 1;
-        }
-
-        ret
-    }
-}
-
-impl Debug for RingBufferRef<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RingBufferRef")
-            .field("entry_size", &self.entry_size)
-            .field("capacity", &self.capacity)
-            .field("len", &self.len)
-            .field("first", &self.first)
-            .finish_non_exhaustive()
     }
 }
 
 #[derive(Debug)]
 struct SourceDatagram<'a> {
     num_messages_in_destination: &'a mut usize,
-    ring_buffer: RingBufferRef<'a>,
+    message_queue: &'a ConcurrentQueue,
 }
 
 #[derive(Debug)]
 struct DestinationDatagram<'a> {
-    ring_buffer: RingBufferRef<'a>,
+    message_queue: &'a ConcurrentQueue,
 }
 
 impl<'a> SourceDatagram<'a> {
     fn size(msg_size: usize, msg_capacity: usize) -> usize {
         size_of::<usize>() // number of messages in destination
-            + RingBufferRef::size(Message::size(msg_size), msg_capacity) // the ring buffer
+            + ConcurrentQueue::size(Message::size(msg_size), msg_capacity) // the message queue
     }
 
     fn init_at(msg_size: usize, msg_capacity: usize, buffer: &'a mut [u8]) -> Self {
         let (num_messages_in_destination, buffer) = unsafe { buffer.strip_field_mut::<usize>() };
 
-        let ring_buffer = RingBufferRef::init_at(Message::size(msg_size), msg_capacity, buffer);
+        let message_queue = ConcurrentQueue::init_at(buffer, Message::size(msg_size), msg_capacity);
 
         Self {
             num_messages_in_destination,
-            ring_buffer,
+            message_queue,
         }
     }
 
     unsafe fn load_from(buffer: &'a mut [u8]) -> Self {
         let (num_messages_in_destination, buffer) = unsafe { buffer.strip_field_mut::<usize>() };
 
-        let ring_buffer = RingBufferRef::load_from(buffer);
+        let message_queue = ConcurrentQueue::load_from(buffer);
 
         Self {
             num_messages_in_destination,
-            ring_buffer,
+            message_queue,
         }
     }
 
     fn pop_with<F: FnOnce(Message<'_>) -> T, T>(&'_ mut self, f: F) -> Option<T> {
-        self.ring_buffer
+        self.message_queue
             .pop_with(|entry| f(Message::from_bytes(entry)))
     }
 
     fn push<'b>(&'b mut self, data: &'_ [u8]) -> anyhow::Result<Message<'b>> {
-        if *self.num_messages_in_destination + *self.ring_buffer.len == self.ring_buffer.capacity {
+        if *self.num_messages_in_destination + self.message_queue.len()
+            == self.message_queue.msg_capacity
+        {
             bail!("Failed to push message to source datagram. Queueing port is already at full capacity");
         }
 
         let entry = self
-            .ring_buffer
+            .message_queue
             .push_with(|entry| Message::init_at(entry, data))?;
 
         Ok(Message::from_bytes(entry))
@@ -219,26 +314,26 @@ impl<'a> SourceDatagram<'a> {
 
 impl<'a> DestinationDatagram<'a> {
     fn size(msg_size: usize, msg_capacity: usize) -> usize {
-        RingBufferRef::size(Message::size(msg_size), msg_capacity) // the ring buffer
+        ConcurrentQueue::size(Message::size(msg_size), msg_capacity) // the message queue
     }
     fn init_at(msg_size: usize, msg_capacity: usize, buffer: &'a mut [u8]) -> Self {
         Self {
-            ring_buffer: RingBufferRef::init_at(Message::size(msg_size), msg_capacity, buffer),
+            message_queue: ConcurrentQueue::init_at(buffer, Message::size(msg_size), msg_capacity),
         }
     }
     unsafe fn load_from(buffer: &'a mut [u8]) -> Self {
         Self {
-            ring_buffer: RingBufferRef::load_from(buffer),
+            message_queue: ConcurrentQueue::load_from(buffer),
         }
     }
 
     fn pop_map<F: FnOnce(Message<'_>) -> T, T>(&mut self, msg_mapper: F) -> Option<T> {
-        self.ring_buffer
+        self.message_queue
             .pop_with(|entry| msg_mapper(Message::from_bytes(entry)))
     }
 
     fn push<'b>(&'b mut self, data: &'_ [u8]) -> anyhow::Result<Message<'b>> {
-        let entry = self.ring_buffer.push(data)?;
+        let entry = self.message_queue.push(data)?;
         let msg = Message::from_bytes(entry);
 
         Ok(msg)
@@ -257,7 +352,12 @@ impl<'a> Message<'a> {
     }
     fn from_bytes(bytes: &'a [u8]) -> Self {
         let (len, data) = unsafe { bytes.strip_field::<usize>() };
-        assert!(*len <= data.len());
+        assert!(
+            *len <= data.len(),
+            "*len={} data.len()={}",
+            *len,
+            data.len()
+        );
 
         Self { len, data }
     }
@@ -425,7 +525,7 @@ impl Queuing {
             num_msg_swapped += 1;
         }
 
-        *source_datagram.num_messages_in_destination = *destination_datagram.ring_buffer.len;
+        *source_datagram.num_messages_in_destination = destination_datagram.message_queue.len();
 
         trace!("Swapped {num_msg_swapped} messages: Destination={destination_datagram:?} Source={source_datagram:?}");
 
