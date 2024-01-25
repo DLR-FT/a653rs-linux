@@ -25,7 +25,7 @@ pub mod concurrent_queue {
 
     /// An unsized bounded concurrent queue (Fifo) that makes use of atomics and does not use pointers internally.
     /// This allows the queue to be created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
-    /// The required buffer size can be requested in advance via [ConcurrentQueue::size] by providing the size and number of maximum entries.
+    /// The required buffer size can be requested in advance via [ConcurrentQueue::size] by providing the size and maximum number of entries.
     /// # Example
     /// ```
     /// # use a653rs_linux_core::queuing::concurrent_queue::ConcurrentQueue;
@@ -48,7 +48,7 @@ pub mod concurrent_queue {
     /// assert_eq!(queue1.pop(), None);
     /// assert_eq!(queue2.pop(), None);
     /// ```
-    #[repr()]
+    #[repr(C)]
     pub struct ConcurrentQueue {
         pub msg_size: usize,
         pub msg_capacity: usize,
@@ -71,7 +71,7 @@ pub mod concurrent_queue {
             let mut size = Self::fields_size() + element_size * capacity; // data
 
             // We need to include extra padding for calculating this structs size,
-            // because the Rust compiler may add padding to this struct for alignment purposes,
+            // because of `#[repr(C)]` the compiler may add padding to this struct for alignment purposes,
             let alignment = Self::align();
             let sub_alignment_mask = alignment - 1;
             if size & sub_alignment_mask > 0 {
@@ -101,7 +101,7 @@ pub mod concurrent_queue {
         /// it should be dropped to release the mutable reference to the buffer.
         ///
         /// # Panics
-        /// If the buffer size is not exactly the required size to fit this MessageQueue object.
+        /// If the buffer size is not exactly the required size to fit this `ConcurrentQueue` object.
         pub fn init_at(buffer: &mut [u8], element_size: usize, capacity: usize) -> &Self {
             assert_eq!(buffer.len(), Self::size(element_size, capacity));
 
