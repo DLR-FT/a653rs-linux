@@ -13,6 +13,7 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_queue_server {
+    use a653rs::bindings::ErrorReturnCode;
     use core::time::Duration;
     use log::{info, warn};
 
@@ -68,37 +69,39 @@ mod ping_queue_server {
 
             // receive a request into `&mut buf`, and save the slice of actual received data
             // as `bytes`
-            let (bytes, _) = ctx
+            let res = ctx
                 .ping_request
                 .unwrap()
-                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)))
-                .expect("receiving request to succeed");
+                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)));
 
-            // check if there were actually any bytes received
-            if bytes.len() == 0 {
-                warn!("Failed to receive request");
-                ctx.periodic_wait().unwrap();
-                continue;
+            match res {
+                Ok((bytes, _)) => {
+                    // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
+                    // normal time. Thus we have to check that indeed a normal time was returned.
+                    let SystemTime::Normal(time) = ctx.get_time() else {
+                        panic!("could not read time");
+                    };
+
+                    // convert current time to bytes and store in upper 16 bytes of request
+                    let time_in_nanoseconds = time.as_nanos();
+                    buf[16..32].copy_from_slice(&time_in_nanoseconds.to_le_bytes());
+
+                    info!("Forwarding request with timestamp as response");
+
+                    // send the contents of `buf` back as response
+                    let send_result = ctx
+                        .ping_response
+                        .unwrap()
+                        .send(&buf, SystemTime::Normal(Duration::from_secs(10)));
+                    match send_result {
+                        Ok(_) => {}
+                        Err(Error::NotAvailable) => warn!("Failed to send ping response"),
+                        Err(other) => panic!("Failed to send ping response: {:?}", other),
+                    }
+                }
+                Err(Error::NotAvailable) => warn!("Failed to receive ping request"),
+                Err(other) => panic!("Failed to receive ping request: {:?}", other),
             }
-
-            // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
-            // normal time. Thus we have to check that indeed a normal time was returned.
-            let SystemTime::Normal(time) = ctx.get_time() else {
-                panic!("could not read time");
-            };
-
-            // convert current time to bytes and store in upper 16 bytes of request
-            let time_in_nanoseconds = time.as_nanos();
-            buf[16..32].copy_from_slice(&time_in_nanoseconds.to_le_bytes());
-
-            info!("Forwarding request with timestamp as response");
-
-            // send the contents of `buf` back as response
-            let send_result = ctx
-                .ping_response
-                .unwrap()
-                .send(&buf, SystemTime::Normal(Duration::from_secs(10)))
-                .expect("sending response to succeed");
 
             // wait until the next partition window / MiF
             ctx.periodic_wait().unwrap();
