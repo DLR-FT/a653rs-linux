@@ -3,10 +3,9 @@ use std::mem::size_of;
 use std::os::fd::RawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::ptr::slice_from_raw_parts;
-use std::slice::SliceIndex;
+use std::sync::atomic::AtomicBool;
 
 use a653rs::bindings::PortDirection;
-use anyhow::bail;
 use memfd::{FileSeal, Memfd, MemfdOptions};
 use memmap2::MmapMut;
 
@@ -20,8 +19,6 @@ pub mod concurrent_queue {
     use std::fmt::{Debug, Formatter};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::{mem, ptr};
-
-    use anyhow::bail;
 
     /// An unsized bounded concurrent queue (Fifo) that makes use of atomics and does not use pointers internally.
     /// This allows the queue to be created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
@@ -37,8 +34,8 @@ pub mod concurrent_queue {
     /// let queue2 = unsafe { ConcurrentQueue::load_from(&buffer) };
     ///
     /// // Let's push some values in the queue
-    /// assert!(queue1.push(&[1]).is_ok());
-    /// assert!(queue2.push(&[2]).is_ok());
+    /// assert!(queue1.push(&[1]).is_some());
+    /// assert!(queue2.push(&[2]).is_some());
     ///
     /// // Now pop them using the Fifo method
     /// assert_eq!(queue2.pop().unwrap()[0], 1);
@@ -179,21 +176,19 @@ pub mod concurrent_queue {
             Some(msg)
         }
 
-        /// Pushes an element to the back of the queue
-        pub fn push(&self, data: &[u8]) -> anyhow::Result<&mut [u8]> {
+        /// Pushes an element to the back of the queue. If there was space, a mutable reference to the inserted element is returned.
+        pub fn push(&self, data: &[u8]) -> Option<&mut [u8]> {
             assert_eq!(data.len(), self.msg_size);
 
             self.push_with(|entry| entry.copy_from_slice(data))
         }
 
         /// Pushes an uninitialized element and then calls a closure to set its memory in-place.
-        pub fn push_with<F: FnOnce(&'_ mut [u8])>(
-            &self,
-            set_element: F,
-        ) -> anyhow::Result<&mut [u8]> {
+        /// If there was space, a mutable reference to the inserted element is returned.
+        pub fn push_with<F: FnOnce(&'_ mut [u8])>(&self, set_element: F) -> Option<&mut [u8]> {
             let current_len = self.len.load(Ordering::SeqCst);
             if current_len == self.msg_capacity {
-                bail!("queue reached maximum capacity");
+                return None;
             }
 
             let insert_idx = self.len.fetch_add(1, Ordering::SeqCst);
@@ -204,7 +199,7 @@ pub mod concurrent_queue {
 
             set_element(element_slot);
 
-            Ok(element_slot)
+            Some(element_slot)
         }
 
         /// Tries to pop an element from the front of the queue.
@@ -256,38 +251,45 @@ pub mod concurrent_queue {
 #[derive(Debug)]
 struct SourceDatagram<'a> {
     num_messages_in_destination: &'a mut usize,
+    has_overflowed: &'a mut bool,
     message_queue: &'a ConcurrentQueue,
 }
 
 #[derive(Debug)]
 struct DestinationDatagram<'a> {
+    has_overflowed: &'a mut bool,
     message_queue: &'a ConcurrentQueue,
 }
 
 impl<'a> SourceDatagram<'a> {
     fn size(msg_size: usize, msg_capacity: usize) -> usize {
         size_of::<usize>() // number of messages in destination
+            + size_of::<bool>() // flag if queue has overflowed
             + ConcurrentQueue::size(Message::size(msg_size), msg_capacity) // the message queue
     }
 
     fn init_at(msg_size: usize, msg_capacity: usize, buffer: &'a mut [u8]) -> Self {
         let (num_messages_in_destination, buffer) = unsafe { buffer.strip_field_mut::<usize>() };
+        let (has_overflowed, buffer) = unsafe { buffer.strip_field_mut::<bool>() };
 
         let message_queue = ConcurrentQueue::init_at(buffer, Message::size(msg_size), msg_capacity);
 
         Self {
             num_messages_in_destination,
+            has_overflowed,
             message_queue,
         }
     }
 
     unsafe fn load_from(buffer: &'a mut [u8]) -> Self {
         let (num_messages_in_destination, buffer) = unsafe { buffer.strip_field_mut::<usize>() };
+        let (has_overflowed, buffer) = unsafe { buffer.strip_field_mut::<bool>() };
 
         let message_queue = ConcurrentQueue::load_from(buffer);
 
         Self {
             num_messages_in_destination,
+            has_overflowed,
             message_queue,
         }
     }
@@ -297,46 +299,64 @@ impl<'a> SourceDatagram<'a> {
             .pop_with(|entry| f(Message::from_bytes(entry)))
     }
 
-    fn push<'b>(&'b mut self, data: &'_ [u8]) -> anyhow::Result<Message<'b>> {
-        if *self.num_messages_in_destination + self.message_queue.len()
-            == self.message_queue.msg_capacity
-        {
-            bail!("Failed to push message to source datagram. Queueing port is already at full capacity");
+    fn push<'b>(&'b mut self, data: &'_ [u8]) -> Option<Message<'b>> {
+        // We need to check if there is enough space left in the queue.
+        // This is important, because we could theoretically store twice the number of our queue size, because we use a separate source and destination queueu.
+        // Thus we need to limit the number of messages in both queues at the same time.
+        let queue_is_full = *self.num_messages_in_destination + self.message_queue.len()
+            == self.message_queue.msg_capacity;
+
+        if queue_is_full {
+            *self.has_overflowed = true;
+            return None;
         }
+        let entry = self.message_queue
+            .push_with(|entry| Message::init_at(entry, data)).expect("push to be successful because we just checked if there is space in both the source and destination");
 
-        let entry = self
-            .message_queue
-            .push_with(|entry| Message::init_at(entry, data))?;
-
-        Ok(Message::from_bytes(entry))
+        Some(Message::from_bytes(entry))
     }
 }
 
 impl<'a> DestinationDatagram<'a> {
     fn size(msg_size: usize, msg_capacity: usize) -> usize {
-        ConcurrentQueue::size(Message::size(msg_size), msg_capacity) // the message queue
+        size_of::<AtomicBool>() // flag if queue is overflowed
+        + ConcurrentQueue::size(Message::size(msg_size), msg_capacity) // the message queue
     }
     fn init_at(msg_size: usize, msg_capacity: usize, buffer: &'a mut [u8]) -> Self {
+        let (has_overflown, buffer) = unsafe { buffer.strip_field_mut::<bool>() };
+
+        unsafe {
+            std::ptr::write(has_overflown, false);
+        }
+
         Self {
+            has_overflowed: has_overflown,
             message_queue: ConcurrentQueue::init_at(buffer, Message::size(msg_size), msg_capacity),
         }
     }
     unsafe fn load_from(buffer: &'a mut [u8]) -> Self {
+        let (has_overflown, buffer) = unsafe { buffer.strip_field_mut::<bool>() };
+
         Self {
+            has_overflowed: has_overflown,
             message_queue: ConcurrentQueue::load_from(buffer),
         }
     }
 
-    fn pop_map<F: FnOnce(Message<'_>) -> T, T>(&mut self, msg_mapper: F) -> Option<T> {
+    /// Takes a closure that maps the popped message to some type.
+    /// If there is a message in the queue, the resulting type and a flag whether the queue has overflowed is returned.
+    fn pop_with<F: FnOnce(Message<'_>) -> T, T>(&mut self, msg_mapper: F) -> Option<(T, bool)> {
         self.message_queue
             .pop_with(|entry| msg_mapper(Message::from_bytes(entry)))
+            .map(|t| (t, *self.has_overflowed))
     }
 
-    fn push<'b>(&'b mut self, data: &'_ [u8]) -> anyhow::Result<Message<'b>> {
+    /// Pushes a data onto the destination queue
+    fn push<'b>(&'b mut self, data: &'_ [u8]) -> Option<Message<'b>> {
         let entry = self.message_queue.push(data)?;
         let msg = Message::from_bytes(entry);
 
-        Ok(msg)
+        Some(msg)
     }
 }
 
@@ -418,8 +438,6 @@ impl TryFrom<QueuingChannelConfig> for Queuing {
             msg_size,
             config.msg_num,
         )?;
-
-        // TODO: some checks?
 
         Ok(Self {
             msg_size,
@@ -526,6 +544,7 @@ impl Queuing {
         }
 
         *source_datagram.num_messages_in_destination = destination_datagram.message_queue.len();
+        *destination_datagram.has_overflowed = *source_datagram.has_overflowed;
 
         trace!("Swapped {num_msg_swapped} messages: Destination={destination_datagram:?} Source={source_datagram:?}");
 
@@ -544,10 +563,11 @@ impl Queuing {
 pub struct QueuingSource(MmapMut);
 
 impl QueuingSource {
-    pub fn write(&mut self, data: &[u8]) -> usize {
+    /// If the message was successfully enqueued, the number of bytes written is returned.
+    pub fn write(&mut self, data: &[u8]) -> Option<usize> {
         let mut datagram = unsafe { SourceDatagram::load_from(&mut self.0) };
 
-        datagram.push(data).map(|m| *m.len).unwrap_or(0)
+        datagram.push(data).map(|m| *m.len)
     }
 }
 
@@ -563,19 +583,19 @@ impl TryFrom<RawFd> for QueuingSource {
 
 impl QueuingDestination {
     /// Reads the current message from the queue into a buffer and increments the current read index.
-    /// Returns the number of bytes read.
-    pub fn read(&mut self, buffer: &mut [u8]) -> usize {
+    /// If a message was successfully read, the number of bytes read and whether the queue has overflowed.
+    pub fn read(&mut self, buffer: &mut [u8]) -> Option<(usize, bool)> {
         let mut datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
 
-        datagram
-            .pop_map(|msg| {
-                let data = msg.get_data();
-                let len = data.len().min(buffer.len());
-                buffer[..len].copy_from_slice(&data[..len]);
+        let read_bytes_and_overflowed_flag = datagram.pop_with(|msg| {
+            let data = msg.get_data();
+            let len = data.len().min(buffer.len());
+            buffer[..len].copy_from_slice(&data[..len]);
 
-                len
-            })
-            .unwrap_or(0)
+            len
+        });
+
+        read_bytes_and_overflowed_flag
     }
 }
 

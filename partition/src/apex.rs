@@ -219,17 +219,50 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
             .enumerate()
             .find(|(_, q)| q.name.eq(name))
         {
+            // check max message size
+            if max_message_size != q.msg_size as MessageSize {
+                trace!("yielding InvalidConfig, because the queuing port max message size ({}) mismatches the configuration table value ({})", max_message_size, q.msg_size);
+                return Err(ErrorReturnCode::InvalidConfig);
+            } else if max_message_size <= 0 {
+                trace!("yielding InvalidConfig, because the queuing port max message size ({}) has to be larger than 0", max_message_size);
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+
+            // check max number of messages
+            if max_nb_message != q.max_num_msg as MessageRange {
+                trace!("yielding InvalidConfig, because the queuing port max number of messages ({}) mismatches the configuration table value ({})", max_nb_message, q.max_num_msg);
+                return Err(ErrorReturnCode::InvalidConfig);
+            } else if max_nb_message <= 0 {
+                trace!("yielding InvalidConfig, because the queuing port max number of messages ({}) has to be larger than 0", max_nb_message);
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+
+            // check correct port direction
             if q.dir != port_direction {
                 trace!("yielding InvalidConfig, because queuing port has mismatching port direction:\nexpected {:?}, got {port_direction:?}", q.dir);
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
+            // check partition mode
+            if let OperatingMode::Normal = PARTITION_MODE.read().unwrap() {
+                trace!("yielding InvalidMode, because queuing port creation is not allowed in normal mode");
+                return Err(ErrorReturnCode::InvalidMode);
+            }
+
             let ch = i;
 
             let mut channels = QUEUING_PORTS.read().unwrap();
+
+            // check if channel already exists
+            if channels.contains(&ch) {
+                trace!("yielding NoAction, because queuing port has already been created");
+                return Err(ErrorReturnCode::NoAction);
+            }
+
+            // check if max number of channels is reached
             if channels.try_push(ch).is_some() {
                 trace!(
-                    "yielding InvalidConfig, maximum number of queuing ports already reached: {}",
+                    "yielding InvalidConfig, maximum number of queuing ports (={}) already reached",
                     channels.len()
                 );
                 return Err(ErrorReturnCode::InvalidConfig);
@@ -246,7 +279,7 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
     fn send_queuing_message(
         queuing_port_id: QueuingPortId,
         message: &[ApexByte],
-        time_out: ApexSystemTime,
+        _time_out: ApexSystemTime,
     ) -> Result<(), ErrorReturnCode> {
         if let Some(port) = QUEUING_PORTS
             .read()
@@ -261,7 +294,15 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
                 } else if port.dir != PortDirection::Source {
                     return Err(ErrorReturnCode::InvalidMode);
                 }
-                QueuingSource::try_from(port.fd).unwrap().write(message);
+                let written_bytes = QueuingSource::try_from(port.fd)
+                    .unwrap()
+                    .write(message)
+                    .ok_or(ErrorReturnCode::NotAvailable)?; // Return with Err if queue is overflowed
+
+                if written_bytes < message.len() {
+                    warn!("Tried to write {} bytes to queuing port, but only {} bytes could be written", message.len(), written_bytes);
+                }
+
                 return Ok(());
             }
         }
@@ -271,7 +312,7 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
 
     unsafe fn receive_queuing_message(
         queuing_port_id: QueuingPortId,
-        time_out: ApexSystemTime,
+        _time_out: ApexSystemTime,
         message: &mut [ApexByte],
     ) -> Result<(MessageSize, QueueOverflow), ErrorReturnCode> {
         let read = if let Ok(read) = QUEUING_PORTS.read() {
@@ -286,9 +327,15 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
                 } else if port.dir != PortDirection::Destination {
                     return Err(ErrorReturnCode::InvalidMode);
                 }
-                let msg_len = QueuingDestination::try_from(port.fd).unwrap().read(message);
+                let (msg_len, has_overflowed) = QueuingDestination::try_from(port.fd)
+                    .unwrap()
+                    .read(message)
+                    .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API does not allow
 
-                // TODO: validity like with sampling ports?
+                if has_overflowed {
+                    // TODO: Also return the message length here. For now just return the error.
+                    return Err(ErrorReturnCode::InvalidConfig);
+                }
 
                 return Ok((msg_len as MessageSize, false));
             }

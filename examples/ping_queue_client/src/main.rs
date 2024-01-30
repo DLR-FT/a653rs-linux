@@ -13,6 +13,7 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_queue_client {
+    use a653rs::bindings::ErrorReturnCode;
     use core::time::Duration;
     use log::{info, warn};
 
@@ -79,10 +80,15 @@ mod ping_queue_client {
             let time_in_nanoseconds = time.as_nanos();
             let buf = time_in_nanoseconds.to_le_bytes();
 
-            ctx.ping_request
+            let res = ctx
+                .ping_request
                 .unwrap()
-                .send(&buf, SystemTime::Normal(Duration::from_secs(10)))
-                .expect("sending request to succeed");
+                .send(&buf, SystemTime::Normal(Duration::from_secs(10)));
+            match res {
+                Ok(_) => {}
+                Err(Error::NotAvailable) => warn!("Failed to send ping request"),
+                Err(other) => panic!("Failed to send ping request: {:?}", other),
+            }
 
             let SystemTime::Normal(time_after_send) = ctx.get_time() else {
                 panic!("could not read time");
@@ -99,33 +105,33 @@ mod ping_queue_client {
             //   for no more than the refresh_period
             // - `bytes` is a subslice of `buf`, containing only the bytes actually read
             //   from the sampling port
-            let (bytes, _) = ctx
+            let res = ctx
                 .ping_response
                 .unwrap()
-                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)))
-                .unwrap();
+                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)));
 
-            // check if we actually received a message
-            if bytes.len() > 0 {
-                // deserialize the bytes into an u128
-                let request_timestamp = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
-                let response_timestamp = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
+            match res {
+                Ok((bytes, _)) => {
+                    // deserialize the bytes into an u128
+                    let request_timestamp = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
+                    let response_timestamp = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
 
-                // the difference is the time passed since sending the request for this response
-                let round_trip = time_in_nanoseconds - request_timestamp;
-                let to_server = response_timestamp - request_timestamp;
-                let from_server = time_in_nanoseconds - response_timestamp;
+                    // the difference is the time passed since sending the request for this response
+                    let round_trip = time_in_nanoseconds - request_timestamp;
+                    let to_server = response_timestamp - request_timestamp;
+                    let from_server = time_in_nanoseconds - response_timestamp;
 
-                // convert the integers of nanoseconds back to a [Duration]s for nicer logging
-                let round_trip = Duration::from_nanos(round_trip as u64);
-                let to_server = Duration::from_nanos(to_server as u64);
-                let from_server = Duration::from_nanos(from_server as u64);
+                    // convert the integers of nanoseconds back to a [Duration]s for nicer logging
+                    let round_trip = Duration::from_nanos(round_trip as u64);
+                    let to_server = Duration::from_nanos(to_server as u64);
+                    let from_server = Duration::from_nanos(from_server as u64);
 
-                // and log the results!
-                info!("Received valid response: RTT={round_trip:?}  client-to-server={to_server:?}  server-to-client={from_server:?}");
-            } else {
-                warn!("Failed to receive any response");
-            }
+                    // and log the results!
+                    info!("Received valid response: RTT={round_trip:?}  client-to-server={to_server:?}  server-to-client={from_server:?}");
+                }
+                Err(Error::NotAvailable) => warn!("Failed to receive ping response"),
+                Err(other) => panic!("Failed to receive ping response: {:?}", other),
+            };
 
             // wait until the beginning of this partitions next MiF. In scheduling terms
             // this function would probably be called `yield()`.
