@@ -203,10 +203,8 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         max_message_size: MessageSize,
         max_nb_message: MessageRange,
         port_direction: PortDirection,
-        queuing_discipline: QueuingDiscipline,
+        _queuing_discipline: QueuingDiscipline,
     ) -> Result<QueuingPortId, ErrorReturnCode> {
-        // TODO perform necessary checks
-
         let name = Name::new(queuing_port_name);
         let name = name.to_str().map_err(|e| {
             trace!("yielding InvalidConfig, because queuing port is not valid UTF-8:\n{e}");
@@ -281,33 +279,35 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         message: &[ApexByte],
         _time_out: ApexSystemTime,
     ) -> Result<(), ErrorReturnCode> {
-        if let Some(port) = QUEUING_PORTS
+        let port = QUEUING_PORTS
             .read()
-            .unwrap()
-            .get(queuing_port_id as usize - 1)
-        {
-            if let Some(port) = CONSTANTS.queuing.get(*port) {
-                if message.len() > port.msg_size {
-                    return Err(ErrorReturnCode::InvalidConfig);
-                } else if message.is_empty() {
-                    return Err(ErrorReturnCode::InvalidParam);
-                } else if port.dir != PortDirection::Source {
-                    return Err(ErrorReturnCode::InvalidMode);
-                }
-                let written_bytes = QueuingSource::try_from(port.fd)
-                    .unwrap()
-                    .write(message)
-                    .ok_or(ErrorReturnCode::NotAvailable)?; // Return with Err if queue is overflowed
+            .ok()
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|port| CONSTANTS.queuing.get(port))
+            .ok_or(ErrorReturnCode::InvalidParam)?;
 
-                if written_bytes < message.len() {
-                    warn!("Tried to write {} bytes to queuing port, but only {} bytes could be written", message.len(), written_bytes);
-                }
-
-                return Ok(());
-            }
+        if message.len() > port.msg_size {
+            return Err(ErrorReturnCode::InvalidConfig);
+        } else if message.is_empty() {
+            return Err(ErrorReturnCode::InvalidParam);
+        } else if port.dir != PortDirection::Source {
+            return Err(ErrorReturnCode::InvalidMode);
         }
 
-        Err(ErrorReturnCode::InvalidParam)
+        let written_bytes = QueuingSource::try_from(port.fd)
+            .unwrap()
+            .write(message, *SYSTEM_TIME)
+            .ok_or(ErrorReturnCode::NotAvailable)?; // Queue is overflowed
+
+        if written_bytes < message.len() {
+            warn!(
+                "Tried to write {} bytes to queuing port, but only {} bytes could be written",
+                message.len(),
+                written_bytes
+            );
+        }
+
+        Ok(())
     }
 
     unsafe fn receive_queuing_message(
@@ -315,43 +315,79 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         _time_out: ApexSystemTime,
         message: &mut [ApexByte],
     ) -> Result<(MessageSize, QueueOverflow), ErrorReturnCode> {
-        let read = if let Ok(read) = QUEUING_PORTS.read() {
-            read
-        } else {
-            return Err(ErrorReturnCode::NotAvailable);
-        };
-        if let Some(port) = read.get(queuing_port_id as usize - 1) {
-            if let Some(port) = CONSTANTS.queuing.get(*port) {
-                if message.is_empty() {
-                    return Err(ErrorReturnCode::InvalidParam);
-                } else if port.dir != PortDirection::Destination {
-                    return Err(ErrorReturnCode::InvalidMode);
-                }
-                let (msg_len, has_overflowed) = QueuingDestination::try_from(port.fd)
-                    .unwrap()
-                    .read(message)
-                    .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API does not allow
+        let port = QUEUING_PORTS
+            .read()
+            .ok()
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|port| CONSTANTS.queuing.get(port))
+            .ok_or(ErrorReturnCode::InvalidParam)?;
 
-                if has_overflowed {
-                    // TODO: Also return the message length here. For now just return the error.
-                    return Err(ErrorReturnCode::InvalidConfig);
-                }
+        if message.is_empty() {
+            return Err(ErrorReturnCode::InvalidParam);
+        } else if port.dir != PortDirection::Destination {
+            return Err(ErrorReturnCode::InvalidMode);
+        }
+        let (msg_len, has_overflowed) = QueuingDestination::try_from(port.fd)
+            .unwrap()
+            .read(message)
+            .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API
+                                                    // does not allow
 
-                return Ok((msg_len as MessageSize, false));
-            }
+        if has_overflowed {
+            // TODO: Also return the message length here. For now just return the error.
+            return Err(ErrorReturnCode::InvalidConfig);
         }
 
-        Err(ErrorReturnCode::InvalidParam)
+        return Ok((msg_len as MessageSize, has_overflowed));
     }
 
     fn get_queuing_port_status(
         queuing_port_id: QueuingPortId,
     ) -> Result<QueuingPortStatus, ErrorReturnCode> {
-        todo!()
+        let port = QUEUING_PORTS
+            .read()
+            .ok()
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|port| CONSTANTS.queuing.get(port))
+            .ok_or(ErrorReturnCode::InvalidParam)?;
+
+        let num_msgs = match port.dir {
+            PortDirection::Source => QueuingSource::try_from(port.fd)
+                .unwrap()
+                .get_current_num_messages(),
+            PortDirection::Destination => QueuingDestination::try_from(port.fd)
+                .unwrap()
+                .get_current_num_messages(),
+        };
+
+        let status = QueuingPortStatus {
+            nb_message: num_msgs as MessageRange,
+            max_nb_message: port.max_num_msg as MessageRange,
+            max_message_size: port.msg_size as MessageSize,
+            port_direction: port.dir,
+            waiting_processes: 0,
+        };
+
+        Ok(status)
     }
 
     fn clear_queuing_port(queuing_port_id: QueuingPortId) -> Result<(), ErrorReturnCode> {
-        todo!()
+        let port = QUEUING_PORTS
+            .read()
+            .ok()
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|port| CONSTANTS.queuing.get(port))
+            .ok_or(ErrorReturnCode::InvalidParam)?;
+
+        if port.dir != PortDirection::Destination {
+            return Err(ErrorReturnCode::InvalidMode);
+        }
+
+        QueuingDestination::try_from(port.fd)
+            .unwrap()
+            .clear(*SYSTEM_TIME);
+
+        Ok(())
     }
 }
 

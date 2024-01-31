@@ -69,13 +69,12 @@ mod ping_queue_server {
 
             // receive a request into `&mut buf`, and save the slice of actual received data
             // as `bytes`
-            let res = ctx
+            match ctx
                 .ping_request
                 .unwrap()
-                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)));
-
-            match res {
-                Ok((bytes, _)) => {
+                .receive(&mut buf, SystemTime::Infinite)
+            {
+                Ok(bytes) => {
                     // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
                     // normal time. Thus we have to check that indeed a normal time was returned.
                     let SystemTime::Normal(time) = ctx.get_time() else {
@@ -89,11 +88,7 @@ mod ping_queue_server {
                     info!("Forwarding request with timestamp as response");
 
                     // send the contents of `buf` back as response
-                    let send_result = ctx
-                        .ping_response
-                        .unwrap()
-                        .send(&buf, SystemTime::Normal(Duration::from_secs(10)));
-                    match send_result {
+                    match ctx.ping_response.unwrap().send(&buf, SystemTime::Infinite) {
                         Ok(_) => {}
                         Err(Error::NotAvailable) => warn!("Failed to send ping response"),
                         Err(other) => panic!("Failed to send ping response: {:?}", other),
