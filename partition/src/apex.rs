@@ -333,12 +333,7 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
             .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API
                                                     // does not allow
 
-        if has_overflowed {
-            // TODO: Also return the message length here. For now just return the error.
-            return Err(ErrorReturnCode::InvalidConfig);
-        }
-
-        return Ok((msg_len as MessageSize, has_overflowed));
+        return Ok((msg_len as MessageSize, has_overflowed as QueueOverflow));
     }
 
     fn get_queuing_port_status(

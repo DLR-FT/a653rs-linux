@@ -74,7 +74,7 @@ mod ping_queue_server {
                 .unwrap()
                 .receive(&mut buf, SystemTime::Infinite)
             {
-                Ok(bytes) => {
+                Ok((bytes, false)) => {
                     // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
                     // normal time. Thus we have to check that indeed a normal time was returned.
                     let SystemTime::Normal(time) = ctx.get_time() else {
@@ -95,7 +95,7 @@ mod ping_queue_server {
                     }
                 }
                 Err(Error::NotAvailable) => warn!("Failed to receive ping request"),
-                Err(other) => panic!("Failed to receive ping request: {:?}", other),
+                other => panic!("Failed to receive ping request: {:?}", other),
             }
 
             // wait until the next partition window / MiF
