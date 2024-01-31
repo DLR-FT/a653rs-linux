@@ -18,16 +18,16 @@ channel:
     msg_num: 10
     source:
       partition: ping_queue_client
-      port: ping_queue_request_source
+      port: req_source
     destination:
       partition: ping_queue_server
-      port: ping_queue_request_destination
+      port: req_dest
   - !Queuing
     msg_size: 32B
     msg_num: 10
     source:
       partition: ping_queue_server
-      port: ping_queue_response_source
+      port: res_source
     destination:
       partition: ping_queue_client
-      port: ping_queue_response_destination
+      port: res_dest

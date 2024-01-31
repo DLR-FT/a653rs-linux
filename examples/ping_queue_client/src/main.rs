@@ -107,7 +107,7 @@ mod ping_queue_client {
                 .unwrap()
                 .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)))
             {
-                Ok(bytes) => {
+                Ok((bytes, false)) => {
                     // deserialize the bytes into an u128
                     let request_timestamp = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
                     let response_timestamp = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
@@ -126,7 +126,7 @@ mod ping_queue_client {
                     info!("Received valid response: RTT={round_trip:?}  client-to-server={to_server:?}  server-to-client={from_server:?}");
                 }
                 Err(Error::NotAvailable) => warn!("Failed to receive ping response"),
-                Err(other) => panic!("Failed to receive ping response: {:?}", other),
+                other => panic!("Failed to receive ping response: {:?}", other),
             };
 
             // wait until the beginning of this partitions next MiF. In scheduling terms
