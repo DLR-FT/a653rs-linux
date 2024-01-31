@@ -80,11 +80,7 @@ mod ping_queue_client {
             let time_in_nanoseconds = time.as_nanos();
             let buf = time_in_nanoseconds.to_le_bytes();
 
-            let res = ctx
-                .ping_request
-                .unwrap()
-                .send(&buf, SystemTime::Normal(Duration::from_secs(10)));
-            match res {
+            match ctx.ping_request.unwrap().send(&buf, SystemTime::Infinite) {
                 Ok(_) => {}
                 Err(Error::NotAvailable) => warn!("Failed to send ping request"),
                 Err(other) => panic!("Failed to send ping request: {:?}", other),
@@ -105,13 +101,13 @@ mod ping_queue_client {
             //   for no more than the refresh_period
             // - `bytes` is a subslice of `buf`, containing only the bytes actually read
             //   from the sampling port
-            let res = ctx
+
+            match ctx
                 .ping_response
                 .unwrap()
-                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)));
-
-            match res {
-                Ok((bytes, _)) => {
+                .receive(&mut buf, SystemTime::Normal(Duration::from_secs(10)))
+            {
+                Ok(bytes) => {
                     // deserialize the bytes into an u128
                     let request_timestamp = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
                     let response_timestamp = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
