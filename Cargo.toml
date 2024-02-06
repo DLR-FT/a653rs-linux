@@ -18,5 +18,5 @@ members = [
 ]
 
 [workspace.dependencies]
-a653rs = "0.4"
+a653rs = "0.5"
 log = "0"
