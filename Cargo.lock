@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "a653rs"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "506b92c9c231f2f851b72180e3fecb59310cd5c5a78e3205c915c82b207668b6"
+checksum = "2f1d0e39b5494bfd9fe7c4f3939bfa2d62f3bd05c5d8a45c3f0cf6afc24a6bc4"
 dependencies = [
  "a653rs_macros",
  "serde",
@@ -86,8 +86,8 @@ dependencies = [
 
 [[package]]
 name = "a653rs-postcard"
-version = "0.2.0"
-source = "git+https://github.com/DLR-FT/a653rs-postcard.git?branch=main#51187adf0599a05c261ec522ec1678e35da53d1b"
+version = "0.3.0"
+source = "git+https://github.com/DLR-FT/a653rs-postcard.git?branch=main#6bf1c901857f9b9ea78c36917caa50c97964e53d"
 dependencies = [
  "a653rs",
  "arrayvec",
