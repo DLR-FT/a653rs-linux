@@ -53,12 +53,15 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use a653rs_linux_core::channel::{QueuingChannelConfig, SamplingChannelConfig};
-use a653rs_linux_core::error::{ResultExt, SystemError, TypedResult};
-use a653rs_linux_core::health::{ModuleInitHMTable, ModuleRunHMTable, PartitionHMTable};
 use anyhow::anyhow;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+
+use a653rs_linux_core::channel::{QueuingChannelConfig, SamplingChannelConfig};
+use a653rs_linux_core::error::{ResultExt, SystemError, TypedResult};
+use a653rs_linux_core::health::{ModuleInitHMTable, ModuleRunHMTable, PartitionHMTable};
+
+use crate::hypervisor::scheduler::ScheduledTimeframe;
 
 /// Main configuration of the hypervisor
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -190,7 +193,7 @@ pub enum ModuleStates {
 }
 
 impl Config {
-    pub(crate) fn generate_schedule(&self) -> TypedResult<Vec<(Duration, Duration, String)>> {
+    pub(crate) fn generate_schedule(&self) -> TypedResult<Vec<ScheduledTimeframe>> {
         // Verify Periods and Major Frame
         let lcm_periods = self
             .partitions
@@ -213,17 +216,24 @@ impl Config {
                 let pimf = (self.major_frame.as_nanos() / p.period.as_nanos()) as u32;
                 (0..pimf).map(|i| {
                     let start = p.offset + (p.period * i);
-                    (start, start + p.duration, p.name.clone())
+                    ScheduledTimeframe {
+                        start,
+                        end: start + p.duration,
+                        partition_name: p.name.clone(),
+                    }
                 })
             })
             .collect::<Vec<_>>();
-        s.sort_by(|(d1, ..), (d2, ..)| d1.cmp(d2));
+
+        s.sort();
 
         // Verify no overlaps
-        for ((pstart, pend, pname), (nstart, nend, nname)) in s.iter().tuple_windows() {
-            if pend > nstart {
-                return Err(anyhow!("Overlapping Partition Windows: {pname} (start: {pstart:?}, end: {pend:?}). {nname} (start: {nstart:?}, end: {nend:?})"))
-                    .typ(SystemError::PartitionConfig);
+        for (prev, next) in s.iter().tuple_windows() {
+            if prev.start > next.start {
+                return Err(anyhow!(
+                    "Overlapping Partition Windows: {prev:?}, {next:?})"
+                ))
+                .typ(SystemError::PartitionConfig);
             }
         }
 

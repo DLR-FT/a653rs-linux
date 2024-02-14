@@ -1,17 +1,41 @@
+use std::cmp::Ordering;
 use std::os::unix::prelude::{AsRawFd, OwnedFd};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use a653rs::prelude::{OperatingMode, StartCondition};
+use anyhow::anyhow;
+use polling::{Event, Poller};
+
 use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
 };
 use a653rs_linux_core::health::{ModuleRecoveryAction, RecoveryAction};
 use a653rs_linux_core::health_event::PartitionCall;
-use anyhow::anyhow;
-use polling::{Event, Poller};
 
 use super::partition::{Base, Run};
+
+#[derive(Clone, Debug, Eq, Ord)]
+pub(crate) struct ScheduledTimeframe {
+    pub partition_name: String,
+    pub start: Duration,
+    pub end: Duration,
+}
+
+impl PartialEq<Self> for ScheduledTimeframe {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.end == other.end
+    }
+}
+
+impl PartialOrd for ScheduledTimeframe {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.start.partial_cmp(&other.start) {
+            Some(Ordering::Equal) => self.end.partial_cmp(&other.end),
+            other => other,
+        }
+    }
+}
 
 pub(crate) struct Timeout {
     start: Instant,
