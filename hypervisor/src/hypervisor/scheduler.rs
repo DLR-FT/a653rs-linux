@@ -18,25 +18,33 @@ use super::partition::{Base, Run};
 
 /// A timeframe inside of a major frame.
 /// Both `start` and `end` are [Duration]s as they describe the time passed since the major frame's start.
-#[derive(Clone, Debug, Eq, Ord)]
+#[derive(Clone, Debug)]
 pub(crate) struct ScheduledTimeframe {
     pub partition_name: String,
     pub start: Duration,
     pub end: Duration,
 }
 
-impl PartialEq<Self> for ScheduledTimeframe {
+impl PartialEq for ScheduledTimeframe {
     fn eq(&self, other: &Self) -> bool {
-        self.start == other.start && self.end == other.end
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for ScheduledTimeframe {}
+
+impl Ord for ScheduledTimeframe {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.start.cmp(&other.start) {
+            Ordering::Equal => self.end.cmp(&other.end),
+            other => other,
+        }
     }
 }
 
 impl PartialOrd for ScheduledTimeframe {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.start.partial_cmp(&other.start) {
-            Some(Ordering::Equal) => self.end.partial_cmp(&other.end),
-            other => other,
-        }
+        Some(self.cmp(other))
     }
 }
 
