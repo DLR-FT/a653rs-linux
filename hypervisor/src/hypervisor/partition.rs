@@ -15,7 +15,7 @@ use itertools::Itertools;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sys::socket::{self, bind, AddressFamily, SockFlag, SockType, UnixAddr};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
@@ -308,7 +308,11 @@ impl Run {
                 )
                 .unwrap();
 
-                bind(syscall_socket, &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap()).unwrap();
+                bind(
+                    syscall_socket.as_raw_fd(),
+                    &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap(),
+                )
+                .unwrap();
 
                 let constants: RawFd = PartitionConstants {
                     name: base.name.clone(),
@@ -998,13 +1002,15 @@ impl PeriodicPoller {
         let events = run.periodic_events()?;
 
         let poll = Poller::new().typ(SystemError::Panic)?;
-        poll.add(events.as_raw_fd(), Event::readable(Self::EVENTS_ID))
+        unsafe {
+            poll.add(events.as_raw_fd(), Event::readable(Self::EVENTS_ID))
+                .typ(SystemError::Panic)?;
+            poll.add(
+                run.receiver().as_raw_fd(),
+                Event::readable(Self::RECEIVER_ID),
+            )
             .typ(SystemError::Panic)?;
-        poll.add(
-            run.receiver().as_raw_fd(),
-            Event::readable(Self::RECEIVER_ID),
-        )
-        .typ(SystemError::Panic)?;
+        }
 
         Ok(PeriodicPoller { poll, events })
     }
@@ -1015,18 +1021,18 @@ impl PeriodicPoller {
         }
 
         while timeout.has_time_left() {
-            let mut events = vec![];
+            let mut events = Events::new();
             self.poll
-                .wait(events.as_mut(), Some(timeout.remaining_time()))
+                .wait(&mut events, Some(timeout.remaining_time()))
                 .typ(SystemError::Panic)?;
 
-            for e in events {
+            for e in events.iter() {
                 match e.key {
                     // Got a Frozen event
                     Self::EVENTS_ID => {
                         // Re-sub the readable event
                         self.poll
-                            .modify(self.events.as_raw_fd(), Event::readable(Self::EVENTS_ID))
+                            .modify(&mut self.events, Event::readable(Self::EVENTS_ID))
                             .typ(SystemError::Panic)?;
 
                         // Then check if the cg is actually frozen
@@ -1042,10 +1048,7 @@ impl PeriodicPoller {
                         // accidentally missing an event (at the expense of one extra loop per
                         // receive)
                         self.poll
-                            .modify(
-                                run.receiver().as_raw_fd(),
-                                Event::readable(Self::RECEIVER_ID),
-                            )
+                            .modify(run.receiver(), Event::readable(Self::RECEIVER_ID))
                             .typ(SystemError::Panic)?;
 
                         // Now receive anything

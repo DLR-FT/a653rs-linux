@@ -9,16 +9,16 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 a653rs.workspace = true
 a653rs.features = [ "bindings" ]
+nix.workspace = true
+memmap2.workspace = true
+procfs.workspace = true
+polling.workspace = true
+itertools.workspace = true
 
-nix = "0.25"
 anyhow = "1.0"
-procfs = "0.14"
-itertools = "0.10"
 log = "0"
 walkdir = "2.3"
-polling = "2.2"
 serde = { version = "1.0", features = ["derive"] }
-memmap2 = "0.5.5"
 memfd = "0.6"
 bincode = "1.3"
 thiserror = "1.0"

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use nix::libc::{c_uint, syscall, SYS_pidfd_open};
 use nix::unistd::Pid;
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 
 use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
@@ -48,12 +48,12 @@ impl PidFd {
             // epoll(2) internals, which demand providing a "user data variable" -- a
             // feature that we make no use of.
             poller
-                .modify(self.0.as_raw_fd(), Event::readable(42))
+                .modify(&self.0, Event::readable(42))
                 .map_err(anyhow::Error::from)
                 .typ(SystemError::Panic)?;
 
             let poll_res = poller.wait(
-                Vec::new().as_mut(),
+                &mut Events::new(),
                 Some(timeout.saturating_sub(now.elapsed())),
             );
             match poll_res {

@@ -68,13 +68,8 @@ pub fn run_hypervisor() -> LeveledResult<()> {
         let cgroups = my_pid
             .cgroups()
             .expect("unable to retrieve my parent cgroup");
-        let cgroup_path = cgroups
-            .iter()
-            .find(|c| c.hierarchy == 0)
-            .unwrap()
-            .pathname
-            .strip_prefix('/')
-            .unwrap(); // this can't fail, the cgroup reported will always start with a leading '/'
+        let cgroups = cgroups.into_iter().find(|c| c.hierarchy == 0).unwrap();
+        let cgroup_path = cgroups.pathname.strip_prefix('/').unwrap(); // this can't fail, the cgroup reported will always start with a leading '/'
         cgroups_mount_point.join(cgroup_path)
     });
     // Add Additional cgroup layer

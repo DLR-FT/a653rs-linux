@@ -1,6 +1,7 @@
 //! Implementation of IPC
 use std::io::{ErrorKind, IoSlice, IoSliceMut};
 use std::marker::PhantomData;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
 use std::time::Duration;
@@ -12,7 +13,7 @@ use nix::sys::socket::{
     recvmsg, sendmsg, socketpair, AddressFamily, ControlMessage, ControlMessageOwned, MsgFlags,
     SockFlag, SockType,
 };
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ResultExt, SystemError, TypedResult};
@@ -75,11 +76,12 @@ where
     /// duration
     pub fn try_recv_timeout(&self, duration: Duration) -> TypedResult<Option<T>> {
         let poller = Poller::new().typ(SystemError::Panic)?;
-        poller
-            .add(self.socket.as_raw_fd(), Event::readable(42))
-            .typ(SystemError::Panic)?;
-
-        let poll_res = poller.wait(Vec::new().as_mut(), Some(duration));
+        unsafe {
+            poller
+                .add(&self.socket, Event::readable(42))
+                .typ(SystemError::Panic)?;
+        }
+        let poll_res = poller.wait(&mut Events::new(), Some(duration));
         if let Err(_) | Ok(0) = poll_res {
             return Ok(None);
         }
@@ -102,12 +104,10 @@ where
     )
     .typ(SystemError::Panic)?;
 
-    unsafe {
-        let tx = IpcSender::from_raw_fd(tx);
-        let rx = IpcReceiver::from_raw_fd(rx);
+    let tx = IpcSender::from(tx);
+    let rx = IpcReceiver::from(rx);
 
-        Ok((tx, rx))
-    }
+    Ok((tx, rx))
 }
 
 impl<T> AsRawFd for IpcSender<T> {
@@ -119,6 +119,36 @@ impl<T> AsRawFd for IpcSender<T> {
 impl<T> AsRawFd for IpcReceiver<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.socket.as_raw_fd()
+    }
+}
+
+impl<T> AsFd for IpcSender<T> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
+    }
+}
+
+impl<T> AsFd for IpcReceiver<T> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
+    }
+}
+
+impl<T> From<OwnedFd> for IpcSender<T> {
+    fn from(value: OwnedFd) -> Self {
+        Self {
+            socket: UnixDatagram::from(value),
+            _p: PhantomData,
+        }
+    }
+}
+
+impl<T> From<OwnedFd> for IpcReceiver<T> {
+    fn from(value: OwnedFd) -> Self {
+        Self {
+            socket: UnixDatagram::from(value),
+            _p: PhantomData,
+        }
     }
 }
 
@@ -150,7 +180,7 @@ pub fn io_pair<T>() -> TypedResult<(IoSender<T>, IoReceiver<T>)> {
         SockFlag::empty(),
     )
     .typ(SystemError::Panic)?;
-    unsafe { Ok((IoSender::from_raw_fd(tx), IoReceiver::from_raw_fd(rx))) }
+    Ok((IoSender::from(tx), IoReceiver::from(rx)))
 }
 
 #[derive(Debug)]
@@ -226,6 +256,24 @@ impl<T> AsRawFd for IoSender<T> {
 impl<T> AsRawFd for IoReceiver<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.socket.as_raw_fd()
+    }
+}
+
+impl<T> From<OwnedFd> for IoSender<T> {
+    fn from(value: OwnedFd) -> Self {
+        Self {
+            socket: UnixDatagram::from(value),
+            _p: PhantomData,
+        }
+    }
+}
+
+impl<T> From<OwnedFd> for IoReceiver<T> {
+    fn from(value: OwnedFd) -> Self {
+        Self {
+            socket: UnixDatagram::from(value),
+            _p: PhantomData,
+        }
     }
 }
 

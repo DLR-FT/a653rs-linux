@@ -3,6 +3,7 @@
 // TODO: Document the mechanism here
 
 use std::io::IoSlice;
+use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd, RawFd};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
@@ -11,7 +12,7 @@ use anyhow::Result;
 use nix::libc::EINTR;
 use nix::sys::eventfd::{self, EfdFlags};
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 
 use crate::SYSCALL;
 
@@ -28,8 +29,10 @@ fn send_fds<const COUNT: usize>(hv: RawFd, fds: &[RawFd; COUNT]) -> Result<()> {
 // TODO: Consider timeout
 fn wait_event(event_fd: RawFd) -> Result<()> {
     let poller = Poller::new()?;
-    let mut events = Vec::with_capacity(1);
-    poller.add(event_fd, Event::readable(0))?;
+    let mut events = Events::with_capacity(NonZeroUsize::MIN);
+    unsafe {
+        poller.add(event_fd, Event::readable(0))?;
+    }
 
     loop {
         match poller.wait(&mut events, None) {
@@ -64,14 +67,14 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
         &[requ_fd.get_fd(), resp_fd.get_fd(), event_fd.as_raw_fd()],
     )?;
 
-    wait_event(event_fd)?;
+    wait_event(event_fd.as_raw_fd())?;
 
     let resp = SyscallResp::deserialize(&resp_fd.read_all()?)?;
     Ok(resp)
 }
 
 pub fn execute(requ: SyscallRequ) -> Result<SyscallResp> {
-    execute_fd(*SYSCALL, requ)
+    execute_fd(SYSCALL.as_raw_fd(), requ)
 }
 
 #[cfg(test)]
@@ -98,7 +101,7 @@ mod tests {
 
         let request_thread = std::thread::spawn(move || {
             let resp = execute_fd(
-                requester,
+                requester.as_raw_fd(),
                 SyscallRequ {
                     id: ApexSyscall::Start,
                     params: vec![1, 2, 42],
@@ -114,8 +117,13 @@ mod tests {
             let mut cmsg = cmsg_space!([RawFd; 3]);
             let mut iobuf = [0u8];
             let mut iov = [IoSliceMut::new(&mut iobuf)];
-            let res =
-                recvmsg::<()>(responder, &mut iov, Some(&mut cmsg), MsgFlags::empty()).unwrap();
+            let res = recvmsg::<()>(
+                responder.as_raw_fd(),
+                &mut iov,
+                Some(&mut cmsg),
+                MsgFlags::empty(),
+            )
+            .unwrap();
 
             let fds: Vec<RawFd> = match res.cmsgs().next().unwrap() {
                 ControlMessageOwned::ScmRights(fds) => fds.to_vec(),

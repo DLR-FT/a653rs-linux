@@ -1,6 +1,7 @@
 //! Implementation of the mechanism to perform system calls
 
 use std::io::IoSliceMut;
+use std::num::NonZeroUsize;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -10,7 +11,7 @@ use anyhow::{bail, Result};
 use libc::EINTR;
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
@@ -34,8 +35,8 @@ fn recv_fd_triple(fd: RawFd) -> Result<[RawFd; 3]> {
 /// Waits for readable data on fd
 fn wait_fds(fd: RawFd, timeout: Option<Duration>) -> Result<bool> {
     let poller = Poller::new()?;
-    let mut events = Vec::with_capacity(1);
-    poller.add(fd, Event::readable(0))?;
+    let mut events = Events::with_capacity(NonZeroUsize::MIN);
+    unsafe { poller.add(fd, Event::readable(0))? };
     loop {
         match poller.wait(&mut events, timeout) {
             Ok(0) => return Ok(false),
@@ -106,6 +107,7 @@ pub fn handle(fd: RawFd, timeout: Option<Duration>) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use std::io::IoSlice;
+    use std::os::fd::AsRawFd;
 
     use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::eventfd::{eventfd, EfdFlags};
@@ -145,18 +147,20 @@ mod tests {
 
             // Send the fds to the responder
             {
-                let fds = [requ_fd.get_fd(), resp_fd.get_fd(), event_fd];
+                let fds = [requ_fd.get_fd(), resp_fd.get_fd(), event_fd.as_raw_fd()];
                 let cmsg = [ControlMessage::ScmRights(&fds)];
                 let buffer = 0_u64.to_be_bytes();
                 let iov = [IoSlice::new(buffer.as_slice())];
-                sendmsg::<()>(requester, &iov, &cmsg, MsgFlags::empty(), None).unwrap();
+                sendmsg::<()>(requester.as_raw_fd(), &iov, &cmsg, MsgFlags::empty(), None).unwrap();
             }
 
             // Wait for a response
             {
                 let poller = Poller::new().unwrap();
-                let mut events = Vec::with_capacity(1);
-                poller.add(event_fd, Event::readable(0)).unwrap();
+                let mut events = Events::with_capacity(NonZeroUsize::MIN);
+                unsafe {
+                    poller.add(&event_fd, Event::readable(0)).unwrap();
+                }
                 poller.wait(&mut events, None).unwrap();
                 assert_eq!(events.len(), 1);
             }
@@ -167,7 +171,7 @@ mod tests {
         });
 
         let response_thread = std::thread::spawn(move || {
-            let n = handle(responder, Some(Duration::from_secs(1))).unwrap();
+            let n = handle(responder.as_raw_fd(), Some(Duration::from_secs(1))).unwrap();
             assert_eq!(n, 1);
         });
 
