@@ -76,6 +76,7 @@ impl PartitionSchedule {
     }
 }
 
+#[derive(Copy, Clone)]
 pub(crate) struct Timeout {
     start: Instant,
     stop: Duration,
@@ -191,8 +192,7 @@ impl<'a> PartitionTimeWindow<'a> {
             // partition
             self.base.unfreeze()?;
 
-            let mut leftover = self.timeout.remaining_time();
-            while leftover > Duration::ZERO {
+            while self.timeout.time_left() {
                 match &self
                     .run
                     .receiver()
@@ -219,8 +219,6 @@ impl<'a> PartitionTimeWindow<'a> {
                     }
                     None => {}
                 }
-
-                leftover = self.timeout.remaining_time();
             }
         }
 
@@ -234,9 +232,8 @@ impl<'a> PartitionTimeWindow<'a> {
 
         self.base.unfreeze()?;
 
-        let mut leftover = self.timeout.remaining_time();
-        while leftover > Duration::ZERO {
-            let event = poller.wait_timeout(self.run, self.timeout.remaining_time())?;
+        while self.timeout.time_left() {
+            let event = poller.wait_timeout(self.run, self.timeout)?;
             match &event {
                 PeriodicEvent::Timeout => {}
                 PeriodicEvent::Frozen => {
@@ -272,8 +269,6 @@ impl<'a> PartitionTimeWindow<'a> {
                     }
                 }
             }
-
-            leftover = self.timeout.remaining_time();
         }
 
         // TODO being here means that we exceeded the timeout
@@ -312,18 +307,15 @@ impl PeriodicPoller {
         Ok(PeriodicPoller { poll, events })
     }
 
-    pub fn wait_timeout(&mut self, run: &mut Run, timeout: Duration) -> TypedResult<PeriodicEvent> {
-        let start = Instant::now();
-
+    pub fn wait_timeout(&mut self, run: &mut Run, timeout: Timeout) -> TypedResult<PeriodicEvent> {
         if run.is_periodic_frozen()? {
             return Ok(PeriodicEvent::Frozen);
         }
 
-        let mut leftover = timeout.saturating_sub(start.elapsed());
-        while leftover > Duration::ZERO {
+        while timeout.time_left() {
             let mut events = vec![];
             self.poll
-                .wait(events.as_mut(), Some(leftover))
+                .wait(events.as_mut(), Some(timeout.remaining_time()))
                 .typ(SystemError::Panic)?;
 
             for e in events {
@@ -365,8 +357,6 @@ impl PeriodicPoller {
                     }
                 }
             }
-
-            leftover = timeout.saturating_sub(start.elapsed());
         }
 
         Ok(PeriodicEvent::Timeout)
