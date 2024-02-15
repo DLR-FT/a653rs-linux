@@ -4,7 +4,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use a653rs::prelude::{OperatingMode, StartCondition};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
+use itertools::Itertools;
 use polling::{Event, Poller};
 
 use a653rs_linux_core::error::{
@@ -15,6 +16,8 @@ use a653rs_linux_core::health_event::PartitionCall;
 
 use super::partition::{Base, Run};
 
+/// A timeframe inside of a major frame.
+/// Both `start` and `end` are [Duration]s as they describe the time passed since the major frame's start.
 #[derive(Clone, Debug, Eq, Ord)]
 pub(crate) struct ScheduledTimeframe {
     pub partition_name: String,
@@ -34,6 +37,34 @@ impl PartialOrd for ScheduledTimeframe {
             Some(Ordering::Equal) => self.end.partial_cmp(&other.end),
             other => other,
         }
+    }
+}
+
+/// The schedule for the execution of partitions in each major frame.
+/// It consists of a [Vec] of timeframes sorted by their start time, which are guaranteed to not overlap.
+pub(crate) struct PartitionSchedule {
+    pub timeframes: Vec<ScheduledTimeframe>,
+}
+
+impl PartitionSchedule {
+    /// Creates a new partition schedule from given timeframes.
+    /// Returns `Err` if there are overlaps.
+    pub fn from_timeframes(mut timeframes: Vec<ScheduledTimeframe>) -> anyhow::Result<Self> {
+        timeframes.sort();
+
+        // Verify no overlaps
+        for (prev, next) in timeframes.iter().tuple_windows() {
+            if prev.end > next.start {
+                bail!("Overlapping partition timeframes: {prev:?}, {next:?})");
+            }
+        }
+
+        Ok(Self { timeframes })
+    }
+
+    /// Returns an iterator through all timeframes sorted by start time
+    pub fn iter(&self) -> impl Iterator<Item = &ScheduledTimeframe> {
+        self.timeframes.iter()
     }
 }
 

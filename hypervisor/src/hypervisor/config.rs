@@ -54,14 +54,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use a653rs_linux_core::channel::{QueuingChannelConfig, SamplingChannelConfig};
 use a653rs_linux_core::error::{ResultExt, SystemError, TypedResult};
 use a653rs_linux_core::health::{ModuleInitHMTable, ModuleRunHMTable, PartitionHMTable};
 
-use crate::hypervisor::scheduler::ScheduledTimeframe;
+use crate::hypervisor::scheduler::{PartitionSchedule, ScheduledTimeframe};
 
 /// Main configuration of the hypervisor
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -193,7 +192,7 @@ pub enum ModuleStates {
 }
 
 impl Config {
-    pub(crate) fn generate_schedule(&self) -> TypedResult<Vec<ScheduledTimeframe>> {
+    pub(crate) fn generate_schedule(&self) -> TypedResult<PartitionSchedule> {
         // Verify Periods and Major Frame
         let lcm_periods = self
             .partitions
@@ -209,7 +208,7 @@ impl Config {
         }
 
         // Generate Schedule
-        let mut s = self
+        let timeframes = self
             .partitions
             .iter()
             .flat_map(|p| {
@@ -225,18 +224,6 @@ impl Config {
             })
             .collect::<Vec<_>>();
 
-        s.sort();
-
-        // Verify no overlaps
-        for (prev, next) in s.iter().tuple_windows() {
-            if prev.start > next.start {
-                return Err(anyhow!(
-                    "Overlapping Partition Windows: {prev:?}, {next:?})"
-                ))
-                .typ(SystemError::PartitionConfig);
-            }
-        }
-
-        Ok(s)
+        PartitionSchedule::from_timeframes(timeframes).typ(SystemError::PartitionConfig)
     }
 }

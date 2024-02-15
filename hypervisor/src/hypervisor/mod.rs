@@ -13,7 +13,7 @@ use a653rs_linux_core::sampling::Sampling;
 
 use crate::hypervisor::config::{Channel, Config};
 use crate::hypervisor::partition::Partition;
-use crate::hypervisor::scheduler::{ScheduledTimeframe, Timeout};
+use crate::hypervisor::scheduler::{PartitionSchedule, Timeout};
 
 pub mod config;
 pub mod partition;
@@ -28,7 +28,7 @@ pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 pub struct Hypervisor {
     cg: CGroup,
     major_frame: Duration,
-    schedule: Vec<ScheduledTimeframe>,
+    schedule: PartitionSchedule,
     partitions: HashMap<String, Partition>,
     sampling_channel: HashMap<String, Sampling>,
     prev_cg: PathBuf,
@@ -145,19 +145,18 @@ impl Hypervisor {
                 _ => {}
             }
 
-            for ScheduledTimeframe {
-                start,
-                end,
-                partition_name,
-            } in &self.schedule
-            {
-                sleep(start.saturating_sub(frame_start.elapsed()));
+            for timeframe in self.schedule.iter() {
+                sleep(timeframe.start.saturating_sub(frame_start.elapsed()));
 
                 self.partitions
-                    .get_mut(partition_name)
+                    .get_mut(&timeframe.partition_name)
                     .unwrap()
-                    .run(&mut self.sampling_channel, Timeout::new(frame_start, *end))?;
+                    .run(
+                        &mut self.sampling_channel,
+                        Timeout::new(frame_start, timeframe.end),
+                    )?;
             }
+
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
             frame_start += self.major_frame;
