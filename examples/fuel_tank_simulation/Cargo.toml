@@ -10,8 +10,8 @@ license = "MIT OR Apache-2.0"
 a653rs = { workspace = true, features = ["macros"] }
 a653rs-linux = { path = "../../partition" }
 serde = { version = "1.0", features = ["derive"] }
-procfs = "0.14"
+procfs.workspace = true
+nix.workspace = true
+memmap2.workspace = true
+once_cell.workspace = true
 log = "0"
-nix = "0.25"
-memmap2 = "0.5.5"
-once_cell = "1.13"
