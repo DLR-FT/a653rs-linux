@@ -7,14 +7,16 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use anyhow::anyhow;
+use clap::Parser;
+use nix::sys::signal::*;
+
 use a653rs_linux_core::cgroup;
 use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
 use a653rs_linux_core::health::ModuleRecoveryAction;
-use anyhow::anyhow;
-use clap::Parser;
 use hypervisor::config::Config;
-use hypervisor::linux::Hypervisor;
-use nix::sys::signal::*;
+
+use crate::hypervisor::Hypervisor;
 
 pub mod hypervisor;
 
@@ -164,8 +166,9 @@ macro_rules! problem {
 
 #[cfg(test)]
 mod test {
-    use a653rs_linux_core::error::{SystemError, TypedError, TypedResult};
     use anyhow::anyhow;
+
+    use a653rs_linux_core::error::{SystemError, TypedError, TypedResult};
 
     fn problem_manual() -> TypedResult<()> {
         let extra_info = "problem";
