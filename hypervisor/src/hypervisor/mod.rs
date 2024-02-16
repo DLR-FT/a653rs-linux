@@ -122,9 +122,11 @@ impl Hypervisor {
         let mut frame_start = Instant::now();
 
         // retain the first frame start as our sytems t0
-        if self.t0.is_none() {
-            self.t0 = Some(frame_start);
-        }
+        let t0 = self.t0.unwrap_or(frame_start);
+
+        let terminate_after_timeout = self
+            .terminate_after
+            .map(|duration| Timeout::new(t0, duration));
 
         let sys_time = SYSTEM_START_TIME
             .get()
@@ -133,16 +135,15 @@ impl Hypervisor {
         sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
         sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
         loop {
-            // if we are not ment to execute any longer, terminate here
-            match self.terminate_after {
-                Some(terminate_after) if frame_start - self.t0.unwrap() > terminate_after => {
+            // terminate hypervisor now if timeout is over
+            if let Some(timeout) = &terminate_after_timeout {
+                if !timeout.time_left() {
                     info!(
                         "quitting, as a run-time of {} was reached",
-                        humantime::Duration::from(terminate_after)
+                        humantime::Duration::from(timeout.total_duration())
                     );
                     quit::with_code(0)
                 }
-                _ => {}
             }
 
             for timeframe in self.schedule.iter() {

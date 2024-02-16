@@ -87,12 +87,16 @@ impl Timeout {
         Self { start, stop }
     }
 
-    fn remaining_time(&self) -> Duration {
+    pub fn remaining_time(&self) -> Duration {
         self.stop.saturating_sub(self.start.elapsed())
     }
 
-    fn time_left(&self) -> bool {
+    pub fn time_left(&self) -> bool {
         self.remaining_time() > Duration::ZERO
+    }
+
+    pub fn total_duration(&self) -> Duration {
+        self.stop
     }
 }
 
