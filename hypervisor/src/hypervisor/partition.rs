@@ -703,7 +703,9 @@ impl Partition {
     }
 
     pub fn run_post_timeframe(&mut self, sampling_channels: &mut HashMap<String, Sampling>) {
-        // TODO remove because a base freeze is not necessary here, as all run_* methods should freeze base themself after execution. Before removal of this, check all run_* methods.
+        // TODO remove because a base freeze is not necessary here, as all run_* methods
+        // should freeze base themself after execution. Before removal of this, check
+        // all run_* methods.
         let _ = self.base.freeze();
 
         for (name, _) in self
@@ -716,8 +718,9 @@ impl Partition {
         }
     }
 
-    /// Executes the periodic process for a maximum duration specified through the `timeout` parameter.
-    /// Returns whether the periodic process exists and was run.
+    /// Executes the periodic process for a maximum duration specified through
+    /// the `timeout` parameter. Returns whether the periodic process exists
+    /// and was run.
     pub fn run_periodic_process(&mut self, timeout: Timeout) -> TypedResult<bool> {
         match self.run.unfreeze_periodic() {
             Ok(true) => {}

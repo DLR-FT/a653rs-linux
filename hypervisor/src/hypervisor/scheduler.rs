@@ -113,9 +113,10 @@ impl<'a> PartitionTimeframeScheduler<'a> {
         }
     }
 
-    /// Takes in a [TypedResult] and makes the partition handle the `Err` variant.
-    /// A successful handling of the error will then return `Ok(None)`.
-    /// In case of `Ok(_)` the contained value is returned as `Ok(Some(_))`.
+    /// Takes in a [TypedResult] and makes the partition handle the `Err`
+    /// variant. A successful handling of the error will then return
+    /// `Ok(None)`. In case of `Ok(_)` the contained value is returned as
+    /// `Ok(Some(_))`.
     fn handle_partition_result<T>(&mut self, res: TypedResult<T>) -> LeveledResult<Option<T>> {
         res.map(|t| Some(t))
             .or_else(|err| self.partition.handle_error(err).map(|_| None))
