@@ -13,7 +13,7 @@ use a653rs_linux_core::sampling::Sampling;
 
 use crate::hypervisor::config::{Channel, Config};
 use crate::hypervisor::partition::Partition;
-use crate::hypervisor::scheduler::{PartitionSchedule, Timeout};
+use crate::hypervisor::scheduler::{Scheduler, Timeout};
 
 pub mod config;
 pub mod partition;
@@ -28,7 +28,7 @@ pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 pub struct Hypervisor {
     cg: CGroup,
     major_frame: Duration,
-    schedule: PartitionSchedule,
+    scheduler: Scheduler,
     partitions: HashMap<String, Partition>,
     sampling_channel: HashMap<String, Sampling>,
     prev_cg: PathBuf,
@@ -55,7 +55,7 @@ impl Hypervisor {
 
         let mut hv = Self {
             cg,
-            schedule,
+            scheduler: Scheduler::new(schedule),
             major_frame: config.major_frame,
             partitions: Default::default(),
             prev_cg,
@@ -137,7 +137,7 @@ impl Hypervisor {
         loop {
             // terminate hypervisor now if timeout is over
             if let Some(timeout) = &terminate_after_timeout {
-                if !timeout.time_left() {
+                if !timeout.has_time_left() {
                     info!(
                         "quitting, as a run-time of {} was reached",
                         humantime::Duration::from(timeout.total_duration())
@@ -146,17 +146,11 @@ impl Hypervisor {
                 }
             }
 
-            for timeframe in self.schedule.iter() {
-                sleep(timeframe.start.saturating_sub(frame_start.elapsed()));
-
-                self.partitions
-                    .get_mut(&timeframe.partition_name)
-                    .unwrap()
-                    .run(
-                        &mut self.sampling_channel,
-                        Timeout::new(frame_start, timeframe.end),
-                    )?;
-            }
+            self.scheduler.run_major_frame(
+                frame_start,
+                &mut self.partitions,
+                &mut self.sampling_channel,
+            )?;
 
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
