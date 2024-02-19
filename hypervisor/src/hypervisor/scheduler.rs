@@ -1,79 +1,23 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use a653rs::prelude::OperatingMode;
-use anyhow::{anyhow, bail};
-use itertools::Itertools;
+use anyhow::anyhow;
 
 use a653rs_linux_core::error::{ErrorLevel, LeveledError, LeveledResult, SystemError, TypedResult};
 use a653rs_linux_core::sampling::Sampling;
+pub(crate) use schedule::{PartitionSchedule, ScheduledTimeframe};
+pub(crate) use timeout::Timeout;
 
 use crate::hypervisor::partition::Partition;
 
-/// A timeframe inside of a major frame.
-/// Both `start` and `end` are [Duration]s as they describe the time passed since the major frame's start.
-#[derive(Clone, Debug)]
-pub(crate) struct ScheduledTimeframe {
-    pub partition_name: String,
-    pub start: Duration,
-    pub end: Duration,
-}
+mod schedule;
+mod timeout;
 
-impl PartialEq for ScheduledTimeframe {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for ScheduledTimeframe {}
-
-impl Ord for ScheduledTimeframe {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.start.cmp(&other.start) {
-            Ordering::Equal => self.end.cmp(&other.end),
-            other => other,
-        }
-    }
-}
-
-impl PartialOrd for ScheduledTimeframe {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// The schedule for the execution of partitions in each major frame.
-/// It consists of a [Vec] of timeframes sorted by their start time, which are guaranteed to not overlap.
-pub(crate) struct PartitionSchedule {
-    pub timeframes: Vec<ScheduledTimeframe>,
-}
-
-impl PartitionSchedule {
-    /// Creates a new partition schedule from given timeframes.
-    /// Returns `Err` if there are overlaps.
-    pub fn from_timeframes(mut timeframes: Vec<ScheduledTimeframe>) -> anyhow::Result<Self> {
-        timeframes.sort();
-
-        // Verify no overlaps
-        for (prev, next) in timeframes.iter().tuple_windows() {
-            if prev.end > next.start {
-                bail!("Overlapping partition timeframes: {prev:?}, {next:?})");
-            }
-        }
-
-        Ok(Self { timeframes })
-    }
-
-    /// Returns an iterator through all timeframes sorted by start time
-    pub fn iter(&self) -> impl Iterator<Item = &ScheduledTimeframe> {
-        self.timeframes.iter()
-    }
-}
-
-/// A scheduler that schedules the execution timeframes of partition according to a given [PartitionSchedule].
-/// By calling [Scheduler::run_major_frame] a single major frame can be run.
+/// A scheduler that schedules the execution timeframes of partition according
+/// to a given [PartitionSchedule]. By calling [Scheduler::run_major_frame] a
+/// single major frame can be run.
 pub(crate) struct Scheduler {
     schedule: PartitionSchedule,
 }
@@ -175,31 +119,5 @@ impl<'a> PartitionTimeframeScheduler<'a> {
     fn handle_partition_result<T>(&mut self, res: TypedResult<T>) -> LeveledResult<Option<T>> {
         res.map(|t| Some(t))
             .or_else(|err| self.partition.handle_error(err).map(|_| None))
-    }
-}
-
-/// A simple object for keeping track of a timeout that starts at some instant and has a fixed duration.
-/// This object also exposes some basic functionality like querying the remaining time.
-#[derive(Copy, Clone)]
-pub(crate) struct Timeout {
-    start: Instant,
-    stop: Duration,
-}
-
-impl Timeout {
-    pub fn new(start: Instant, stop: Duration) -> Self {
-        Self { start, stop }
-    }
-
-    pub fn remaining_time(&self) -> Duration {
-        self.stop.saturating_sub(self.start.elapsed())
-    }
-
-    pub fn has_time_left(&self) -> bool {
-        self.remaining_time() > Duration::ZERO
-    }
-
-    pub fn total_duration(&self) -> Duration {
-        self.stop
     }
 }
