@@ -13,7 +13,7 @@ use a653rs_linux_core::sampling::Sampling;
 
 use crate::hypervisor::config::{Channel, Config};
 use crate::hypervisor::partition::Partition;
-use crate::hypervisor::scheduler::Timeout;
+use crate::hypervisor::scheduler::{Scheduler, Timeout};
 
 pub mod config;
 pub mod partition;
@@ -28,7 +28,7 @@ pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 pub struct Hypervisor {
     cg: CGroup,
     major_frame: Duration,
-    schedule: Vec<(Duration, Duration, String)>,
+    scheduler: Scheduler,
     partitions: HashMap<String, Partition>,
     sampling_channel: HashMap<String, Sampling>,
     prev_cg: PathBuf,
@@ -55,7 +55,7 @@ impl Hypervisor {
 
         let mut hv = Self {
             cg,
-            schedule,
+            scheduler: Scheduler::new(schedule),
             major_frame: config.major_frame,
             partitions: Default::default(),
             prev_cg,
@@ -122,9 +122,11 @@ impl Hypervisor {
         let mut frame_start = Instant::now();
 
         // retain the first frame start as our sytems t0
-        if self.t0.is_none() {
-            self.t0 = Some(frame_start);
-        }
+        let t0 = self.t0.unwrap_or(frame_start);
+
+        let terminate_after_timeout = self
+            .terminate_after
+            .map(|duration| Timeout::new(t0, duration));
 
         let sys_time = SYSTEM_START_TIME
             .get()
@@ -133,26 +135,23 @@ impl Hypervisor {
         sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
         sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
         loop {
-            // if we are not ment to execute any longer, terminate here
-            match self.terminate_after {
-                Some(terminate_after) if frame_start - self.t0.unwrap() > terminate_after => {
+            // terminate hypervisor now if timeout is over
+            if let Some(timeout) = &terminate_after_timeout {
+                if !timeout.has_time_left() {
                     info!(
                         "quitting, as a run-time of {} was reached",
-                        humantime::Duration::from(terminate_after)
+                        humantime::Duration::from(timeout.total_duration())
                     );
                     quit::with_code(0)
                 }
-                _ => {}
             }
 
-            for (target_start, target_stop, partition_name) in &self.schedule {
-                sleep(target_start.saturating_sub(frame_start.elapsed()));
+            self.scheduler.run_major_frame(
+                frame_start,
+                &mut self.partitions,
+                &mut self.sampling_channel,
+            )?;
 
-                self.partitions.get_mut(partition_name).unwrap().run(
-                    &mut self.sampling_channel,
-                    Timeout::new(frame_start, *target_stop),
-                )?;
-            }
             sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
 
             frame_start += self.major_frame;

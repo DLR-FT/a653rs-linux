@@ -4,7 +4,8 @@ use std::net::{TcpStream, UdpSocket};
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
 use std::path::{self, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 use a653rs::bindings::PortDirection;
 use a653rs::prelude::{OperatingMode, StartCondition};
@@ -14,15 +15,16 @@ use itertools::Itertools;
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use nix::sys::socket::{self, bind, AddressFamily, SockFlag, SockType, UnixAddr};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
+use polling::{Event, Poller};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
 use a653rs_linux_core::cgroup::CGroup;
 use a653rs_linux_core::error::{
-    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
+    ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
 };
 use a653rs_linux_core::file::TempFile;
-use a653rs_linux_core::health::PartitionHMTable;
+use a653rs_linux_core::health::{ModuleRecoveryAction, PartitionHMTable, RecoveryAction};
 use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::{channel_pair, io_pair, IoReceiver, IoSender, IpcReceiver};
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
@@ -34,7 +36,7 @@ use crate::hypervisor::SYSTEM_START_TIME;
 use crate::problem;
 
 use super::config::PosixSocket;
-use super::scheduler::{PartitionTimeWindow, Timeout};
+use super::scheduler::Timeout;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionAction {
@@ -674,25 +676,8 @@ impl Partition {
         }
     }
 
-    pub fn run(
-        &mut self,
-        sampling: &mut HashMap<String, Sampling>,
-        timeout: Timeout,
-    ) -> LeveledResult<()> {
-        PartitionTimeWindow::new(&self.base, &mut self.run, timeout).run()?;
-        // TODO Error handling and freeze if err
-        self.base.freeze().lev(ErrorLevel::Partition)?;
-
-        for (name, _) in self
-            .base
-            .sampling_channel
-            .iter()
-            .filter(|(_, s)| s.dir == PortDirection::Source)
-        {
-            sampling.get_mut(name).unwrap().swap();
-        }
-
-        Ok(())
+    pub fn get_base_run(&mut self) -> (&Base, &mut Run) {
+        (&self.base, &mut self.run)
     }
 
     //fn idle_transition(mut self) -> Result<()> {
@@ -715,6 +700,224 @@ impl Partition {
 
     pub(crate) fn rm(self) -> TypedResult<()> {
         self.base.cgroup.rm().typ(SystemError::CGroup)
+    }
+
+    pub fn run_post_timeframe(&mut self, sampling_channels: &mut HashMap<String, Sampling>) {
+        // TODO remove because a base freeze is not necessary here, as all run_* methods
+        // should freeze base themself after execution. Before removal of this, check
+        // all run_* methods.
+        let _ = self.base.freeze();
+
+        for (name, _) in self
+            .base
+            .sampling_channel
+            .iter()
+            .filter(|(_, s)| s.dir == PortDirection::Source)
+        {
+            sampling_channels.get_mut(name).unwrap().swap();
+        }
+    }
+
+    /// Executes the periodic process for a maximum duration specified through
+    /// the `timeout` parameter. Returns whether the periodic process exists
+    /// and was run.
+    pub fn run_periodic_process(&mut self, timeout: Timeout) -> TypedResult<bool> {
+        match self.run.unfreeze_periodic() {
+            Ok(true) => {}
+            other => return other,
+        }
+
+        let mut poller = PeriodicPoller::new(&self.run)?;
+
+        self.base.unfreeze()?;
+
+        while timeout.has_time_left() {
+            let event = poller.wait_timeout(&mut self.run, timeout)?;
+            match &event {
+                PeriodicEvent::Timeout => {}
+                PeriodicEvent::Frozen => {
+                    self.base.freeze()?;
+
+                    return Ok(true);
+                }
+                // TODO Error Handling with HM
+                PeriodicEvent::Call(e @ PartitionCall::Error(se)) => {
+                    e.print_partition_log(self.base.name());
+                    match self.base.part_hm().try_action(*se) {
+                        Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
+                        Some(_) => {
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                        }
+                        None => {
+                            return Err(TypedError::new(
+                                SystemError::Panic,
+                                anyhow!(
+                                "Could not get recovery action for requested partition error: {se}"
+                            ),
+                            ))
+                        }
+                    };
+                }
+                PeriodicEvent::Call(c @ PartitionCall::Message(_)) => {
+                    c.print_partition_log(self.base.name())
+                }
+                PeriodicEvent::Call(PartitionCall::Transition(mode)) => {
+                    // Only exit run_periodic, if we changed our mode
+                    if self.run.handle_transition(&self.base, *mode)?.is_some() {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        // TODO being here means that we exceeded the timeout
+        // So we should return a SystemError stating that the time was exceeded
+        Ok(true)
+    }
+
+    pub fn run_aperiodic_process(&mut self, timeout: Timeout) -> TypedResult<bool> {
+        match self.run.unfreeze_aperiodic() {
+            Ok(true) => {}
+            other => return other,
+        }
+
+        // Did we even need to unfreeze aperiodic?
+        self.base.unfreeze()?;
+
+        while timeout.has_time_left() {
+            match &self
+                .run
+                .receiver()
+                .try_recv_timeout(timeout.remaining_time())?
+            {
+                Some(m @ PartitionCall::Message(_)) => m.print_partition_log(self.base.name()),
+                Some(e @ PartitionCall::Error(se)) => {
+                    e.print_partition_log(self.base.name());
+                    match self.base.part_hm().try_action(*se) {
+                        Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
+                        Some(_) => {
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                        }
+                        None => {
+                            return Err(TypedError::new(
+                                SystemError::Panic,
+                                anyhow!(
+                                "Could not get recovery action for requested partition error: {se}"
+                            ),
+                            ))
+                        }
+                    };
+                }
+                Some(t @ PartitionCall::Transition(mode)) => {
+                    // In case of a transition to idle, just sleep. Do not care for the rest
+                    t.print_partition_log(self.base.name());
+                    if let Some(OperatingMode::Idle) =
+                        self.run.handle_transition(&self.base, *mode)?
+                    {
+                        sleep(timeout.remaining_time());
+                        return Ok(true);
+                    }
+                }
+                None => {}
+            }
+        }
+
+        self.run.freeze_aperiodic()?;
+
+        Ok(true)
+    }
+
+    /// Currently the same as run_aperiodic
+    pub fn run_start(&mut self, timeout: Timeout, _warm_start: bool) -> TypedResult<()> {
+        self.base.unfreeze()?;
+
+        while timeout.has_time_left() {
+            match &self
+                .run
+                .receiver()
+                .try_recv_timeout(timeout.remaining_time())?
+            {
+                Some(m @ PartitionCall::Message(_)) => m.print_partition_log(self.base.name()),
+                Some(e @ PartitionCall::Error(se)) => {
+                    e.print_partition_log(self.base.name());
+                    match self.base.part_hm().try_action(*se) {
+                        Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
+                        Some(_) => {
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                        }
+                        None => {
+                            return Err(TypedError::new(
+                                SystemError::Panic,
+                                anyhow!(
+                                "Could not get recovery action for requested partition error: {se}"
+                            ),
+                            ))
+                        }
+                    };
+                }
+                Some(t @ PartitionCall::Transition(mode)) => {
+                    // In case of a transition to idle, just sleep. Do not care for the rest
+                    t.print_partition_log(self.base.name());
+                    if let Some(OperatingMode::Idle) =
+                        self.run.handle_transition(&self.base, *mode)?
+                    {
+                        sleep(timeout.remaining_time());
+                        return Ok(());
+                    }
+                }
+                None => {}
+            }
+        }
+
+        self.base.freeze()
+    }
+
+    /// Handles an error that occurred during self.run_* methods.
+    pub fn handle_error(&mut self, err: TypedError) -> LeveledResult<()> {
+        debug!("Partition \"{}\" received err: {err:?}", self.base.name());
+
+        let now = Instant::now();
+
+        let action = match self.base.part_hm().try_action(err.err()) {
+            None => {
+                warn!("Could not map \"{err:?}\" to action. Using Panic action instead");
+                match self.base.part_hm().panic {
+                    // We do not Handle Module Recovery actions here
+                    RecoveryAction::Module(_) => {
+                        return TypedResult::Err(err).lev(ErrorLevel::Partition)
+                    }
+                    RecoveryAction::Partition(action) => action,
+                }
+            }
+            // We do not Handle Module Recovery actions here
+            Some(RecoveryAction::Module(_)) => {
+                return TypedResult::Err(err).lev(ErrorLevel::Partition)
+            }
+            Some(RecoveryAction::Partition(action)) => action,
+        };
+
+        debug!("Handling: {err:?}");
+        debug!("Apply Partition Recovery Action: {action:?}");
+
+        // TODO do not unwrap/expect these errors. Maybe raise Module Level
+        // PartitionInit Error?
+        match action {
+            a653rs_linux_core::health::PartitionRecoveryAction::Idle => self
+                .run
+                .idle_transition(&self.base)
+                .expect("Idle Transition Failed"),
+            a653rs_linux_core::health::PartitionRecoveryAction::ColdStart => self
+                .run
+                .start_transition(&self.base, false, StartCondition::HmPartitionRestart)
+                .expect("Start(Cold) Transition Failed"),
+            a653rs_linux_core::health::PartitionRecoveryAction::WarmStart => self
+                .run
+                .start_transition(&self.base, false, StartCondition::HmPartitionRestart)
+                .expect("Start(Warm) Transition Failed"),
+        }
+
+        trace!("Partition Error Handling took: {:?}", now.elapsed());
+        Ok(())
     }
 }
 
@@ -773,5 +976,91 @@ impl PartitionConfig {
         };
 
         Ok(bin)
+    }
+}
+
+pub(crate) struct PeriodicPoller {
+    poll: Poller,
+    events: OwnedFd,
+}
+
+pub enum PeriodicEvent {
+    Timeout,
+    Frozen,
+    Call(PartitionCall),
+}
+
+impl PeriodicPoller {
+    const EVENTS_ID: usize = 1;
+    const RECEIVER_ID: usize = 2;
+
+    pub fn new(run: &Run) -> TypedResult<PeriodicPoller> {
+        let events = run.periodic_events()?;
+
+        let poll = Poller::new().typ(SystemError::Panic)?;
+        poll.add(events.as_raw_fd(), Event::readable(Self::EVENTS_ID))
+            .typ(SystemError::Panic)?;
+        poll.add(
+            run.receiver().as_raw_fd(),
+            Event::readable(Self::RECEIVER_ID),
+        )
+        .typ(SystemError::Panic)?;
+
+        Ok(PeriodicPoller { poll, events })
+    }
+
+    pub fn wait_timeout(&mut self, run: &mut Run, timeout: Timeout) -> TypedResult<PeriodicEvent> {
+        if run.is_periodic_frozen()? {
+            return Ok(PeriodicEvent::Frozen);
+        }
+
+        while timeout.has_time_left() {
+            let mut events = vec![];
+            self.poll
+                .wait(events.as_mut(), Some(timeout.remaining_time()))
+                .typ(SystemError::Panic)?;
+
+            for e in events {
+                match e.key {
+                    // Got a Frozen event
+                    Self::EVENTS_ID => {
+                        // Re-sub the readable event
+                        self.poll
+                            .modify(self.events.as_raw_fd(), Event::readable(Self::EVENTS_ID))
+                            .typ(SystemError::Panic)?;
+
+                        // Then check if the cg is actually frozen
+                        if run.is_periodic_frozen()? {
+                            return Ok(PeriodicEvent::Frozen);
+                        }
+                    }
+                    // got a call events
+                    Self::RECEIVER_ID => {
+                        // Re-sub the readable event
+                        // This will result in the event instantly being ready again should we have
+                        // something to read, but that is better than
+                        // accidentally missing an event (at the expense of one extra loop per
+                        // receive)
+                        self.poll
+                            .modify(
+                                run.receiver().as_raw_fd(),
+                                Event::readable(Self::RECEIVER_ID),
+                            )
+                            .typ(SystemError::Panic)?;
+
+                        // Now receive anything
+                        if let Some(call) = run.receiver().try_recv()? {
+                            return Ok(PeriodicEvent::Call(call));
+                        }
+                    }
+                    _ => {
+                        return Err(anyhow!("Unexpected Event Received: {e:?}"))
+                            .typ(SystemError::Panic)
+                    }
+                }
+            }
+        }
+
+        Ok(PeriodicEvent::Timeout)
     }
 }
