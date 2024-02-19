@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use a653rs::bindings::PartitionId;
 use anyhow::anyhow;
 use once_cell::sync::OnceCell;
 
@@ -29,7 +30,7 @@ pub struct Hypervisor {
     cg: CGroup,
     major_frame: Duration,
     scheduler: Scheduler,
-    partitions: HashMap<String, Partition>,
+    partitions: HashMap<PartitionId, Partition>,
     sampling_channel: HashMap<String, Sampling>,
     prev_cg: PathBuf,
     _config: Config,
@@ -70,12 +71,12 @@ impl Hypervisor {
         }
 
         for p in config.partitions.iter() {
-            if hv.partitions.contains_key(&p.name) {
+            if hv.partitions.contains_key(&p.id) {
                 return Err(anyhow!("Partition \"{}\" already exists", p.name))
                     .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
             }
             hv.partitions.insert(
-                p.name.clone(),
+                p.id,
                 Partition::new(hv.cg.get_path(), p.clone(), &hv.sampling_channel)
                     .lev(ErrorLevel::ModuleInit)?,
             );

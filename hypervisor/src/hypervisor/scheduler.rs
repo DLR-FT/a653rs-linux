@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::Instant;
 
+use a653rs::bindings::PartitionId;
 use a653rs::prelude::OperatingMode;
 use anyhow::anyhow;
 
@@ -30,7 +31,7 @@ impl Scheduler {
     pub fn run_major_frame(
         &mut self,
         current_frame_start: Instant,
-        partitions_by_name: &mut HashMap<String, Partition>,
+        partitions: &mut HashMap<PartitionId, Partition>,
         sampling_channels_by_name: &mut HashMap<String, Sampling>,
     ) -> LeveledResult<()> {
         for timeframe in self.schedule.iter() {
@@ -41,8 +42,8 @@ impl Scheduler {
             );
 
             let timeframe_timeout = Timeout::new(current_frame_start, timeframe.end);
-            let partition = partitions_by_name
-                .get_mut(&timeframe.partition_name)
+            let partition = partitions
+                .get_mut(&timeframe.partition)
                 .expect("partition to exist because its name comes from `timeframe`");
             PartitionTimeframeScheduler::new(partition, timeframe_timeout).run()?;
 

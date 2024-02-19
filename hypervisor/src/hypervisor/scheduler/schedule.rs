@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::time::Duration;
 
+use a653rs::bindings::PartitionId;
 use anyhow::bail;
 use itertools::Itertools;
 
@@ -38,7 +39,7 @@ impl PartitionSchedule {
 /// since the major frame's start.
 #[derive(Clone, Debug)]
 pub(crate) struct ScheduledTimeframe {
-    pub partition_name: String,
+    pub partition: PartitionId,
     pub start: Duration,
     pub end: Duration,
 }
