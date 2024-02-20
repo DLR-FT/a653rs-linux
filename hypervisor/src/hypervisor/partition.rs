@@ -208,7 +208,15 @@ impl Run {
                 ];
 
                 for (source, target) in base.mounts.iter().cloned() {
-                    let file_mounter = FileMounter::from_paths(source, target)
+                    // make target path relative because they will later be appended to the
+                    // partition's base directory by the `FileMounter`
+                    let relative_target = target
+                        .strip_prefix("/")
+                        .context("target paths for mounting must be absolute")
+                        .typ(SystemError::Panic)?
+                        .to_path_buf();
+
+                    let file_mounter = FileMounter::from_paths(source, relative_target)
                         .context("failed to initialize file mounter")
                         .typ(SystemError::Panic)?;
                     mounts.push(file_mounter);
