@@ -2,12 +2,12 @@
 
 use std::io::IoSliceMut;
 use std::num::NonZeroUsize;
-use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use libc::EINTR;
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
@@ -15,7 +15,7 @@ use polling::{Event, Events, Poller};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
-fn recv_fd_triple(fd: BorrowedFd) -> Result<[RawFd; 3]> {
+fn recv_fd_triple(fd: BorrowedFd) -> Result<[OwnedFd; 3]> {
     let mut cmsg = cmsg_space!([RawFd; 3]);
     let mut iobuf = [0u8];
     let mut iov = [IoSliceMut::new(&mut iobuf)];
@@ -25,11 +25,12 @@ fn recv_fd_triple(fd: BorrowedFd) -> Result<[RawFd; 3]> {
         ControlMessageOwned::ScmRights(fds) => fds,
         _ => bail!("received an unknown cmsg"),
     };
-    if fds.len() != 3 {
-        bail!("received fds but not a tripe")
-    }
-
-    Ok([fds[0], fds[1], fds[2]])
+    let fds = fds
+        .into_iter()
+        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
+        .collect::<Vec<_>>();
+    fds.try_into()
+        .map_err(|_| anyhow!("received fds but not a tripe"))
 }
 
 /// Waits for readable data on fd
@@ -77,10 +78,9 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
             assert!(res);
         }
 
-        let fds = recv_fd_triple(fd)?;
-        let mut requ_fd = Mfd::from_fd(fds[0])?;
-        let mut resp_fd = Mfd::from_fd(fds[1])?;
-        let event_fd = fds[2];
+        let [requ_fd, resp_fd, event_fd] = recv_fd_triple(fd)?;
+        let mut requ_fd = Mfd::from_fd(requ_fd)?;
+        let mut resp_fd = Mfd::from_fd(resp_fd)?;
 
         // Fetch the request
         let requ = SyscallRequ::deserialize(&requ_fd.read_all()?)?;
@@ -96,7 +96,7 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
 
         // Trigger the event
         let buf = 1_u64.to_ne_bytes();
-        unistd::write(event_fd, &buf)?;
+        unistd::write(event_fd.as_raw_fd(), &buf)?;
 
         nsyscalls += 1;
     }

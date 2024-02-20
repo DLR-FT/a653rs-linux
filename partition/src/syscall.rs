@@ -78,6 +78,7 @@ pub fn execute(requ: SyscallRequ) -> Result<SyscallResp> {
 #[cfg(test)]
 mod tests {
     use std::io::IoSliceMut;
+    use std::os::fd::{FromRawFd, OwnedFd};
 
     use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::socket::{
@@ -123,14 +124,17 @@ mod tests {
             )
             .unwrap();
 
-            let fds: Vec<RawFd> = match res.cmsgs().next().unwrap() {
-                ControlMessageOwned::ScmRights(fds) => fds.to_vec(),
+            let fds: Vec<OwnedFd> = match res.cmsgs().next().unwrap() {
+                ControlMessageOwned::ScmRights(fds) => fds
+                    .into_iter()
+                    .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
+                    .collect::<Vec<_>>(),
                 _ => panic!("unknown cmsg received"),
             };
 
-            let mut requ_fd = Mfd::from_fd(fds[0]).unwrap();
-            let mut resp_fd = Mfd::from_fd(fds[1]).unwrap();
-            let event_fd = fds[2];
+            let [req, resp, event_fd] = fds.try_into().unwrap();
+            let mut requ_fd = Mfd::from_fd(req).unwrap();
+            let mut resp_fd = Mfd::from_fd(resp).unwrap();
 
             // Fetch the request
             let requ = SyscallRequ::deserialize(&requ_fd.read_all().unwrap()).unwrap();
@@ -152,7 +156,7 @@ mod tests {
 
             // Trigger the eventfd
             let buf = 1_u64.to_ne_bytes();
-            unistd::write(event_fd, &buf).unwrap();
+            unistd::write(event_fd.as_raw_fd(), &buf).unwrap();
         });
 
         request_thread.join().unwrap();
