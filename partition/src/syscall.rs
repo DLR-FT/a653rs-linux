@@ -4,7 +4,7 @@
 
 use std::io::IoSlice;
 use std::num::NonZeroUsize;
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, RawFd};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
@@ -64,7 +64,11 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
     // Send the file descriptors to the hypervisor
     send_fds(
         fd,
-        &[requ_fd.get_fd(), resp_fd.get_fd(), event_fd.as_raw_fd()],
+        &[
+            requ_fd.as_fd().as_raw_fd(),
+            resp_fd.as_fd().as_raw_fd(),
+            event_fd.as_raw_fd(),
+        ],
     )?;
 
     wait_event(event_fd.as_raw_fd())?;

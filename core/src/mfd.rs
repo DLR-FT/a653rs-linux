@@ -1,7 +1,7 @@
 //! Implementation of a memory fd
 
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 
 use anyhow::{bail, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};
@@ -64,12 +64,6 @@ impl Mfd {
         Ok(())
     }
 
-    /// Returns the actual FD behind the mfd
-    /// TODO: Implement the AsRawFd trait instead
-    pub fn get_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-
     /// Creates a memfd from a fd
     // TODO: Use some Rust try_from stuff
     pub fn from_fd(fd: RawFd) -> Result<Self> {
@@ -78,6 +72,18 @@ impl Mfd {
             Err(_) => bail!("cannot get Memfd from RawFd"),
         };
         Ok(Self(fd))
+    }
+}
+
+impl AsFd for Mfd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_file().as_fd()
+    }
+}
+
+impl AsRawFd for Mfd {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
     }
 }
 
