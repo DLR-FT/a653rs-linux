@@ -140,7 +140,8 @@ pub struct Partition {
     /// Use this to expose a path / file / device file from the host environment
     /// to the inside of a partitions.
     ///
-    /// The first path is the path in the host environment, while the second path is a relative one inside of the partition.
+    /// The first path is the path in the host environment, while the second
+    /// path is a relative one inside of the partition.
     #[serde(default)]
     pub mounts: Vec<(PathBuf, PathBuf)>,
 
