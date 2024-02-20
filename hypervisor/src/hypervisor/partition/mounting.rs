@@ -55,7 +55,7 @@ impl FileMounter {
 
     pub fn new(
         source: Option<PathBuf>,
-        mut target: PathBuf,
+        target: PathBuf,
         fstype: Option<String>,
         flags: MsFlags,
         data: Option<String>,
@@ -67,14 +67,7 @@ impl FileMounter {
         }
 
         if target.is_absolute() {
-            // Convert absolute paths into relative ones.
-            // Otherwise we will receive a permission error.
-            // TODO: Make this a function?
-            target = target
-                .strip_prefix("/")
-                .expect("the target path to start with '/' because it is an absolute path")
-                .to_path_buf();
-            assert!(target.is_relative());
+            bail!("target path cannot be absolute because it will later be appended to a base directory");
         }
 
         let is_dir = source.as_ref().map_or(true, |source| source.is_dir());
