@@ -104,7 +104,7 @@ impl Hypervisor {
 
     pub fn run(mut self) -> LeveledResult<()> {
         self.cg
-            .mv(nix::unistd::getpid())
+            .mv_proc(nix::unistd::getpid())
             .typ(SystemError::CGroup)
             .lev(ErrorLevel::ModuleInit)?;
 
@@ -178,7 +178,7 @@ impl Drop for Hypervisor {
         // requires that the cgroup must have been deleted externally
         if let Err(e) = CGroup::import_root(&self.prev_cg)
             .unwrap()
-            .mv(nix::unistd::getpid())
+            .mv_proc(nix::unistd::getpid())
         {
             error!("{e}")
         }

@@ -398,7 +398,9 @@ impl Run {
         }
 
         // Move main process to own cgroup
-        self.cgroup_main.mv(self.main).typ(SystemError::CGroup)?;
+        self.cgroup_main
+            .mv_proc(self.main)
+            .typ(SystemError::CGroup)?;
 
         self.freeze_aperiodic()?;
         self.freeze_periodic()?;
