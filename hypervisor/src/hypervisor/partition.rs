@@ -72,12 +72,14 @@ impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         trace!("Create new \"Run\" for \"{}\" partition", base.name());
         let cgroup_main = base.cgroup.new("main").typ(SystemError::CGroup)?;
-        let cgroup_periodic = base
+        let cgroup_processes = base
             .cgroup
+            .new(PartitionConstants::PROCESSES_CGROUP)
+            .typ(SystemError::CGroup)?;
+        let cgroup_periodic = cgroup_processes
             .new(PartitionConstants::PERIODIC_PROCESS_CGROUP)
             .typ(SystemError::CGroup)?;
-        let cgroup_aperiodic = base
-            .cgroup
+        let cgroup_aperiodic = cgroup_processes
             .new(PartitionConstants::APERIODIC_PROCESS_CGROUP)
             .typ(SystemError::CGroup)?;
 
