@@ -191,7 +191,7 @@ impl Process {
         safemem::write_bytes(stack, 0);
         let cbk = Box::new(move || {
             let cg = self.cg().unwrap();
-            cg.mv(getpid()).unwrap();
+            cg.mv_proc(getpid()).unwrap();
             (self.attr.entry_point)();
             0
         });
@@ -201,7 +201,7 @@ impl Process {
             nix::sched::clone(cbk, stack, CloneFlags::empty(), Some(SIGCHLD))
                 .lev_typ(SystemError::Panic, ErrorLevel::Partition)?
         };
-        cg.mv(child).unwrap();
+        cg.mv_proc(child).unwrap();
 
         self.pid.write(&child).lev(ErrorLevel::Partition)?;
 

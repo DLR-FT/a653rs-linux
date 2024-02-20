@@ -72,14 +72,43 @@ impl CGroup {
         Self::new_root(&self.path, name)
     }
 
+    /// Creates a threaded sub-cgroup inside this one
+    pub fn new_threaded(&self, name: &str) -> anyhow::Result<Self> {
+        let cgroup = Self::new_root(&self.path, name)?;
+        cgroup.set_threaded()?;
+        Ok(cgroup)
+    }
+
     /// Moves a process to this cgroup
-    pub fn mv(&self, pid: Pid) -> anyhow::Result<()> {
+    pub fn mv_proc(&self, pid: Pid) -> anyhow::Result<()> {
         trace!("Move {pid:?} to {}", self.get_path().display());
         if !is_cgroup(&self.path)? {
             bail!("{} is not a valid cgroup", self.path.display());
         }
 
         fs::write(self.path.join("cgroup.procs"), pid.to_string())?;
+        Ok(())
+    }
+
+    /// Moves a thread to this cgroup
+    pub fn mv_thread(&self, pid: Pid) -> anyhow::Result<()> {
+        trace!("Move {pid:?} to {}", self.get_path().display());
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.display());
+        }
+
+        fs::write(self.path.join("cgroup.threads"), pid.to_string())?;
+        Ok(())
+    }
+
+    /// Changes the cgroups type to "threaded"
+    fn set_threaded(&self) -> anyhow::Result<()> {
+        trace!("Change type of {} to threaded", self.get_path().display());
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.display());
+        }
+
+        fs::write(self.path.join("cgroup.type"), "threaded")?;
         Ok(())
     }
 
@@ -90,6 +119,20 @@ impl CGroup {
         }
 
         let pids: Vec<Pid> = fs::read(self.path.join("cgroup.procs"))?
+            .lines()
+            .map(|line| Pid::from_raw(line.unwrap().parse().unwrap()))
+            .collect();
+
+        Ok(pids)
+    }
+
+    /// Returns all TIDs associated with this cgroup
+    pub fn get_tids(&self) -> anyhow::Result<Vec<Pid>> {
+        if !is_cgroup(&self.path)? {
+            bail!("{} is not a valid cgroup", self.path.display());
+        }
+
+        let pids: Vec<Pid> = fs::read(self.path.join("cgroup.threads"))?
             .lines()
             .map(|line| Pid::from_raw(line.unwrap().parse().unwrap()))
             .collect();
@@ -323,8 +366,8 @@ mod tests {
         let cg1 = CGroup::new_root(get_path(), &gen_name()).unwrap();
         let cg2 = cg1.new(&gen_name()).unwrap();
 
-        cg1.mv(pid).unwrap();
-        cg2.mv(pid).unwrap();
+        cg1.mv_proc(pid).unwrap();
+        cg2.mv_proc(pid).unwrap();
         proc.kill().unwrap();
 
         cg1.rm().unwrap();
@@ -341,14 +384,14 @@ mod tests {
         assert!(cg1.get_pids().unwrap().is_empty());
         assert!(cg2.get_pids().unwrap().is_empty());
 
-        cg1.mv(pid).unwrap();
+        cg1.mv_proc(pid).unwrap();
         let pids = cg1.get_pids().unwrap();
         assert!(!pids.is_empty());
         assert!(cg2.get_pids().unwrap().is_empty());
         assert_eq!(pids.len(), 1);
         assert_eq!(pids[0], pid);
 
-        cg2.mv(pid).unwrap();
+        cg2.mv_proc(pid).unwrap();
         let pids = cg2.get_pids().unwrap();
         assert!(!pids.is_empty());
         assert!(cg1.get_pids().unwrap().is_empty());
@@ -369,7 +412,7 @@ mod tests {
         assert!(!cg.populated().unwrap());
         assert_eq!(cg.populated().unwrap(), !cg.get_pids().unwrap().is_empty());
 
-        cg.mv(pid).unwrap();
+        cg.mv_proc(pid).unwrap();
         assert!(cg.populated().unwrap());
         assert_eq!(cg.populated().unwrap(), !cg.get_pids().unwrap().is_empty());
 
@@ -394,7 +437,7 @@ mod tests {
         assert!(!cg.frozen().unwrap());
 
         // Do the same with a non-empty cgroup
-        cg.mv(pid).unwrap();
+        cg.mv_proc(pid).unwrap();
         cg.freeze().unwrap();
         assert!(cg.frozen().unwrap());
         cg.unfreeze().unwrap();
@@ -415,7 +458,7 @@ mod tests {
         cg.kill().unwrap();
 
         // Do the same with a non-empty cgroup
-        cg.mv(pid).unwrap();
+        cg.mv_proc(pid).unwrap();
         assert!(cg.populated().unwrap());
         cg.kill().unwrap();
 
