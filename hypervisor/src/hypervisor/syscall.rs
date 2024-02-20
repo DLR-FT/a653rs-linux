@@ -147,7 +147,11 @@ mod tests {
 
             // Send the fds to the responder
             {
-                let fds = [requ_fd.get_fd(), resp_fd.get_fd(), event_fd.as_raw_fd()];
+                let fds = [
+                    requ_fd.as_raw_fd(),
+                    resp_fd.as_raw_fd(),
+                    event_fd.as_raw_fd(),
+                ];
                 let cmsg = [ControlMessage::ScmRights(&fds)];
                 let buffer = 0_u64.to_be_bytes();
                 let iov = [IoSlice::new(buffer.as_slice())];
