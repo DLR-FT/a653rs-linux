@@ -48,6 +48,11 @@ impl FileMounter {
         anyhow::Ok(())
     }
 
+    /// Creates a new `FileMounter` from a source path and a relative target path.
+    pub fn from_paths(source: PathBuf, target: PathBuf) -> anyhow::Result<Self> {
+        Self::new(Some(source), target, None, MsFlags::MS_BIND, None)
+    }
+
     pub fn new(
         source: Option<PathBuf>,
         mut target: PathBuf,
@@ -79,15 +84,5 @@ impl FileMounter {
             data,
             is_dir,
         })
-    }
-}
-
-impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
-    type Error = anyhow::Error;
-
-    fn try_from(paths: &(PathBuf, PathBuf)) -> Result<Self, Self::Error> {
-        let source = paths.0.clone();
-        let target = paths.1.clone();
-        Self::new(Some(source), target, None, MsFlags::MS_BIND, None)
     }
 }

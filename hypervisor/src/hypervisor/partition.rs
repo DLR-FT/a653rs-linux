@@ -207,8 +207,10 @@ impl Run {
                     .unwrap(),
                 ];
 
-                for m in &base.mounts {
-                    mounts.push(m.try_into().unwrap());
+                for (source, target) in base.mounts.iter().cloned() {
+                    let file_mounter =
+                        FileMounter::from_paths(source, target).typ(SystemError::Panic)?;
+                    mounts.push(file_mounter);
                 }
 
                 // TODO: Check for duplicate mounts
