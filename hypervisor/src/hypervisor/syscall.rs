@@ -2,7 +2,7 @@
 
 use std::io::IoSliceMut;
 use std::num::NonZeroUsize;
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd, BorrowedFd, RawFd};
 use std::time::{Duration, Instant};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
@@ -15,11 +15,11 @@ use polling::{Event, Events, Poller};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
-fn recv_fd_triple(fd: RawFd) -> Result<[RawFd; 3]> {
+fn recv_fd_triple(fd: BorrowedFd) -> Result<[RawFd; 3]> {
     let mut cmsg = cmsg_space!([RawFd; 3]);
     let mut iobuf = [0u8];
     let mut iov = [IoSliceMut::new(&mut iobuf)];
-    let res = recvmsg::<()>(fd, &mut iov, Some(&mut cmsg), MsgFlags::empty())?;
+    let res = recvmsg::<()>(fd.as_raw_fd(), &mut iov, Some(&mut cmsg), MsgFlags::empty())?;
 
     let fds: Vec<RawFd> = match res.cmsgs().next().unwrap() {
         ControlMessageOwned::ScmRights(fds) => fds,
@@ -33,10 +33,10 @@ fn recv_fd_triple(fd: RawFd) -> Result<[RawFd; 3]> {
 }
 
 /// Waits for readable data on fd
-fn wait_fds(fd: RawFd, timeout: Option<Duration>) -> Result<bool> {
+fn wait_fds(fd: BorrowedFd, timeout: Option<Duration>) -> Result<bool> {
     let poller = Poller::new()?;
     let mut events = Events::with_capacity(NonZeroUsize::MIN);
-    unsafe { poller.add(fd, Event::readable(0))? };
+    unsafe { poller.add(fd.as_raw_fd(), Event::readable(0))? };
     loop {
         match poller.wait(&mut events, timeout) {
             Ok(0) => return Ok(false),
@@ -56,7 +56,7 @@ fn wait_fds(fd: RawFd, timeout: Option<Duration>) -> Result<bool> {
 /// Handles an unlimited amount of system calls, until timeout is reached
 ///
 /// Returns the amount of executed system calls
-pub fn handle(fd: RawFd, timeout: Option<Duration>) -> Result<u32> {
+pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
     let start = Instant::now();
     let mut nsyscalls: u32 = 0;
 
@@ -107,7 +107,7 @@ pub fn handle(fd: RawFd, timeout: Option<Duration>) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use std::io::IoSlice;
-    use std::os::fd::AsRawFd;
+    use std::os::fd::{AsFd, AsRawFd};
 
     use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::eventfd::{eventfd, EfdFlags};
@@ -175,7 +175,7 @@ mod tests {
         });
 
         let response_thread = std::thread::spawn(move || {
-            let n = handle(responder.as_raw_fd(), Some(Duration::from_secs(1))).unwrap();
+            let n = handle(responder.as_fd(), Some(Duration::from_secs(1))).unwrap();
             assert_eq!(n, 1);
         });
 
