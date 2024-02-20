@@ -4,7 +4,7 @@
 
 use std::io::IoSlice;
 use std::num::NonZeroUsize;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
@@ -28,11 +28,11 @@ fn send_fds<const COUNT: usize, T: AsRawFd>(hv: BorrowedFd, fds: [T; COUNT]) -> 
 
 /// Waits for action on the event fd
 // TODO: Consider timeout
-fn wait_event(event_fd: RawFd) -> Result<()> {
+fn wait_event(event_fd: BorrowedFd) -> Result<()> {
     let poller = Poller::new()?;
     let mut events = Events::with_capacity(NonZeroUsize::MIN);
     unsafe {
-        poller.add(event_fd, Event::readable(0))?;
+        poller.add(event_fd.as_raw_fd(), Event::readable(0))?;
     }
 
     loop {
@@ -65,7 +65,7 @@ fn execute_fd(fd: BorrowedFd, requ: SyscallRequ) -> Result<SyscallResp> {
     // Send the file descriptors to the hypervisor
     send_fds(fd, [requ_fd.as_fd(), resp_fd.as_fd(), event_fd.as_fd()])?;
 
-    wait_event(event_fd.as_raw_fd())?;
+    wait_event(event_fd.as_fd())?;
 
     let resp = SyscallResp::deserialize(&resp_fd.read_all()?)?;
     Ok(resp)
@@ -78,7 +78,7 @@ pub fn execute(requ: SyscallRequ) -> Result<SyscallResp> {
 #[cfg(test)]
 mod tests {
     use std::io::IoSliceMut;
-    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
     use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::socket::{
