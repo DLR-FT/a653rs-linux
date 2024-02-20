@@ -7,13 +7,13 @@ use nix::mount::{mount, MsFlags};
 /// Information about the files that are to be mounted
 #[derive(Debug)]
 pub struct FileMounter {
-    pub source: Option<PathBuf>,
-    pub target: PathBuf,
-    pub fstype: Option<String>,
-    pub flags: MsFlags,
-    pub data: Option<String>,
+    source: Option<PathBuf>,
+    target: PathBuf,
+    fstype: Option<String>,
+    flags: MsFlags,
+    data: Option<String>,
     // TODO: Find a way to get rid of this boolean
-    pub is_dir: bool, // Use File::create or fs::create_dir_all
+    is_dir: bool, // Use File::create or fs::create_dir_all
 }
 
 impl FileMounter {
@@ -47,17 +47,18 @@ impl FileMounter {
 
         anyhow::Ok(())
     }
-}
 
-impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
-    type Error = anyhow::Error;
-
-    fn try_from(paths: &(PathBuf, PathBuf)) -> Result<Self, Self::Error> {
-        let source = &paths.0;
-        let mut target = paths.1.clone();
-
-        if !source.exists() {
-            bail!("File/Directory {} not existent", source.display())
+    pub fn new(
+        source: Option<PathBuf>,
+        mut target: PathBuf,
+        fstype: Option<String>,
+        flags: MsFlags,
+        data: Option<String>,
+    ) -> anyhow::Result<Self> {
+        if let Some(source) = source.as_ref() {
+            if !source.exists() {
+                bail!("File/Directory {} not existent", source.display())
+            }
         }
 
         if target.is_absolute() {
@@ -68,13 +69,25 @@ impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
             assert!(target.is_relative());
         }
 
+        let is_dir = source.as_ref().map_or(true, |source| source.is_dir());
+
         Ok(Self {
-            source: Some(source.clone()),
+            source,
             target,
-            fstype: None,
-            flags: MsFlags::MS_BIND,
-            data: None,
-            is_dir: source.is_dir(),
+            fstype,
+            flags,
+            data,
+            is_dir,
         })
+    }
+}
+
+impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
+    type Error = anyhow::Error;
+
+    fn try_from(paths: &(PathBuf, PathBuf)) -> Result<Self, Self::Error> {
+        let source = paths.0.clone();
+        let target = paths.1.clone();
+        Self::new(Some(source), target, None, MsFlags::MS_BIND, None)
     }
 }

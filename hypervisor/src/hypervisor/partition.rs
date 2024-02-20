@@ -161,50 +161,50 @@ impl Run {
                 // Mount the required mounts
                 let mut mounts = vec![
                     // Mount working directory as tmpfs
-                    FileMounter {
-                        source: None,
-                        target: "".into(),
-                        fstype: Some("tmpfs".into()),
-                        flags: MsFlags::empty(),
-                        data: Some("size=500k".into()),
-                        is_dir: true,
-                    },
+                    FileMounter::new(
+                        None,
+                        "".into(),
+                        Some("tmpfs".into()),
+                        MsFlags::empty(),
+                        Some("size=500k".to_owned()),
+                    )
+                    .unwrap(),
                     // Mount binary
-                    FileMounter {
-                        source: Some(base.bin.clone()),
-                        target: "bin".into(),
-                        fstype: None,
-                        flags: MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                        data: None,
-                        is_dir: false,
-                    },
+                    FileMounter::new(
+                        Some(base.bin.clone()),
+                        "bin".into(),
+                        None,
+                        MsFlags::MS_RDONLY | MsFlags::MS_BIND,
+                        None,
+                    )
+                    .unwrap(),
                     // Mount /dev/null (for stdio::null)
-                    FileMounter {
-                        source: Some("/dev/null".into()),
-                        target: "dev/null".into(),
-                        fstype: None,
-                        flags: MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                        data: None,
-                        is_dir: false,
-                    },
+                    FileMounter::new(
+                        Some("/dev/null".into()),
+                        "dev/null".into(),
+                        None,
+                        MsFlags::MS_RDONLY | MsFlags::MS_BIND,
+                        None,
+                    )
+                    .unwrap(),
                     // Mount proc
-                    FileMounter {
-                        source: Some("/proc".into()),
-                        target: "proc".into(),
-                        fstype: Some("proc".into()),
-                        flags: MsFlags::empty(),
-                        data: None,
-                        is_dir: true,
-                    },
+                    FileMounter::new(
+                        Some("/proc".into()),
+                        "proc".into(),
+                        Some("proc".into()),
+                        MsFlags::empty(),
+                        None,
+                    )
+                    .unwrap(),
                     // Mount CGroup v2
-                    FileMounter {
-                        source: None,
-                        target: "sys/fs/cgroup".into(),
-                        fstype: Some("cgroup2".into()),
-                        flags: MsFlags::empty(),
-                        data: None,
-                        is_dir: true,
-                    },
+                    FileMounter::new(
+                        None,
+                        "sys/fs/cgroup".into(),
+                        Some("cgroup2".into()),
+                        MsFlags::empty(),
+                        None,
+                    )
+                    .unwrap(),
                 ];
 
                 for m in &base.mounts {
