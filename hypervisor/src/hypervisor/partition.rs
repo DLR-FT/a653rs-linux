@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use a653rs::bindings::PortDirection;
+use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
 use anyhow::{anyhow, bail};
 use clone3::Clone3;
@@ -552,7 +552,7 @@ fn send_sockets(base: &Base) -> Result<IoTxRx, a653rs_linux_core::error::TypedEr
 pub(crate) struct Base {
     name: String,
     hm: PartitionHMTable,
-    id: i64,
+    id: PartitionId,
     bin: PathBuf,
     mounts: Vec<(PathBuf, PathBuf)>,
     cgroup: CGroup,

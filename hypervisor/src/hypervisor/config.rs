@@ -53,6 +53,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use a653rs::bindings::PartitionId;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
@@ -103,7 +104,7 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Partition {
     /// Partition id
-    pub id: i64,
+    pub id: PartitionId,
 
     /// Partition name, used for example as prefix in the log printing
     pub name: String,
@@ -218,7 +219,7 @@ impl Config {
                     ScheduledTimeframe {
                         start,
                         end: start + p.duration,
-                        partition_name: p.name.clone(),
+                        partition: p.id,
                     }
                 })
             })
