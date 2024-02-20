@@ -9,12 +9,12 @@ use crate::error::{ResultExt, SystemError, TypedError, TypedResult};
 
 #[derive(Debug)]
 /// Internal data type for a mutable typed memory map
-pub struct TypedMmapMut<T: Send + Sized> {
+pub struct TypedMmapMut<'a, T: Send + Sized> {
     mmap: MmapMut,
-    _p: PhantomData<T>,
+    _p: PhantomData<&'a T>,
 }
 
-impl<T: Send + Sized> TypedMmapMut<T> {
+impl<'a, T: Send + Sized> TypedMmapMut<'a, T> {
     /// Returns the length of the memory map
     pub fn len(&self) -> usize {
         self.mmap.len()
@@ -26,19 +26,19 @@ impl<T: Send + Sized> TypedMmapMut<T> {
     }
 }
 
-impl<T: Send + Sized> AsRef<T> for TypedMmapMut<T> {
+impl<'a, T: Send + Sized> AsRef<T> for TypedMmapMut<'a, T> {
     fn as_ref(&self) -> &T {
         unsafe { (self.mmap.as_ptr() as *const T).as_ref() }.unwrap()
     }
 }
 
-impl<T: Send + Sized> AsMut<T> for TypedMmapMut<T> {
+impl<'a, T: Send + Sized> AsMut<T> for TypedMmapMut<'a, T> {
     fn as_mut(&mut self) -> &mut T {
         unsafe { (self.mmap.as_mut_ptr() as *mut T).as_mut() }.unwrap()
     }
 }
 
-impl<T: Send + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
+impl<'a, T: Send + Sized> TryFrom<MmapMut> for TypedMmapMut<'a, T> {
     type Error = TypedError;
 
     fn try_from(mmap: MmapMut) -> TypedResult<Self> {
@@ -59,12 +59,12 @@ impl<T: Send + Sized> TryFrom<MmapMut> for TypedMmapMut<T> {
 
 #[derive(Debug)]
 /// Internal data type for a mutable typed memory map
-pub struct TypedMmap<T: Send + Sized> {
+pub struct TypedMmap<'a, T: Send + Sized> {
     mmap: Mmap,
-    _p: PhantomData<T>,
+    _p: PhantomData<&'a T>,
 }
 
-impl<T: Send + Sized> TypedMmap<T> {
+impl<'a, T: Send + Sized> TypedMmap<'a, T> {
     /// Returns the length of the memory map
     pub fn len(&self) -> usize {
         self.mmap.len()
@@ -76,13 +76,13 @@ impl<T: Send + Sized> TypedMmap<T> {
     }
 }
 
-impl<T: Send + Sized> AsRef<T> for TypedMmap<T> {
+impl<'a, T: Send + Sized> AsRef<T> for TypedMmap<'a, T> {
     fn as_ref(&self) -> &T {
         unsafe { (self.mmap.as_ptr() as *const T).as_ref() }.unwrap()
     }
 }
 
-impl<T: Send + Sized> TryFrom<Mmap> for TypedMmap<T> {
+impl<'a, T: Send + Sized> TryFrom<Mmap> for TypedMmap<'a, T> {
     type Error = TypedError;
 
     fn try_from(mmap: Mmap) -> TypedResult<Self> {
