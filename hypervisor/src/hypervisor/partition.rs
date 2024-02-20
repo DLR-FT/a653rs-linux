@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use clone3::Clone3;
 use itertools::Itertools;
 use nix::mount::{umount2, MntFlags, MsFlags};
@@ -208,8 +208,9 @@ impl Run {
                 ];
 
                 for (source, target) in base.mounts.iter().cloned() {
-                    let file_mounter =
-                        FileMounter::from_paths(source, target).typ(SystemError::Panic)?;
+                    let file_mounter = FileMounter::from_paths(source, target)
+                        .context("failed to initialize file mounter")
+                        .typ(SystemError::Panic)?;
                     mounts.push(file_mounter);
                 }
 
@@ -217,7 +218,9 @@ impl Run {
 
                 for m in mounts {
                     debug!("mounting {:?}", &m);
-                    m.mount(base.working_dir.path()).unwrap();
+                    m.mount(base.working_dir.path())
+                        .context("failed to mount")
+                        .typ(SystemError::Panic)?;
                 }
 
                 // Change working directory and root (unmount old root)

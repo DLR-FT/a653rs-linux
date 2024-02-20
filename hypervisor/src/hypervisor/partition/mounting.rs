@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use nix::mount::{mount, MsFlags};
 
 /// Information about the files that are to be mounted
@@ -25,16 +25,16 @@ impl FileMounter {
 
         if self.is_dir {
             trace!("Creating directory {}", target.display());
-            fs::create_dir_all(target)?;
+            fs::create_dir_all(target).context("failed to create target directory")?;
         } else {
-            // It is okay to use .unwrap() here.
-            // It will only fail due to a developer mistake, not due to a user mistake.
-            let parent = target.parent().unwrap();
+            let parent = target.parent()
+                .expect("target to have at least one direct parent directory because it was based on the `base_dir` path");
             trace!("Creating directory {}", parent.display());
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent)
+                .context("failed to create parent directory of target file")?;
 
             trace!("Creating file {}", target.display());
-            fs::File::create(target)?;
+            fs::File::create(target).context("failed to create target file")?;
         }
 
         mount::<PathBuf, PathBuf, PathBuf, PathBuf>(
@@ -43,12 +43,12 @@ impl FileMounter {
             fstype.as_ref(),
             self.flags,
             data.as_ref(),
-        )?;
-
-        anyhow::Ok(())
+        )
+        .context("failed to make `nix::mount()` call")
     }
 
-    /// Creates a new `FileMounter` from a source path and a relative target path.
+    /// Creates a new `FileMounter` from a source path and a relative target
+    /// path.
     pub fn from_paths(source: PathBuf, target: PathBuf) -> anyhow::Result<Self> {
         Self::new(Some(source), target, None, MsFlags::MS_BIND, None)
     }
@@ -62,7 +62,7 @@ impl FileMounter {
     ) -> anyhow::Result<Self> {
         if let Some(source) = source.as_ref() {
             if !source.exists() {
-                bail!("File/Directory {} not existent", source.display())
+                bail!("source file/dir does not exist: {}", source.display())
             }
         }
 
@@ -70,7 +70,10 @@ impl FileMounter {
             // Convert absolute paths into relative ones.
             // Otherwise we will receive a permission error.
             // TODO: Make this a function?
-            target = target.strip_prefix("/")?.into();
+            target = target
+                .strip_prefix("/")
+                .expect("the target path to start with '/' because it is an absolute path")
+                .to_path_buf();
             assert!(target.is_relative());
         }
 
