@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::net::{TcpStream, UdpSocket};
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
 use std::path::{self, Path, PathBuf};
@@ -9,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use clone3::Clone3;
 use itertools::Itertools;
-use nix::mount::{mount, umount2, MntFlags, MsFlags};
+use nix::mount::{umount2, MntFlags, MsFlags};
 use nix::sys::socket::{self, bind, AddressFamily, SockFlag, SockType, UnixAddr};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use polling::{Event, Poller};
@@ -30,6 +29,7 @@ use a653rs_linux_core::ipc::{channel_pair, io_pair, IoReceiver, IoSender, IpcRec
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
 use a653rs_linux_core::sampling::Sampling;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
+pub use mounting::FileMounter;
 
 use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::SYSTEM_START_TIME;
@@ -38,24 +38,14 @@ use crate::problem;
 use super::config::PosixSocket;
 use super::scheduler::Timeout;
 
+mod mounting;
+
 #[derive(Debug, Clone, Copy)]
 pub enum TransitionAction {
     Stop,
     Normal,
     Restart,
     Error,
-}
-
-// Information about the files that are to be mounted
-#[derive(Debug)]
-pub struct FileMounter {
-    pub source: Option<PathBuf>,
-    pub target: PathBuf,
-    pub fstype: Option<String>,
-    pub flags: MsFlags,
-    pub data: Option<String>,
-    // TODO: Find a way to get rid of this boolean
-    pub is_dir: bool, // Use File::create or fs::create_dir_all
 }
 
 // Struct for holding information of a partition which is not in Idle Mode
@@ -78,69 +68,6 @@ pub(crate) struct Run {
     // before the partition has received them.
     _io_udp_tx: IoSender<UdpSocket>,
     _io_tcp_tx: IoSender<TcpStream>,
-}
-
-impl FileMounter {
-    // Mount (and consume) a device
-    pub fn mount(self, base_dir: &Path) -> anyhow::Result<()> {
-        let target: &PathBuf = &base_dir.join(self.target);
-        let fstype = self.fstype.map(PathBuf::from);
-        let data = self.data.map(PathBuf::from);
-
-        if self.is_dir {
-            trace!("Creating directory {}", target.display());
-            fs::create_dir_all(target)?;
-        } else {
-            // It is okay to use .unwrap() here.
-            // It will only fail due to a developer mistake, not due to a user mistake.
-            let parent = target.parent().unwrap();
-            trace!("Creating directory {}", parent.display());
-            fs::create_dir_all(parent)?;
-
-            trace!("Creating file {}", target.display());
-            fs::File::create(target)?;
-        }
-
-        mount::<PathBuf, PathBuf, PathBuf, PathBuf>(
-            self.source.as_ref(),
-            target,
-            fstype.as_ref(),
-            self.flags,
-            data.as_ref(),
-        )?;
-
-        anyhow::Ok(())
-    }
-}
-
-impl TryFrom<&(PathBuf, PathBuf)> for FileMounter {
-    type Error = anyhow::Error;
-
-    fn try_from(paths: &(PathBuf, PathBuf)) -> Result<Self, Self::Error> {
-        let source = &paths.0;
-        let mut target = paths.1.clone();
-
-        if !source.exists() {
-            bail!("File/Directory {} not existent", source.display())
-        }
-
-        if target.is_absolute() {
-            // Convert absolute paths into relative ones.
-            // Otherwise we will receive a permission error.
-            // TODO: Make this a function?
-            target = target.strip_prefix("/")?.into();
-            assert!(target.is_relative());
-        }
-
-        Ok(Self {
-            source: Some(source.clone()),
-            target,
-            fstype: None,
-            flags: MsFlags::MS_BIND,
-            data: None,
-            is_dir: source.is_dir(),
-        })
-    }
 }
 
 impl Run {
