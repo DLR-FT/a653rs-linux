@@ -1,7 +1,8 @@
 use a653rs::partition;
 use a653rs::prelude::PartitionExt;
-use a653rs_linux::partition::ApexLogger;
 use log::LevelFilter;
+
+use a653rs_linux::partition::ApexLogger;
 
 fn main() {
     ApexLogger::install_panic_hook();
@@ -84,6 +85,7 @@ mod ping_client {
                 Ok((validity, bytes)) => (validity, bytes),
                 Err(e) => {
                     warn!("Failed to receive ping response: {e:?}");
+                    ctx.periodic_wait().unwrap();
                     continue;
                 }
             };

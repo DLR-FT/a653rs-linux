@@ -1,7 +1,8 @@
 use a653rs::partition;
 use a653rs::prelude::PartitionExt;
-use a653rs_linux::partition::ApexLogger;
 use log::LevelFilter;
+
+use a653rs_linux::partition::ApexLogger;
 
 fn main() {
     ApexLogger::install_panic_hook();
@@ -49,14 +50,13 @@ mod ping_server {
     fn periodic_ping_server(ctx: periodic_ping_server::Context) {
         info!("started ping_server process");
         loop {
-            info!("forwarding request as response ");
-
             // allocate a buffer to receive into
             let mut buf = [0u8; 32];
 
             // receive a request, storing it to `buf`
             if let Err(e) = ctx.ping_request.unwrap().receive(&mut buf) {
                 warn!("Failed to receive ping request: {e:?}");
+                ctx.periodic_wait().unwrap();
                 continue;
             }
 
@@ -65,6 +65,8 @@ mod ping_server {
             let SystemTime::Normal(time) = ctx.get_time() else {
                 panic!("could not read time");
             };
+
+            info!("forwarding request as response");
 
             // convert the current time to an u128 integer representing nanoseconds, and
             // serialize the integer to a byte array
