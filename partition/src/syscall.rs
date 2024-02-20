@@ -4,7 +4,7 @@
 
 use std::io::IoSlice;
 use std::num::NonZeroUsize;
-use std::os::fd::{AsFd, AsRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 
 use a653rs_linux_core::mfd::{Mfd, Seals};
 use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
@@ -17,11 +17,12 @@ use polling::{Event, Events, Poller};
 use crate::SYSCALL;
 
 /// Sends a vector of file descriptors through a Unix socket
-fn send_fds<const COUNT: usize>(hv: RawFd, fds: &[RawFd; COUNT]) -> Result<()> {
-    let cmsg = [ControlMessage::ScmRights(fds)];
+fn send_fds<const COUNT: usize, T: AsRawFd>(hv: BorrowedFd, fds: [T; COUNT]) -> Result<()> {
+    let fds = fds.map(|f| f.as_raw_fd());
+    let cmsg = [ControlMessage::ScmRights(&fds)];
     let buffer = 0_u64.to_ne_bytes();
     let iov = [IoSlice::new(buffer.as_slice())];
-    sendmsg::<()>(hv, &iov, &cmsg, MsgFlags::empty(), None)?;
+    sendmsg::<()>(hv.as_raw_fd(), &iov, &cmsg, MsgFlags::empty(), None)?;
     Ok(())
 }
 
@@ -51,7 +52,7 @@ fn wait_event(event_fd: RawFd) -> Result<()> {
     Ok(())
 }
 
-fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
+fn execute_fd(fd: BorrowedFd, requ: SyscallRequ) -> Result<SyscallResp> {
     // Create the file descriptor triple
     let mut requ_fd = Mfd::create("requ")?;
     let mut resp_fd = Mfd::create("resp")?;
@@ -62,14 +63,7 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
     requ_fd.finalize(Seals::Readable)?;
 
     // Send the file descriptors to the hypervisor
-    send_fds(
-        fd,
-        &[
-            requ_fd.as_fd().as_raw_fd(),
-            resp_fd.as_fd().as_raw_fd(),
-            event_fd.as_raw_fd(),
-        ],
-    )?;
+    send_fds(fd, [requ_fd.as_fd(), resp_fd.as_fd(), event_fd.as_fd()])?;
 
     wait_event(event_fd.as_raw_fd())?;
 
@@ -78,7 +72,7 @@ fn execute_fd(fd: RawFd, requ: SyscallRequ) -> Result<SyscallResp> {
 }
 
 pub fn execute(requ: SyscallRequ) -> Result<SyscallResp> {
-    execute_fd(SYSCALL.as_raw_fd(), requ)
+    execute_fd(SYSCALL.as_fd(), requ)
 }
 
 #[cfg(test)]
@@ -105,7 +99,7 @@ mod tests {
 
         let request_thread = std::thread::spawn(move || {
             let resp = execute_fd(
-                requester.as_raw_fd(),
+                requester.as_fd(),
                 SyscallRequ {
                     id: ApexSyscall::Start,
                     params: vec![1, 2, 42],
