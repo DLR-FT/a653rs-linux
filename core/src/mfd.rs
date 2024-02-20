@@ -1,7 +1,9 @@
 //! Implementation of a memory fd
 
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
+use std::{
+    io::{Read, Seek, SeekFrom, Write},
+    os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
+};
 
 use anyhow::{bail, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};
@@ -66,7 +68,7 @@ impl Mfd {
 
     /// Creates a memfd from a fd
     // TODO: Use some Rust try_from stuff
-    pub fn from_fd(fd: RawFd) -> Result<Self> {
+    pub fn from_fd(fd: OwnedFd) -> Result<Self> {
         let fd = match Memfd::try_from_fd(fd) {
             Ok(memfd) => memfd,
             Err(_) => bail!("cannot get Memfd from RawFd"),
