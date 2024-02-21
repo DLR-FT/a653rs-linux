@@ -10,6 +10,7 @@ extern crate log;
 
 #[cfg(feature = "socket")]
 use std::net::{TcpStream, UdpSocket};
+use std::sync::Arc;
 
 #[cfg(feature = "socket")]
 use a653rs_linux_core::ipc::IoReceiver;
@@ -24,9 +25,8 @@ use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::IpcSender;
 use a653rs_linux_core::partition::*;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
-use memmap2::{MmapMut, MmapOptions};
 use nix::sys::socket::{self, connect, AddressFamily, SockFlag, SockType, UnixAddr};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use process::Process;
 use tinyvec::ArrayVec;
 
@@ -36,8 +36,6 @@ pub mod syscall;
 //mod scheduler;
 pub(crate) mod process;
 
-const APERIODIC_PROCESS_FILE: &str = "aperiodic";
-const PERIODIC_PROCESS_FILE: &str = "periodic";
 const SAMPLING_PORTS_FILE: &str = "sampling_channels";
 // const MAX_SAMPLING_PORTS: usize = 32;
 
@@ -54,27 +52,8 @@ pub(crate) static SYSTEM_TIME: Lazy<Instant> = Lazy::new(|| {
 pub(crate) static PARTITION_MODE: Lazy<TempFile<OperatingMode>> =
     Lazy::new(|| TempFile::<OperatingMode>::try_from(CONSTANTS.partition_mode_fd).unwrap());
 
-pub(crate) static APERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
-    // TODO Get rid of get_memfd? Use env instead?
-    if let Ok(fd) = get_memfd(APERIODIC_PROCESS_FILE) {
-        TempFile::try_from(fd).unwrap()
-    } else {
-        let file: TempFile<Option<Process>> = TempFile::create(APERIODIC_PROCESS_FILE).unwrap();
-        file.write(&None).unwrap();
-        file
-    }
-});
-
-// TODO generate in hypervisor
-pub(crate) static PERIODIC_PROCESS: Lazy<TempFile<Option<Process>>> = Lazy::new(|| {
-    if let Ok(fd) = get_memfd(PERIODIC_PROCESS_FILE) {
-        TempFile::try_from(fd).unwrap()
-    } else {
-        let file: TempFile<Option<Process>> = TempFile::create(PERIODIC_PROCESS_FILE).unwrap();
-        file.write(&None).unwrap();
-        file
-    }
-});
+pub(crate) static PERIODIC_PROCESS: OnceCell<Arc<Process>> = OnceCell::new();
+pub(crate) static APERIODIC_PROCESS: OnceCell<Arc<Process>> = OnceCell::new();
 
 pub(crate) type SamplingPortsType = (usize, Duration);
 pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 32]>>> =
@@ -98,14 +77,6 @@ pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =
 #[cfg(feature = "socket")]
 pub(crate) static TCP_IO_RX: Lazy<IoReceiver<TcpStream>> =
     Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.io_fd) });
-
-pub(crate) static SIGNAL_STACK: Lazy<MmapMut> = Lazy::new(|| {
-    MmapOptions::new()
-        .stack()
-        .len(nix::libc::SIGSTKSZ)
-        .map_anon()
-        .unwrap()
-});
 
 pub(crate) static SYSCALL: Lazy<OwnedFd> = Lazy::new(|| {
     let syscall_socket = socket::socket(
