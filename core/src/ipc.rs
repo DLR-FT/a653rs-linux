@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixDatagram;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, RawFd};
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Error;
@@ -90,24 +91,17 @@ where
     }
 }
 
-/// Create a pair consisting of an IpcSender and an IpcReceiver
-pub fn channel_pair<T>() -> TypedResult<(IpcSender<T>, IpcReceiver<T>)>
-where
-    T: for<'de> Deserialize<'de> + Serialize,
-{
-    trace!("Create IPC channel pair");
-    let (tx, rx) = socketpair(
-        AddressFamily::Unix,
-        SockType::Datagram,
-        None,
-        SockFlag::SOCK_NONBLOCK,
-    )
-    .typ(SystemError::Panic)?;
+pub fn bind_receiver<T>(path: &Path) -> TypedResult<IpcReceiver<T>> {
+    let socket = UnixDatagram::bind(path).typ(SystemError::Panic)?;
+    socket.set_nonblocking(true).typ(SystemError::Panic)?;
+    Ok(IpcReceiver::from(socket))
+}
 
-    let tx = IpcSender::from(tx);
-    let rx = IpcReceiver::from(rx);
-
-    Ok((tx, rx))
+pub fn connect_sender<T>(path: &Path) -> TypedResult<IpcSender<T>> {
+    let socket = UnixDatagram::unbound().typ(SystemError::Panic)?;
+    socket.connect(path).typ(SystemError::Panic)?;
+    socket.set_nonblocking(true).typ(SystemError::Panic)?;
+    Ok(IpcSender::from(socket))
 }
 
 impl<T> AsRawFd for IpcSender<T> {
@@ -131,6 +125,24 @@ impl<T> AsFd for IpcSender<T> {
 impl<T> AsFd for IpcReceiver<T> {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.socket.as_fd()
+    }
+}
+
+impl<T> From<UnixDatagram> for IpcReceiver<T> {
+    fn from(value: UnixDatagram) -> Self {
+        Self {
+            socket: value,
+            _p: PhantomData,
+        }
+    }
+}
+
+impl<T> From<UnixDatagram> for IpcSender<T> {
+    fn from(value: UnixDatagram) -> Self {
+        Self {
+            socket: value,
+            _p: PhantomData,
+        }
     }
 }
 

@@ -17,7 +17,6 @@ pub struct PartitionConstants {
     pub period: Duration,
     pub duration: Duration,
     pub start_condition: StartCondition,
-    pub sender_fd: RawFd,
     pub start_time_fd: RawFd,
     pub partition_mode_fd: RawFd,
 
@@ -41,6 +40,7 @@ impl PartitionConstants {
     pub const MAIN_PROCESS_CGROUP: &'static str = "main";
     pub const APERIODIC_PROCESS_CGROUP: &'static str = "aperiodic";
     pub const PERIODIC_PROCESS_CGROUP: &'static str = "periodic";
+    pub const IPC_SENDER: &'static str = "/.inner/ipc";
 
     pub fn open() -> TypedResult<Self> {
         let fd = std::env::var(Self::PARTITION_CONSTANTS_FD)

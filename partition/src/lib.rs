@@ -10,19 +10,20 @@ extern crate log;
 
 #[cfg(feature = "socket")]
 use std::net::{TcpStream, UdpSocket};
-use std::sync::Arc;
+#[cfg(feature = "socket")]
+use std::os::fd::FromRawFd;
 
 #[cfg(feature = "socket")]
 use a653rs_linux_core::ipc::IoReceiver;
 
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::prelude::FromRawFd;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use a653rs::prelude::OperatingMode;
 use a653rs_linux_core::file::{get_memfd, TempFile};
 use a653rs_linux_core::health_event::PartitionCall;
-use a653rs_linux_core::ipc::IpcSender;
+use a653rs_linux_core::ipc::{self, IpcSender};
 use a653rs_linux_core::partition::*;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
 use nix::sys::socket::{self, connect, AddressFamily, SockFlag, SockType, UnixAddr};
@@ -68,7 +69,7 @@ pub(crate) static SAMPLING_PORTS: Lazy<TempFile<ArrayVec<[SamplingPortsType; 32]
     });
 
 pub(crate) static SENDER: Lazy<IpcSender<PartitionCall>> =
-    Lazy::new(|| unsafe { IpcSender::from_raw_fd(CONSTANTS.sender_fd) });
+    Lazy::new(|| ipc::connect_sender(PartitionConstants::IPC_SENDER.as_ref()).unwrap());
 
 #[cfg(feature = "socket")]
 pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =

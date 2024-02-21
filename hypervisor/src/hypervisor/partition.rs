@@ -25,7 +25,7 @@ use a653rs_linux_core::error::{
 use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::health::{ModuleRecoveryAction, PartitionHMTable, RecoveryAction};
 use a653rs_linux_core::health_event::PartitionCall;
-use a653rs_linux_core::ipc::{channel_pair, io_pair, IoReceiver, IoSender, IpcReceiver};
+use a653rs_linux_core::ipc::{bind_receiver, io_pair, IoReceiver, IoSender, IpcReceiver};
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
 use a653rs_linux_core::sampling::Sampling;
 pub use mounting::FileMounter;
@@ -94,7 +94,12 @@ impl Run {
             .ok_or_else(|| anyhow!("SystemTime was not set"))
             .typ(SystemError::Panic)?;
 
-        let (call_tx, call_rx) = channel_pair::<PartitionCall>()?;
+        let ipc_path = base
+            .working_dir
+            .path()
+            .join(PartitionConstants::IPC_SENDER.trim_start_matches('/'));
+        std::fs::create_dir_all(ipc_path.parent().unwrap()).typ(SystemError::Panic)?;
+        let call_rx = bind_receiver::<PartitionCall>(&ipc_path)?;
 
         // TODO add a `::new(warm_start: bool)->Self` function to `OperatingMode`, use
         // it here
@@ -154,12 +159,13 @@ impl Run {
 
                 let mut keep = base.sampling_fds();
                 keep.push(sys_time.as_raw_fd());
-                keep.push(call_tx.as_raw_fd());
                 keep.push(mode_file.as_raw_fd());
                 keep.push(udp_io_rx.as_raw_fd());
                 keep.push(tcp_io_rx.as_raw_fd());
 
                 Partition::release_fds(&keep).unwrap();
+
+                let ipc_path_inner: PathBuf = PartitionConstants::IPC_SENDER[1..].into();
 
                 // Mount the required mounts
                 let mut mounts = vec![
@@ -208,6 +214,9 @@ impl Run {
                         None,
                     )
                     .unwrap(),
+                    // IPC Socket for Syscalls
+                    FileMounter::new(Some(ipc_path), ipc_path_inner, None, MsFlags::MS_BIND, None)
+                        .unwrap(),
                 ];
 
                 for (source, target) in base.mounts.iter().cloned() {
@@ -248,7 +257,6 @@ impl Run {
                     period: base.period,
                     duration: base.duration,
                     start_condition: condition,
-                    sender_fd: call_tx.as_raw_fd(),
                     start_time_fd: sys_time.as_raw_fd(),
                     partition_mode_fd: mode_file.as_raw_fd(),
                     io_fd: udp_io_rx.as_raw_fd(),
