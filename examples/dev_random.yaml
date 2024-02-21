@@ -7,4 +7,4 @@ partitions:
     period: 1s
     image: ./target/x86_64-unknown-linux-musl/release/dev_random
     mounts:
-      - [/dev/random, /dev/random]
+      - [ /dev/random, /dev/random ]

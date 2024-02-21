@@ -139,6 +139,10 @@ pub struct Partition {
     ///
     /// Use this to expose a path / file / device file from the host environment
     /// to the inside of a partitions.
+    ///
+    /// Both pats must be absolute. The first specifies a source file/directory
+    /// in the host environment. The second one specifies the target in the
+    /// partition environment.
     #[serde(default)]
     pub mounts: Vec<(PathBuf, PathBuf)>,
 
