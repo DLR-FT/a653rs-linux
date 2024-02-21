@@ -38,6 +38,7 @@ pub struct SamplingConstant {
 impl PartitionConstants {
     pub const PARTITION_CONSTANTS_FD: &'static str = "PARTITION_CONSTANTS_FD";
     pub const PROCESSES_CGROUP: &'static str = "processes";
+    pub const MAIN_PROCESS_CGROUP: &'static str = "main";
     pub const APERIODIC_PROCESS_CGROUP: &'static str = "aperiodic";
     pub const PERIODIC_PROCESS_CGROUP: &'static str = "periodic";
 

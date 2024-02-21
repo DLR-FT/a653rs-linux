@@ -66,8 +66,8 @@ impl ApexProcessP4 for ApexLinuxPartition {
 
     fn start(process_id: ProcessId) -> Result<(), ErrorReturnCode> {
         let proc = match process_id {
-            1 => APERIODIC_PROCESS.read().unwrap(),
-            2 => PERIODIC_PROCESS.read().unwrap(),
+            1 => APERIODIC_PROCESS.get(),
+            2 => PERIODIC_PROCESS.get(),
             _ => None,
         };
 

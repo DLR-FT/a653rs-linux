@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::{TcpStream, UdpSocket};
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
+use std::os::unix::process::CommandExt;
 use std::path::{self, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -12,12 +13,12 @@ use anyhow::{anyhow, Context};
 use clone3::Clone3;
 use itertools::Itertools;
 use nix::mount::{umount2, MntFlags, MsFlags};
-use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
+use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
 
-use a653rs_linux_core::cgroup::CGroup;
+use a653rs_linux_core::cgroup::{self, CGroup};
 use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedError, TypedResult, TypedResultExt,
 };
@@ -49,11 +50,11 @@ pub enum TransitionAction {
 // Struct for holding information of a partition which is not in Idle Mode
 #[derive(Debug)]
 pub(crate) struct Run {
-    cgroup_main: CGroup,
+    _cgroup_main: CGroup,
     cgroup_aperiodic: CGroup,
     cgroup_periodic: CGroup,
 
-    main: Pid,
+    _main: Pid,
     periodic: bool,
     aperiodic: bool,
 
@@ -71,16 +72,18 @@ pub(crate) struct Run {
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         trace!("Create new \"Run\" for \"{}\" partition", base.name());
-        let cgroup_main = base.cgroup.new("main").typ(SystemError::CGroup)?;
         let cgroup_processes = base
             .cgroup
             .new(PartitionConstants::PROCESSES_CGROUP)
             .typ(SystemError::CGroup)?;
+        let cgroup_main = cgroup_processes
+            .new_threaded(PartitionConstants::MAIN_PROCESS_CGROUP)
+            .typ(SystemError::CGroup)?;
         let cgroup_periodic = cgroup_processes
-            .new(PartitionConstants::PERIODIC_PROCESS_CGROUP)
+            .new_threaded(PartitionConstants::PERIODIC_PROCESS_CGROUP)
             .typ(SystemError::CGroup)?;
         let cgroup_aperiodic = cgroup_processes
-            .new(PartitionConstants::APERIODIC_PROCESS_CGROUP)
+            .new_threaded(PartitionConstants::APERIODIC_PROCESS_CGROUP)
             .typ(SystemError::CGroup)?;
 
         let real_uid = nix::unistd::getuid();
@@ -260,7 +263,8 @@ impl Run {
                 .unwrap();
 
                 // Run binary
-                let mut handle = Command::new("/bin")
+                let mut command = Command::new("/bin");
+                let mut command = command
                     .stdout(Stdio::null())
                     .stdin(Stdio::null())
                     .stderr(Stdio::null())
@@ -268,11 +272,21 @@ impl Run {
                     .env(
                         PartitionConstants::PARTITION_CONSTANTS_FD,
                         constants.to_string(),
-                    )
-                    .spawn()
-                    .unwrap();
-                handle.wait().unwrap();
+                    );
+                unsafe {
+                    let path = cgroup::mount_point().typ(SystemError::CGroup)?;
+                    let path = path
+                        .join(PartitionConstants::PROCESSES_CGROUP)
+                        .join(PartitionConstants::MAIN_PROCESS_CGROUP);
+                    let cgroup_main = CGroup::import_root(path).typ(SystemError::CGroup).unwrap();
 
+                    command = command.pre_exec(move || {
+                        cgroup_main
+                            .mv_proc(getpid())
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                    });
+                }
+                command.exec();
                 unsafe { libc::_exit(0) };
             }
             child => child,
@@ -286,10 +300,10 @@ impl Run {
         let pid = Pid::from_raw(pid);
 
         Ok(Run {
-            cgroup_main,
+            _cgroup_main: cgroup_main,
             cgroup_aperiodic,
             cgroup_periodic,
-            main: pid,
+            _main: pid,
             mode,
             mode_file,
             call_rx,
@@ -398,11 +412,6 @@ impl Run {
         if self.cgroup_periodic.populated().typ(SystemError::CGroup)? {
             self.periodic = true;
         }
-
-        // Move main process to own cgroup
-        self.cgroup_main
-            .mv_proc(self.main)
-            .typ(SystemError::CGroup)?;
 
         self.freeze_aperiodic()?;
         self.freeze_periodic()?;

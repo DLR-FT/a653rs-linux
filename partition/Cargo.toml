@@ -22,5 +22,4 @@ once_cell.workspace = true
 lazy_static = "1.4"
 anyhow = "1.0"
 log.workspace = true
-safemem = "0.3"
 tinyvec = "1.6"
