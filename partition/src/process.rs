@@ -68,14 +68,14 @@ impl Process {
 
     pub(crate) fn get_self() -> Option<Arc<Self>> {
         if let Some(p) = APERIODIC_PROCESS.get() {
-            let id = p.pid.load(std::sync::atomic::Ordering::Relaxed);
+            let id = p.pid.load(Ordering::SeqCst);
             if id == nix::unistd::gettid().as_raw() {
                 return Some(p.clone());
             }
         }
 
         if let Some(p) = PERIODIC_PROCESS.get() {
-            let id = p.pid.load(std::sync::atomic::Ordering::Relaxed);
+            let id = p.pid.load(Ordering::SeqCst);
             if id == nix::unistd::gettid().as_raw() {
                 return Some(p.clone());
             }
@@ -126,7 +126,7 @@ impl Process {
             .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
         // Receive thread id and store it
         let pid_raw = pid_rx.recv().unwrap();
-        self.pid.store(pid_raw, Ordering::Relaxed);
+        self.pid.store(pid_raw, Ordering::SeqCst);
         let pid = Pid::from_raw(pid_raw);
         // Freeze thread by moving it to the cgroup
         cg.mv_thread(pid).unwrap();
