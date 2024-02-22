@@ -179,21 +179,21 @@ pub enum ApexSyscall {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct SyscallRequ {
+pub struct SyscallRequest {
     pub id: ApexSyscall,
     pub params: Vec<u64>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct SyscallResp {
+pub struct SyscallResponse {
     pub id: ApexSyscall,
     pub status: u64,
 }
 
-impl SyscallRequ {
-    /// Serializes a SyscallRequ into its binary representation
+impl SyscallRequest {
+    /// Serializes a SyscallRequest into its binary representation
     ///
-    /// The format for serializing a SyscallRequ is defined as follows:
+    /// The format for serializing a SyscallRequest is defined as follows:
     /// ```text
     /// id [u64]
     /// nparams [u8]
@@ -212,7 +212,7 @@ impl SyscallRequ {
         Ok(serialized)
     }
 
-    /// Deserializes a serialized SyscallRequ back into its internal
+    /// Deserializes a serialized SyscallRequest back into its internal
     /// representation
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
         let mut serialized: &[u8] = serialized;
@@ -226,14 +226,14 @@ impl SyscallRequ {
             params.push(serialized.read_u64::<NativeEndian>()?);
         }
 
-        Ok(SyscallRequ { id, params })
+        Ok(SyscallRequest { id, params })
     }
 }
 
-impl SyscallResp {
-    /// Serializes a SyscallResp into its binary representation
+impl SyscallResponse {
+    /// Serializes a SyscallResponse into its binary representation
     ///
-    /// The format for serializing a SyscallResp is defined as follows:
+    /// The format for serializing a SyscallResponse is defined as follows:
     /// ```text
     /// id [u64]
     /// status [u64]
@@ -248,7 +248,7 @@ impl SyscallResp {
         Ok(serialized)
     }
 
-    /// Deserializes a serialized SyscallResp back into its internal
+    /// Deserializes a serialized SyscallResponse back into its internal
     /// representation
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
         let mut serialized: &[u8] = serialized;
@@ -257,7 +257,7 @@ impl SyscallResp {
             .ok_or(anyhow!("deserialization of ApexSyscall failed"))?;
         let status = serialized.read_u64::<NativeEndian>()?;
 
-        Ok(SyscallResp { id, status })
+        Ok(SyscallResponse { id, status })
     }
 }
 
@@ -266,12 +266,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serialize_requ() {
-        let requ = SyscallRequ {
+    fn test_serialize_request() {
+        let request = SyscallRequest {
             id: ApexSyscall::Start,
             params: vec![1, 2, 3],
         };
-        let serialized = requ.serialize().unwrap();
+        let serialized = request.serialize().unwrap();
         let mut serialized: &[u8] = &serialized;
 
         let id = serialized.read_u64::<NativeEndian>().unwrap();
@@ -290,12 +290,12 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_resp() {
-        let resp = SyscallResp {
+    fn test_serialize_response() {
+        let response = SyscallResponse {
             id: ApexSyscall::Start,
             status: 42,
         };
-        let serialized = resp.serialize().unwrap();
+        let serialized = response.serialize().unwrap();
         let mut serialized: &[u8] = &serialized;
 
         let id = serialized.read_u64::<NativeEndian>().unwrap();
@@ -307,26 +307,26 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_requ() {
-        let requ = SyscallRequ {
+    fn test_deserialize_request() {
+        let request = SyscallRequest {
             id: ApexSyscall::Start,
             params: vec![1, 2, 3],
         };
-        let serialized = requ.serialize().unwrap();
-        let deserialized = SyscallRequ::deserialize(&serialized).unwrap();
-        assert_eq!(requ, deserialized);
+        let serialized = request.serialize().unwrap();
+        let deserialized = SyscallRequest::deserialize(&serialized).unwrap();
+        assert_eq!(request, deserialized);
         assert!(!serialized.is_empty());
     }
 
     #[test]
-    fn test_deserialize_resp() {
-        let resp = SyscallResp {
+    fn test_deserialize_response() {
+        let response = SyscallResponse {
             id: ApexSyscall::Start,
             status: 42,
         };
-        let serialized = resp.serialize().unwrap();
-        let deserialized = SyscallResp::deserialize(&serialized).unwrap();
-        assert_eq!(resp, deserialized);
+        let serialized = response.serialize().unwrap();
+        let deserialized = SyscallResponse::deserialize(&serialized).unwrap();
+        assert_eq!(response, deserialized);
         assert!(!serialized.is_empty());
     }
 }

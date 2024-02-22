@@ -6,13 +6,14 @@ use std::io::IoSlice;
 use std::num::NonZeroUsize;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 
-use a653rs_linux_core::mfd::{Mfd, Seals};
-use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
 use anyhow::Result;
 use nix::libc::EINTR;
 use nix::sys::eventfd::{self, EfdFlags};
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
 use polling::{Event, Events, Poller};
+
+use a653rs_linux_core::mfd::{Mfd, Seals};
+use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 
 use crate::SYSCALL;
 
@@ -52,27 +53,30 @@ fn wait_event(event_fd: BorrowedFd) -> Result<()> {
     Ok(())
 }
 
-fn execute_fd(fd: BorrowedFd, requ: SyscallRequ) -> Result<SyscallResp> {
+fn execute_fd(fd: BorrowedFd, request: SyscallRequest) -> Result<SyscallResponse> {
     // Create the file descriptor triple
-    let mut requ_fd = Mfd::create("requ")?;
-    let mut resp_fd = Mfd::create("resp")?;
+    let mut request_fd = Mfd::create("requ")?;
+    let mut response_fd = Mfd::create("resp")?;
     let event_fd = eventfd::eventfd(0, EfdFlags::empty())?;
 
     // Initialize the request file descriptor
-    requ_fd.write(&requ.serialize()?)?;
-    requ_fd.finalize(Seals::Readable)?;
+    request_fd.write(&request.serialize()?)?;
+    request_fd.finalize(Seals::Readable)?;
 
     // Send the file descriptors to the hypervisor
-    send_fds(fd, [requ_fd.as_fd(), resp_fd.as_fd(), event_fd.as_fd()])?;
+    send_fds(
+        fd,
+        [request_fd.as_fd(), response_fd.as_fd(), event_fd.as_fd()],
+    )?;
 
     wait_event(event_fd.as_fd())?;
 
-    let resp = SyscallResp::deserialize(&resp_fd.read_all()?)?;
-    Ok(resp)
+    let response = SyscallResponse::deserialize(&response_fd.read_all()?)?;
+    Ok(response)
 }
 
-pub fn execute(requ: SyscallRequ) -> Result<SyscallResp> {
-    execute_fd(SYSCALL.as_fd(), requ)
+pub fn execute(request: SyscallRequest) -> Result<SyscallResponse> {
+    execute_fd(SYSCALL.as_fd(), request)
 }
 
 #[cfg(test)]
@@ -80,11 +84,12 @@ mod tests {
     use std::io::IoSliceMut;
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
-    use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::socket::{
         recvmsg, socketpair, AddressFamily, ControlMessageOwned, SockFlag, SockType,
     };
     use nix::{cmsg_space, unistd};
+
+    use a653rs_linux_core::syscall::ApexSyscall;
 
     use super::*;
 
@@ -99,17 +104,17 @@ mod tests {
         .unwrap();
 
         let request_thread = std::thread::spawn(move || {
-            let resp = execute_fd(
+            let response = execute_fd(
                 requester.as_fd(),
-                SyscallRequ {
+                SyscallRequest {
                     id: ApexSyscall::Start,
                     params: vec![1, 2, 42],
                 },
             )
             .unwrap();
 
-            assert_eq!(resp.id, ApexSyscall::Start);
-            assert_eq!(resp.status, 42);
+            assert_eq!(response.id, ApexSyscall::Start);
+            assert_eq!(response.status, 42);
         });
         let response_thread = std::thread::spawn(move || {
             // Receive the file descriptors
@@ -132,19 +137,19 @@ mod tests {
                 _ => panic!("unknown cmsg received"),
             };
 
-            let [req, resp, event_fd] = fds.try_into().unwrap();
-            let mut requ_fd = Mfd::from_fd(req).unwrap();
-            let mut resp_fd = Mfd::from_fd(resp).unwrap();
+            let [request, response, event_fd] = fds.try_into().unwrap();
+            let mut request_fd = Mfd::from_fd(request).unwrap();
+            let mut response_fd = Mfd::from_fd(response).unwrap();
 
             // Fetch the request
-            let requ = SyscallRequ::deserialize(&requ_fd.read_all().unwrap()).unwrap();
-            assert_eq!(requ.id, ApexSyscall::Start);
-            assert_eq!(requ.params, vec![1, 2, 42]);
+            let request = SyscallRequest::deserialize(&request_fd.read_all().unwrap()).unwrap();
+            assert_eq!(request.id, ApexSyscall::Start);
+            assert_eq!(request.params, vec![1, 2, 42]);
 
             // Write the response
-            resp_fd
+            response_fd
                 .write(
-                    &SyscallResp {
+                    &SyscallResponse {
                         id: ApexSyscall::Start,
                         status: 42,
                     }
@@ -152,7 +157,7 @@ mod tests {
                     .unwrap(),
                 )
                 .unwrap();
-            resp_fd.finalize(Seals::Readable).unwrap();
+            response_fd.finalize(Seals::Readable).unwrap();
 
             // Trigger the eventfd
             let buf = 1_u64.to_ne_bytes();
