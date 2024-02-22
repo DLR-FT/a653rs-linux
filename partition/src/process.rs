@@ -1,17 +1,18 @@
-use std::sync::atomic::{AtomicBool, AtomicI32};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::Builder;
 
 use a653rs::bindings::*;
 use a653rs::prelude::{ProcessAttribute, SystemTime};
+use anyhow::anyhow;
+use nix::unistd::{gettid, Pid};
+
 use a653rs_linux_core::cgroup;
 use a653rs_linux_core::cgroup::CGroup;
 use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
 };
 use a653rs_linux_core::partition::PartitionConstants;
-use anyhow::anyhow;
-use nix::unistd::{gettid, Pid};
 
 use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
 
@@ -99,24 +100,38 @@ impl Process {
             .typ(SystemError::CGroup)
             .lev(ErrorLevel::Partition)?;
 
-        let sync = Arc::new((Barrier::new(2), Mutex::new(())));
-        let s = sync.clone();
         let entry = self.attr.entry_point;
-        let proc = self.pid.clone();
+
+        // A mutex required for freezing the thread right before execution of `entry`.
+        let sync = Arc::new(Mutex::new(()));
+        let sync2 = Arc::clone(&sync);
+        // A channel for the thread to send its thread id.
+        let (pid_tx, pid_rx) = oneshot::channel();
+
+        // Before spawning the thread, lock the `sync` mutex so the thread cannot
+        // execute `entry` yet.
+        let lock = sync.lock().unwrap();
         let _thread = Builder::new()
             .name(name.to_string())
             .stack_size(self.stack_size)
             .spawn(move || {
-                proc.store(gettid().as_raw(), std::sync::atomic::Ordering::Relaxed);
-                s.0.wait();
-                drop(s.1.lock().unwrap());
+                pid_tx.send(gettid().as_raw()).unwrap();
+
+                // We want this thread to be frozen right here before the entry function gets
+                // executed. To do that, we wait for the `sync` mutex to unlock. During the wait
+                // period this thread is then moved to the frozen cgroup.
+                drop(sync2.lock().unwrap());
                 (entry)();
             })
             .lev_typ(SystemError::Panic, ErrorLevel::Partition)?;
-        let lock = sync.1.lock().unwrap();
-        sync.0.wait();
-        let pid = Pid::from_raw(self.pid.load(std::sync::atomic::Ordering::Relaxed));
+        // Receive thread id and store it
+        let pid_raw = pid_rx.recv().unwrap();
+        self.pid.store(pid_raw, Ordering::Relaxed);
+        let pid = Pid::from_raw(pid_raw);
+        // Freeze thread by moving it to the cgroup
         cg.mv_thread(pid).unwrap();
+        // Now unlock the `sync` mutex, so the thread can continue execution when the
+        // cgroup is unfrozen.
         drop(lock);
 
         Ok(())

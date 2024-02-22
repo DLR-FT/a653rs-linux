@@ -23,3 +23,4 @@ lazy_static = "1.4"
 anyhow = "1.0"
 log.workspace = true
 tinyvec = "1.6"
+oneshot = "0.1.6"
