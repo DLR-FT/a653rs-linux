@@ -38,6 +38,7 @@ fn wait_event(event_fd: BorrowedFd) -> Result<()> {
 
     loop {
         match poller.wait(&mut events, None) {
+            Ok(0) => todo!("handle case in which poller returns spuriously"),
             Ok(1) => break,
             Err(e) => {
                 if e.raw_os_error() == Some(EINTR) {
