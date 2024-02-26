@@ -76,7 +76,7 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
             }
         } else {
             let res = wait_fds(fd, None)?;
-            assert!(res);
+            assert!(res); // TODO wait again if `false`. [polling::Poller::wait] docs state: "Sometimes it may even return with no events spuriously."
         }
 
         let [request_fd, resp_fd, event_fd] = recv_fd_triple(fd)?;
