@@ -58,9 +58,12 @@ fn wait_fds(fd: BorrowedFd, timeout: Option<Duration>) -> Result<bool> {
 /// Handles an unlimited amount of system calls, until timeout is reached
 ///
 /// Returns the amount of executed system calls
-pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
+pub fn handle_all_syscalls(
+    fd: BorrowedFd,
+    timeout: Option<Duration>,
+    mut handler: impl FnMut(SyscallRequest) -> SyscallResponse,
+) -> Result<()> {
     let start = Instant::now();
-    let mut nsyscalls: u32 = 0;
 
     // A loop in which each iteration resembles the execution of one syscall
     loop {
@@ -85,24 +88,23 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
 
         // Fetch the request
         let request = SyscallRequest::deserialize(&request_fd.read_all()?)?;
-        debug!("Received system call {:?}", request);
+        let request_id = request.id;
 
-        // Write the response (dummy response right now)
-        let response = SyscallResponse {
-            id: request.id,
-            status: 0,
-        };
+        debug!("Handling system call {:?}", request);
+        let response = handler(request);
+
+        assert_eq!(request_id, response.id);
+
+        // Write the response
         response_fd.write(&response.serialize()?)?;
         response_fd.finalize(Seals::Readable)?;
 
         // Trigger the event
         let buf = 1_u64.to_ne_bytes();
         unistd::write(event_fd.as_raw_fd(), &buf)?;
-
-        nsyscalls += 1;
     }
 
-    Ok(nsyscalls)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -177,7 +179,16 @@ mod tests {
         });
 
         let response_thread = std::thread::spawn(move || {
-            let n = handle(responder.as_fd(), Some(Duration::from_secs(1))).unwrap();
+            let mut n = 0;
+            let handler = |request| {
+                n += 1;
+                SyscallResponse {
+                    id: request.id,
+                    status: 0,
+                }
+            };
+
+            handle_all_syscalls(responder.as_fd(), Some(Duration::from_secs(1)), handler).unwrap();
             assert_eq!(n, 1);
         });
 
