@@ -5,13 +5,14 @@ use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
-use a653rs_linux_core::mfd::{Mfd, Seals};
-use a653rs_linux_core::syscall::{SyscallRequ, SyscallResp};
 use anyhow::{anyhow, bail, Result};
 use libc::EINTR;
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
 use polling::{Event, Events, Poller};
+
+use a653rs_linux_core::mfd::{Mfd, Seals};
+use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
@@ -57,9 +58,12 @@ fn wait_fds(fd: BorrowedFd, timeout: Option<Duration>) -> Result<bool> {
 /// Handles an unlimited amount of system calls, until timeout is reached
 ///
 /// Returns the amount of executed system calls
-pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
+pub fn handle_all_syscalls(
+    fd: BorrowedFd,
+    timeout: Option<Duration>,
+    mut handler: impl FnMut(SyscallRequest) -> SyscallResponse,
+) -> Result<()> {
     let start = Instant::now();
-    let mut nsyscalls: u32 = 0;
 
     // A loop in which each iteration resembles the execution of one syscall
     loop {
@@ -75,33 +79,32 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
             }
         } else {
             let res = wait_fds(fd, None)?;
-            assert!(res);
+            assert!(res); // TODO wait again if `false`. [polling::Poller::wait] docs state: "Sometimes it may even return with no events spuriously."
         }
 
-        let [requ_fd, resp_fd, event_fd] = recv_fd_triple(fd)?;
-        let mut requ_fd = Mfd::from_fd(requ_fd)?;
-        let mut resp_fd = Mfd::from_fd(resp_fd)?;
+        let [request_fd, resp_fd, event_fd] = recv_fd_triple(fd)?;
+        let mut request_fd = Mfd::from_fd(request_fd)?;
+        let mut response_fd = Mfd::from_fd(resp_fd)?;
 
         // Fetch the request
-        let requ = SyscallRequ::deserialize(&requ_fd.read_all()?)?;
-        debug!("Received system call {:?}", requ);
+        let request = SyscallRequest::deserialize(&request_fd.read_all()?)?;
+        let request_id = request.id;
 
-        // Write the response (dummy response right now)
-        let resp = SyscallResp {
-            id: requ.id,
-            status: 0,
-        };
-        resp_fd.write(&resp.serialize()?)?;
-        resp_fd.finalize(Seals::Readable)?;
+        debug!("Handling system call {:?}", request);
+        let response = handler(request);
+
+        assert_eq!(request_id, response.id);
+
+        // Write the response
+        response_fd.write(&response.serialize()?)?;
+        response_fd.finalize(Seals::Readable)?;
 
         // Trigger the event
         let buf = 1_u64.to_ne_bytes();
         unistd::write(event_fd.as_raw_fd(), &buf)?;
-
-        nsyscalls += 1;
     }
 
-    Ok(nsyscalls)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -109,11 +112,12 @@ mod tests {
     use std::io::IoSlice;
     use std::os::fd::{AsFd, AsRawFd};
 
-    use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::eventfd::{eventfd, EfdFlags};
     use nix::sys::socket::{
         sendmsg, socketpair, AddressFamily, ControlMessage, SockFlag, SockType,
     };
+
+    use a653rs_linux_core::syscall::ApexSyscall;
 
     use super::*;
 
@@ -128,14 +132,14 @@ mod tests {
         .unwrap();
 
         let request_thread = std::thread::spawn(move || {
-            let mut requ_fd = Mfd::create("requ").unwrap();
-            let mut resp_fd = Mfd::create("resp").unwrap();
+            let mut request_fd = Mfd::create("requ").unwrap();
+            let mut response_fd = Mfd::create("resp").unwrap();
             let event_fd = eventfd(0, EfdFlags::empty()).unwrap();
 
             // Initialize the request fd
-            requ_fd
+            request_fd
                 .write(
-                    &SyscallRequ {
+                    &SyscallRequest {
                         id: ApexSyscall::Start,
                         params: vec![1, 2, 3],
                     }
@@ -143,13 +147,13 @@ mod tests {
                     .unwrap(),
                 )
                 .unwrap();
-            requ_fd.finalize(Seals::Readable).unwrap();
+            request_fd.finalize(Seals::Readable).unwrap();
 
             // Send the fds to the responder
             {
                 let fds = [
-                    requ_fd.as_raw_fd(),
-                    resp_fd.as_raw_fd(),
+                    request_fd.as_raw_fd(),
+                    response_fd.as_raw_fd(),
                     event_fd.as_raw_fd(),
                 ];
                 let cmsg = [ControlMessage::ScmRights(&fds)];
@@ -169,13 +173,22 @@ mod tests {
                 assert_eq!(events.len(), 1);
             }
 
-            let resp = SyscallResp::deserialize(&resp_fd.read_all().unwrap()).unwrap();
-            assert_eq!(resp.id, ApexSyscall::Start);
-            assert_eq!(resp.status, 0);
+            let response = SyscallResponse::deserialize(&response_fd.read_all().unwrap()).unwrap();
+            assert_eq!(response.id, ApexSyscall::Start);
+            assert_eq!(response.status, 0);
         });
 
         let response_thread = std::thread::spawn(move || {
-            let n = handle(responder.as_fd(), Some(Duration::from_secs(1))).unwrap();
+            let mut n = 0;
+            let handler = |request| {
+                n += 1;
+                SyscallResponse {
+                    id: request.id,
+                    status: 0,
+                }
+            };
+
+            handle_all_syscalls(responder.as_fd(), Some(Duration::from_secs(1)), handler).unwrap();
             assert_eq!(n, 1);
         });
 
