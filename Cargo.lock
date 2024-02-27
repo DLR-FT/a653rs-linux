@@ -60,6 +60,7 @@ dependencies = [
  "a653rs",
  "a653rs-linux-core",
  "anyhow",
+ "bytesize",
  "clap",
  "clone3",
  "humantime",
