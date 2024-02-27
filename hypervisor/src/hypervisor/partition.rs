@@ -12,7 +12,6 @@ use anyhow::{anyhow, Context};
 use clone3::Clone3;
 use itertools::Itertools;
 use nix::mount::{umount2, MntFlags, MsFlags};
-use nix::sys::socket::{self, bind, AddressFamily, SockFlag, SockType, UnixAddr};
 use nix::unistd::{chdir, close, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
@@ -28,7 +27,6 @@ use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::{channel_pair, io_pair, IoReceiver, IoSender, IpcReceiver};
 use a653rs_linux_core::partition::{PartitionConstants, SamplingConstant};
 use a653rs_linux_core::sampling::Sampling;
-use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
 pub use mounting::FileMounter;
 
 use crate::hypervisor::config::Partition as PartitionConfig;
@@ -224,35 +222,20 @@ impl Run {
 
                 // TODO: Check for duplicate mounts
 
+                let tmpfs_path = base.working_dir.path().join("tmpfs");
                 for m in mounts {
                     debug!("mounting {:?}", &m);
-                    m.mount(base.working_dir.path())
+                    m.mount(&tmpfs_path)
                         .context("failed to mount")
                         .typ(SystemError::Panic)?;
                 }
 
                 // Change working directory and root (unmount old root)
-                chdir(base.working_dir.path()).unwrap();
+                chdir(&tmpfs_path).unwrap();
                 pivot_root(".", ".").unwrap();
                 umount2(".", MntFlags::MNT_DETACH).unwrap();
                 //umount("old").unwrap();
                 chdir("/").unwrap();
-
-                // After we've performed the pseudo chroot, we can create the
-                // Unix domain socket
-                let syscall_socket = socket::socket(
-                    AddressFamily::Unix,
-                    SockType::Datagram,
-                    SockFlag::SOCK_CLOEXEC,
-                    None,
-                )
-                .unwrap();
-
-                bind(
-                    syscall_socket.as_raw_fd(),
-                    &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap(),
-                )
-                .unwrap();
 
                 let constants: RawFd = PartitionConstants {
                     name: base.name.clone(),
