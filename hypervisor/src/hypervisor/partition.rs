@@ -10,9 +10,10 @@ use std::time::{Duration, Instant};
 use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
 use anyhow::{anyhow, Context};
+use bytesize::ByteSize;
 use clone3::Clone3;
 use itertools::Itertools;
-use nix::mount::{umount2, MntFlags, MsFlags};
+use nix::mount::{umount2, MntFlags};
 use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
@@ -170,53 +171,17 @@ impl Run {
                 // Mount the required mounts
                 let mut mounts = vec![
                     // Mount working directory as tmpfs
-                    FileMounter::new(
-                        None,
-                        "".into(),
-                        Some("tmpfs".into()),
-                        MsFlags::empty(),
-                        Some("size=500k".to_owned()),
-                    )
-                    .unwrap(),
+                    FileMounter::tmpfs("", ByteSize::kb(500)),
                     // Mount binary
-                    FileMounter::new(
-                        Some(base.bin.clone()),
-                        "bin".into(),
-                        None,
-                        MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                        None,
-                    )
-                    .unwrap(),
+                    FileMounter::bind_ro(&base.bin, "/bin").unwrap(),
                     // Mount /dev/null (for stdio::null)
-                    FileMounter::new(
-                        Some("/dev/null".into()),
-                        "dev/null".into(),
-                        None,
-                        MsFlags::MS_RDONLY | MsFlags::MS_BIND,
-                        None,
-                    )
-                    .unwrap(),
+                    FileMounter::bind_ro("/dev/null", "/dev/null").unwrap(),
                     // Mount proc
-                    FileMounter::new(
-                        Some("/proc".into()),
-                        "proc".into(),
-                        Some("proc".into()),
-                        MsFlags::empty(),
-                        None,
-                    )
-                    .unwrap(),
+                    FileMounter::proc(),
                     // Mount CGroup v2
-                    FileMounter::new(
-                        None,
-                        "sys/fs/cgroup".into(),
-                        Some("cgroup2".into()),
-                        MsFlags::empty(),
-                        None,
-                    )
-                    .unwrap(),
+                    FileMounter::cgroup(),
                     // IPC Socket for Syscalls
-                    FileMounter::new(Some(ipc_path), ipc_path_inner, None, MsFlags::MS_BIND, None)
-                        .unwrap(),
+                    FileMounter::bind_rw(ipc_path, ipc_path_inner).unwrap(),
                 ];
 
                 for (source, target) in base.mounts.iter().cloned() {
@@ -225,10 +190,9 @@ impl Run {
                     let relative_target = target
                         .strip_prefix("/")
                         .context("target paths for mounting must be absolute")
-                        .typ(SystemError::Panic)?
-                        .to_path_buf();
+                        .typ(SystemError::Panic)?;
 
-                    let file_mounter = FileMounter::from_paths(source, relative_target)
+                    let file_mounter = FileMounter::bind_rw(source, relative_target)
                         .context("failed to initialize file mounter")
                         .typ(SystemError::Panic)?;
                     mounts.push(file_mounter);
