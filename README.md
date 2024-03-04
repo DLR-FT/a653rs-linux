@@ -1,22 +1,77 @@
-# An ARINC 653 emulator for Linux
+# ARINC 653 Hypervisor for Linux
 
-This repository contains a hypervisor for the APEX API defined in the
-ARINC 653 standard.
-The user provides a partition scheme and a normal Linux binary for each
-partition, which will then in turn be scheduled and managed by the
-`a653rs-linux-hypervisor` binary.
-Each partition is a regular Unix process running in its own *CGroup*
-and *namespace*, in order to not interfere with the host operating
-system.
+This repository contains `a653rs-linux-hypervisor`, a hypervisor for the APEX API defined in [ARINC 653](https://aviation-ia.sae-itc.com/standards/arinc653p0-3-653p0-3-avionics-application-software-standard-interface-part-0-overview-arinc-653), and an [a653rs](https://github.com/DLR-FT/a653rs) partition shim library.
+The goal of this project is to provide a familiar environment for the functional development of ARINC 653 partitions.
 
-Currently, this software requires a somewhat modern version of both
-the Linux kernel and the Rust toolchain, as it makes heavy use of the
-`cgroups(7)` and `namespaces(7)` API for its internal operations.
+The user provides a partitioning scheme and a normal Linux binary for each partition, which will then in turn be scheduled and managed by the `a653rs-linux-hypervisor` binary.
+Each partition is a regular Unix process running in its own *CGroup* and *namespace*, to not interfere with the host operating system.
 
-As of now (November 2022), the project is relatively new and untested,
-meaning that certain things may be subject to later change.
+## Example
 
-# Related Works
+In this example, the partitions with the binaries `fuel_tank_simulation` and `fuel_tank_controller` exchange data using two ARINC 653 sampling channels.
+The location of the binaries is discovered using the `PATH` environment variable.
+
+```yaml
+# examples/fuel_tank.yaml
+major_frame: 20ms
+partitions:
+  - id: 0
+    name: fuel_tank_simulation
+    duration: 10ms
+    offset: 0ms
+    period: 20ms
+    image: fuel_tank_simulation
+  - id: 1
+    name: fuel_tank_controller
+    offset: 10ms
+    duration: 10ms
+    image: fuel_tank_controller
+    period: 20ms
+channel:
+  - !Sampling
+    msg_size: 10KB
+    source:
+      partition: fuel_tank_simulation
+      port: fuel_sensors
+    destination:
+      - partition: fuel_tank_controller
+        port: fuel_sensors
+  - !Sampling
+    msg_size: 10KB
+    source:
+      partition: fuel_tank_controller
+      port: fuel_actuators
+    destination:
+      - partition: fuel_tank_simulation
+        port: fuel_actuators
+```
+
+```sh
+cargo build --release --target x86_64-unknown-linux-musl -p fuel_tank_simulation -p fuel_tank_controller
+PATH="target/x86_64-unknown-linux-musl/release:$PATH"
+RUST_LOG=trace cargo run --package a653rs-linux-hypervisor --release -- examples/fuel_tank.yaml
+```
+
+## Compatibility
+
+The hypervisor runs as a regular POSIX process requiring only user-level privileges on most modern Linux distributions.
+For this, the hypervisor requires a somewhat modern version of both the Linux kernel and the Rust toolchain, as it makes heavy use of the `cgroups(7)` and `namespaces(7)` APIs for its internal operations.
+Support for precise temporal isolation of partitions is currently not implemented and provided on a best-effort basis only.
+
+Support of ARINC 653 is still incomplete and expanded continuously.
+The following traits of [a653rs](https://github.com/DLR-FT/a653rs) are currently implemented:
+
+- `ApexProcessP4`
+- `ApexPartitionP4`
+- `ApexSamplingPortP4`
+- `ApexTimeP4`
+- `ApexErrorP4`
+
+## Stability
+
+As of now (February 2024), the project is relatively new and untested, meaning that certain things may be subject to change.
+
+## Related Work
 
 There has been a small but steady stream of work towards ARINC 653 execution environments.
 This is a (non-exhaustive!) list of projects with a similar, ARINC 653 related, scope:
