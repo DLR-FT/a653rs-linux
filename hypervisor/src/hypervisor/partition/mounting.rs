@@ -21,7 +21,6 @@ impl FileMounter {
     // Mount (and consume) a device
     pub fn mount(self, base_dir: &Path) -> anyhow::Result<()> {
         let relative_target = self.target.strip_prefix("/").unwrap_or(&self.target);
-        println!("{relative_target:?}");
         let target: &PathBuf = &base_dir.join(relative_target);
         let fstype = self.fstype.map(PathBuf::from);
         let data = self.data.map(PathBuf::from);
