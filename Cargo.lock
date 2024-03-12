@@ -577,6 +577,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hello_part_no_macros"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "a653rs-postcard",
+ "humantime",
+ "log",
+ "once_cell",
+ "serde",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,11 +1,10 @@
 use a653rs::partition;
 use a653rs::prelude::PartitionExt;
 use a653rs_linux::partition::ApexLogger;
-use log::LevelFilter;
 
 fn main() {
     ApexLogger::install_panic_hook();
-    ApexLogger::install_logger(LevelFilter::Trace).unwrap();
+    ApexLogger::install_logger(log::LevelFilter::Trace).unwrap();
 
     hello::Partition.run()
 }
@@ -28,6 +27,8 @@ mod hello {
 
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
+        // Get the partition ID, and based on that decide whether this becomes the
+        // sender or the receiver partition
         let ident = ctx.get_partition_status().identifier;
         if ident == 0 {
             ctx.create_hello_source().unwrap();
@@ -35,7 +36,10 @@ mod hello {
             ctx.create_hello_destination().unwrap();
         }
 
+        // create aperiodic process
         ctx.create_aperiodic().unwrap().start().unwrap();
+
+        // create periodic process
         ctx.create_periodic().unwrap().start().unwrap();
     }
 
@@ -54,6 +58,7 @@ mod hello {
         info!("Start Aperiodic");
         for i in 0..i32::MAX {
             if let SystemTime::Normal(time) = ctx.get_time() {
+                // round the time to an integer value of milliseconds
                 let round = Duration::from_millis(time.as_millis() as u64);
                 info!("{:?}: AP MSG {i}", format_duration(round).to_string());
             }

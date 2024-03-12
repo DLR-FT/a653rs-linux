@@ -1,0 +1,17 @@
+[package]
+name = "hello_part_no_macros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+#forced-target = "x86_64-unknown-linux-musl"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+a653rs = { workspace = true }
+a653rs-postcard = { git = "https://github.com/DLR-FT/a653rs-postcard.git", branch = "main" }
+a653rs-linux = { path = "../../partition" }
+once_cell.workspace = true
+serde = "1.0"
+log = "0"
+humantime = "2.1"

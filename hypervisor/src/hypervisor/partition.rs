@@ -507,7 +507,7 @@ impl Base {
 
 #[derive(Debug)]
 pub(crate) struct Partition {
-    base: Base,
+    pub(crate) base: Base,
     run: Run,
 }
 

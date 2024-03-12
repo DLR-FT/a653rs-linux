@@ -1,0 +1,27 @@
+major_frame: 1s
+partitions:
+  - id: 0
+    name: Foo
+    duration: 10ms
+    offset: 0ms
+    period: 500ms
+    image: hello_part_no_macros
+  - id: 1
+    name: Bar
+    offset: 100ms
+    duration: 10ms
+    image: hello_part_no_macros
+    period: 1s
+    sockets:
+      - type: udp
+        address: 127.0.0.1:34256
+channel:
+  - !Sampling
+    name: Hello
+    msg_size: 10KB
+    source:
+      partition: Foo
+      port: Hello
+    destination:
+      - partition: Bar
+        port: Hello
