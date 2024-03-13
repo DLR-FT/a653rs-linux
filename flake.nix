@@ -82,6 +82,16 @@
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;
+
+        # run a command using systemd-run if available, or else just bare
+        conditionalSystemdRun = cmd: ''
+          if systemd-run --user --scope true 2&> /dev/null
+          then
+            systemd-run --user --scope -- ${cmd}
+          else
+            ${cmd}
+          fi
+        '';
       in
       rec {
         packages = {
@@ -167,6 +177,11 @@
               help = "Verify that the library builds for no_std without std-features";
               category = "dev";
             }
+            {
+              name = "cargo-test";
+              command = conditionalSystemdRun "cargo test -- --nocapture";
+              category = "dev";
+            }
           ] ++ (
             let
               inherit (builtins) map concatStringsSep;
@@ -184,16 +199,12 @@
                     # prepend PATH so that partition images can be found
                     PATH="target/${rust-target}/release:$PATH"
 
+                    export RUST_LOG=''${RUST_LOG:=trace}
+
                     # (build &) run hypervisor
-                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@
+                    ${conditionalSystemdRun "cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@"}
                   '';
                   help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
-                  category = "example";
-                }
-                {
-                  name = "systemd-run-example-${name}";
-                  command = "systemd-run --user --scope run-example-${name} $@";
-                  help = "Run the ${name} example using systemd-run";
                   category = "example";
                 }
                 {
