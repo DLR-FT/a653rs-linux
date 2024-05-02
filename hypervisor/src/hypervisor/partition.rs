@@ -507,7 +507,7 @@ impl Base {
 
 #[derive(Debug)]
 pub(crate) struct Partition {
-    pub(crate) base: Base,
+    base: Base,
     run: Run,
 }
 
@@ -547,6 +547,10 @@ impl Partition {
             Run::new(&base, StartCondition::NormalStart, false).typ(SystemError::PartitionInit)?;
 
         Ok(Self { base, run })
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        self.base.name()
     }
 
     fn release_fds(keep: &[RawFd]) -> TypedResult<()> {

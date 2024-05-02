@@ -79,7 +79,7 @@ impl<'a> PartitionTimeframeScheduler<'a> {
                 let res = self.partition.run_aperiodic_process(self.timeout);
                 if self.handle_partition_result(res)? == Some(false) {
                     // Aperiodic process was also not run
-                    let part_name = self.partition.base.name();
+                    let part_name = self.partition.name();
                     warn!("partition {part_name}: no process is scheduled")
                 }
             }
