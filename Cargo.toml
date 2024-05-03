@@ -7,6 +7,7 @@ members = [
     "core",
 
     "examples/hello_part",
+    "examples/hello_part_no_macros",
 
     "examples/fuel_tank_simulation",
     "examples/fuel_tank_controller",

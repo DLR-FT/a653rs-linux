@@ -549,6 +549,10 @@ impl Partition {
         Ok(Self { base, run })
     }
 
+    pub(crate) fn name(&self) -> &str {
+        self.base.name()
+    }
+
     fn release_fds(keep: &[RawFd]) -> TypedResult<()> {
         let proc = Process::myself().typ(SystemError::Panic)?;
         for fd in proc

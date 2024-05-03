@@ -68,6 +68,10 @@
             partitions = [ "hello_part" ];
           }
           {
+            name = "hello_part_no_macros";
+            partitions = [ "hello_part_no_macros" ];
+          }
+          {
             name = "fuel_tank";
             partitions = [ "fuel_tank_simulation" "fuel_tank_controller" ];
           }

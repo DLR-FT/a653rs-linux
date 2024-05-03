@@ -4,9 +4,8 @@ use std::time::Instant;
 
 use a653rs::bindings::PartitionId;
 use a653rs::prelude::OperatingMode;
-use anyhow::anyhow;
 
-use a653rs_linux_core::error::{ErrorLevel, LeveledError, LeveledResult, SystemError, TypedResult};
+use a653rs_linux_core::error::{LeveledResult, TypedResult};
 use a653rs_linux_core::sampling::Sampling;
 pub(crate) use schedule::{PartitionSchedule, ScheduledTimeframe};
 pub(crate) use timeout::Timeout;
@@ -80,11 +79,8 @@ impl<'a> PartitionTimeframeScheduler<'a> {
                 let res = self.partition.run_aperiodic_process(self.timeout);
                 if self.handle_partition_result(res)? == Some(false) {
                     // Aperiodic process was also not run
-                    return Err(LeveledError::new(
-                        SystemError::Panic,
-                        ErrorLevel::Partition,
-                        anyhow!("At least one periodic or aperiodic process is expected to exist"),
-                    ));
+                    let part_name = self.partition.name();
+                    warn!("partition {part_name}: no process is scheduled")
                 }
             }
         }
