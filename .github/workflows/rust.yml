@@ -17,6 +17,7 @@ jobs:
           - fuel_tank
           - ping
           - dev_random
+          - ping_queue
     env:
       DURATION: 10s
       RUST_LOG: trace
