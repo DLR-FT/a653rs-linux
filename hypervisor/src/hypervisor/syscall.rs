@@ -22,7 +22,7 @@ fn recv_fd_triple(fd: BorrowedFd) -> Result<[OwnedFd; 3]> {
     let mut iov = [IoSliceMut::new(&mut iobuf)];
     let res = recvmsg::<()>(fd.as_raw_fd(), &mut iov, Some(&mut cmsg), MsgFlags::empty())?;
 
-    let fds: Vec<RawFd> = match res.cmsgs().next().unwrap() {
+    let fds: Vec<RawFd> = match res.cmsgs()?.next().unwrap() {
         ControlMessageOwned::ScmRights(fds) => fds,
         _ => bail!("received an unknown cmsg"),
     };
@@ -97,7 +97,7 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
 
         // Trigger the event
         let buf = 1_u64.to_ne_bytes();
-        unistd::write(event_fd.as_raw_fd(), &buf)?;
+        unistd::write(event_fd, &buf)?;
 
         nsyscalls += 1;
     }
@@ -110,7 +110,7 @@ mod tests {
     use std::io::IoSlice;
     use std::os::fd::{AsFd, AsRawFd};
 
-    use nix::sys::eventfd::{eventfd, EfdFlags};
+    use nix::sys::eventfd::EventFd;
     use nix::sys::socket::{
         sendmsg, socketpair, AddressFamily, ControlMessage, SockFlag, SockType,
     };
@@ -132,7 +132,7 @@ mod tests {
         let request_thread = std::thread::spawn(move || {
             let mut request_fd = Mfd::create("requ").unwrap();
             let mut response_fd = Mfd::create("resp").unwrap();
-            let event_fd = eventfd(0, EfdFlags::empty()).unwrap();
+            let event_fd = EventFd::new().unwrap();
 
             // Initialize the request fd
             request_fd
