@@ -13,7 +13,6 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_queue_client {
-    use a653rs::bindings::ErrorReturnCode;
     use core::time::Duration;
     use log::{info, warn};
 

@@ -21,10 +21,12 @@ pub mod concurrent_queue {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::{mem, ptr};
 
-    /// An unsized bounded concurrent queue (Fifo) that makes use of atomics and does not use pointers internally.
-    /// This allows the queue to be created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
-    /// The required buffer size can be requested in advance via [ConcurrentQueue::size] by providing the size and maximum number of entries.
-    /// # Example
+    /// An unsized bounded concurrent queue (Fifo) that makes use of atomics and
+    /// does not use pointers internally. This allows the queue to be
+    /// created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
+    /// The required buffer size can be requested in advance via
+    /// [ConcurrentQueue::size] by providing the size and maximum number of
+    /// entries. # Example
     /// ```
     /// # use a653rs_linux_core::queuing::concurrent_queue::ConcurrentQueue;
     /// // Create a ConcurrentQueue inside of a Vec<u8> buffer object
@@ -64,12 +66,15 @@ pub mod concurrent_queue {
     }
 
     impl ConcurrentQueue {
-        /// Calculates the required buffer size to fit a MessageQueue object with `capacity` maximum elements and a fixed size of `element_size` bytes per element.
+        /// Calculates the required buffer size to fit a MessageQueue object
+        /// with `capacity` maximum elements and a fixed size of `element_size`
+        /// bytes per element.
         pub fn size(element_size: usize, capacity: usize) -> usize {
             let mut size = Self::fields_size() + element_size * capacity; // data
 
             // We need to include extra padding for calculating this structs size,
-            // because of `#[repr(C)]` the compiler may add padding to this struct for alignment purposes,
+            // because of `#[repr(C)]` the compiler may add padding to this struct for
+            // alignment purposes,
             let alignment = Self::align();
             let sub_alignment_mask = alignment - 1;
             if size & sub_alignment_mask > 0 {
@@ -90,20 +95,24 @@ pub mod concurrent_queue {
 
         /// Returns this struct's alignment
         fn align() -> usize {
-            // This structs maximum alignment is that of a usize (or AtomicUsize, which has the same data layout)
+            // This structs maximum alignment is that of a usize (or AtomicUsize, which has
+            // the same data layout)
             mem::align_of::<usize>()
         }
 
         /// Creates a new empty ConcurrentQueue in given buffer.
-        /// Even though this function returns a reference to the newly created ConcurrentQueue,
-        /// it should be dropped to release the mutable reference to the buffer.
+        /// Even though this function returns a reference to the newly created
+        /// ConcurrentQueue, it should be dropped to release the mutable
+        /// reference to the buffer.
         ///
         /// # Panics
-        /// If the buffer size is not exactly the required size to fit this `ConcurrentQueue` object.
+        /// If the buffer size is not exactly the required size to fit this
+        /// `ConcurrentQueue` object.
         pub fn init_at(buffer: &mut [u8], element_size: usize, capacity: usize) -> &Self {
             assert_eq!(buffer.len(), Self::size(element_size, capacity));
 
-            // We cast the `buffer` reference to a `Self` pointer, which can then safely be dereferenced
+            // We cast the `buffer` reference to a `Self` pointer, which can then safely be
+            // dereferenced
             let queue = unsafe { &mut *Self::buf_to_self_mut(buffer) };
 
             queue.msg_size = element_size;
@@ -117,7 +126,8 @@ pub mod concurrent_queue {
             queue
         }
 
-        /// Converts the given buffer pointer to a ConcurrentQueue pointer and handles shortening the wide-pointer metadata.
+        /// Converts the given buffer pointer to a ConcurrentQueue pointer and
+        /// handles shortening the wide-pointer metadata.
         fn buf_to_self(buffer: *const [u8]) -> *const Self {
             let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
             buf_len -= Self::fields_size();
@@ -125,7 +135,8 @@ pub mod concurrent_queue {
             ptr_meta::from_raw_parts(buf_ptr, buf_len)
         }
 
-        /// Converts the given mutable buffer pointer to a ConcurrentQueue pointer and handles shortening the wide-pointer metadata.
+        /// Converts the given mutable buffer pointer to a ConcurrentQueue
+        /// pointer and handles shortening the wide-pointer metadata.
         fn buf_to_self_mut(buffer: *mut [u8]) -> *mut Self {
             let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
             buf_len -= Self::fields_size();
@@ -135,10 +146,11 @@ pub mod concurrent_queue {
 
         /// Loads a `ConcurrentQueue` from the specified buffer.
         /// # Safety
-        /// The buffer must contain exactly one valid ConcurrentQueue, which has to be initialized
-        /// through [ConcurrentQueue::init_at]. Also mutating or reading raw values from the buffer
-        /// may result in UB, because the ConcurrentQueue relies on internal safety mechanisms to
-        /// prevent UB due to shared mutable state.
+        /// The buffer must contain exactly one valid ConcurrentQueue, which has
+        /// to be initialized through [ConcurrentQueue::init_at]. Also
+        /// mutating or reading raw values from the buffer may result in
+        /// UB, because the ConcurrentQueue relies on internal safety mechanisms
+        /// to prevent UB due to shared mutable state.
         pub unsafe fn load_from(buffer: &[u8]) -> &Self {
             let obj = &*Self::buf_to_self(buffer);
 
@@ -147,7 +159,8 @@ pub mod concurrent_queue {
             debug_assert!(obj.first.load(Ordering::SeqCst) < obj.msg_capacity); // Check first idx
 
             // Also check if unsized data field is of correct size
-            // Note: obj_data may be longer than `obj.msg_size * obj.msg_capacity` due to alignment padding. To correct we call `Self::size`.
+            // Note: obj_data may be longer than `obj.msg_size * obj.msg_capacity` due to
+            // alignment padding. To correct we call `Self::size`.
             let obj_data = obj.data.get().as_ref().unwrap();
             debug_assert_eq!(
                 obj_data.len(),
@@ -157,7 +170,8 @@ pub mod concurrent_queue {
             obj
         }
 
-        /// Calculates the physical starting index of an element inside of the data array.
+        /// Calculates the physical starting index of an element inside of the
+        /// data array.
         fn to_physical_idx(&self, first: usize, idx: usize) -> usize {
             (first + idx) % self.msg_capacity * self.msg_size
         }
@@ -177,15 +191,17 @@ pub mod concurrent_queue {
             Some(msg)
         }
 
-        /// Pushes an element to the back of the queue. If there was space, a mutable reference to the inserted element is returned.
+        /// Pushes an element to the back of the queue. If there was space, a
+        /// mutable reference to the inserted element is returned.
         pub fn push(&self, data: &[u8]) -> Option<&mut [u8]> {
             assert_eq!(data.len(), self.msg_size);
 
             self.push_then(|entry| entry.copy_from_slice(data))
         }
 
-        /// Pushes an uninitialized element and then calls a closure to set its memory in-place.
-        /// If there was space, a mutable reference to the inserted element is returned.
+        /// Pushes an uninitialized element and then calls a closure to set its
+        /// memory in-place. If there was space, a mutable reference to
+        /// the inserted element is returned.
         pub fn push_then<F: FnOnce(&'_ mut [u8])>(&self, set_element: F) -> Option<&mut [u8]> {
             let current_len = self.len.load(Ordering::SeqCst);
             if current_len == self.msg_capacity {
@@ -208,9 +224,10 @@ pub mod concurrent_queue {
             self.pop_then(|entry| Vec::from(entry).into_boxed_slice())
         }
 
-        /// Calls a mapping closure on the first element that is about to be popped from the queue.
-        /// Only the return value of the closure is returned by this function.
-        /// If the popped element is needed as owned data, consider using [ConcurrentQueue::pop] instead.
+        /// Calls a mapping closure on the first element that is about to be
+        /// popped from the queue. Only the return value of the closure
+        /// is returned by this function. If the popped element is
+        /// needed as owned data, consider using [ConcurrentQueue::pop] instead.
         pub fn pop_then<F: FnOnce(&'_ [u8]) -> T, T>(&'_ self, map_element: F) -> Option<T> {
             // Decrement length
             self.len
@@ -246,6 +263,11 @@ pub mod concurrent_queue {
         /// Returns the current length of this queue
         pub fn len(&self) -> usize {
             self.len.load(Ordering::SeqCst)
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
         }
 
         pub fn clear(&self) {
@@ -320,7 +342,8 @@ impl<'a> SourceDatagram<'a> {
 
     fn push<'b>(&'b mut self, data: &'_ [u8], message_timestamp: Instant) -> Option<Message<'b>> {
         // We need to check if there is enough space left in the queue.
-        // This is important, because we could theoretically store twice the number of our queue size, because we use a separate source and destination queueu.
+        // This is important, because we could theoretically store twice the number of
+        // our queue size, because we use a separate source and destination queueu.
         // Thus we need to limit the number of messages in both queues at the same time.
         let queue_is_full = *self.num_messages_in_destination + self.message_queue.len()
             == self.message_queue.msg_capacity;
@@ -377,7 +400,8 @@ impl<'a> DestinationDatagram<'a> {
     }
 
     /// Takes a closure that maps the popped message to some type.
-    /// If there is a message in the queue, the resulting type and a flag whether the queue has overflowed is returned.
+    /// If there is a message in the queue, the resulting type and a flag
+    /// whether the queue has overflowed is returned.
     fn pop_then<F: FnOnce(Message<'_>) -> T, T>(&mut self, msg_mapper: F) -> Option<(T, bool)> {
         self.message_queue
             .pop_then(|entry| msg_mapper(Message::from_bytes(entry)))
@@ -396,9 +420,10 @@ impl<'a> DestinationDatagram<'a> {
 struct Message<'a> {
     len: &'a usize,
     timestamp: &'a Instant,
-    /// This data slice is always of the same size, controlled by the owning ConcurrentQueue.
-    /// That means, that only the first `self.len` bytes in it contain actual data.
-    /// Use [Message::get_data] to access just the contained bytes.
+    /// This data slice is always of the same size, controlled by the owning
+    /// ConcurrentQueue. That means, that only the first `self.len` bytes in
+    /// it contain actual data. Use [Message::get_data] to access just the
+    /// contained bytes.
     data: &'a [u8],
 }
 
@@ -586,8 +611,11 @@ impl Queuing {
         let mut destination_datagram =
             unsafe { DestinationDatagram::load_from(self.destination_sender.as_mut()) };
 
-        // If a clear was requested by the destination, we pop all messages from the source queue with a timestamp before the timestamp of the clear request.
-        // This is not actually needed for ARINC653 Part 4, as only one partition can run at a time and all messages are swapped to the destination buffer after every partition execution.
+        // If a clear was requested by the destination, we pop all messages from the
+        // source queue with a timestamp before the timestamp of the clear request.
+        // This is not actually needed for ARINC653 Part 4, as only one partition can
+        // run at a time and all messages are swapped to the destination buffer after
+        // every partition execution.
         if let Some(clear_requested_at) = mem::take(destination_datagram.clear_requested_timestamp)
         {
             while source_datagram.message_queue.peek_then(|msg| {
@@ -627,15 +655,17 @@ impl Queuing {
 pub struct QueuingSource(MmapMut);
 
 impl QueuingSource {
-    /// If the message was successfully enqueued, the number of bytes written is returned.
+    /// If the message was successfully enqueued, the number of bytes written is
+    /// returned.
     pub fn write(&mut self, data: &[u8], message_timestamp: Instant) -> Option<usize> {
         let mut datagram = unsafe { SourceDatagram::load_from(&mut self.0) };
 
         let res = datagram.push(data, message_timestamp).map(|msg| *msg.len);
 
         if res.is_some() {
-            // The standard states, that the receiver should only be able to detect whether the last message caused an overflow.
-            // Because we have now sent a message successfully, thus we can now reset this flag.
+            // The standard states, that the receiver should only be able to detect whether
+            // the last message caused an overflow. Because we have now sent a
+            // message successfully, thus we can now reset this flag.
             *datagram.has_overflowed = false;
         }
 
@@ -643,7 +673,7 @@ impl QueuingSource {
     }
 
     pub fn get_current_num_messages(&mut self) -> usize {
-        let mut datagram = unsafe { SourceDatagram::load_from(&mut self.0) };
+        let datagram = unsafe { SourceDatagram::load_from(&mut self.0) };
 
         datagram.message_queue.len() + *datagram.num_messages_in_destination
     }
@@ -660,8 +690,9 @@ impl TryFrom<RawFd> for QueuingSource {
 }
 
 impl QueuingDestination {
-    /// Reads the current message from the queue into a buffer and increments the current read index.
-    /// If a message was successfully read, the number of bytes read and whether the queue has overflowed.
+    /// Reads the current message from the queue into a buffer and increments
+    /// the current read index. If a message was successfully read, the
+    /// number of bytes read and whether the queue has overflowed.
     pub fn read(&mut self, buffer: &mut [u8]) -> Option<(usize, bool)> {
         let mut datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
 
@@ -677,12 +708,12 @@ impl QueuingDestination {
     }
 
     pub fn get_current_num_messages(&mut self) -> usize {
-        let mut datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
+        let datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
         datagram.message_queue.len() + *datagram.num_messages_in_source
     }
 
     pub fn clear(&mut self, current_time: Instant) {
-        let mut datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
+        let datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
         datagram.message_queue.clear();
         *datagram.clear_requested_timestamp = Some(current_time);
     }

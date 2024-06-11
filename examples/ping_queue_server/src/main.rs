@@ -13,8 +13,6 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_queue_server {
-    use a653rs::bindings::ErrorReturnCode;
-    use core::time::Duration;
     use log::{info, warn};
 
     #[queuing_in(
@@ -74,7 +72,7 @@ mod ping_queue_server {
                 .unwrap()
                 .receive(&mut buf, SystemTime::Infinite)
             {
-                Ok((bytes, false)) => {
+                Ok((_bytes, false)) => {
                     // `ctx.get_time()` returns a [SystemTime], which might be `Infinite`, or just a
                     // normal time. Thus we have to check that indeed a normal time was returned.
                     let SystemTime::Normal(time) = ctx.get_time() else {

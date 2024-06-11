@@ -221,17 +221,11 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
             if max_message_size != q.msg_size as MessageSize {
                 trace!("yielding InvalidConfig, because the queuing port max message size ({}) mismatches the configuration table value ({})", max_message_size, q.msg_size);
                 return Err(ErrorReturnCode::InvalidConfig);
-            } else if max_message_size <= 0 {
-                trace!("yielding InvalidConfig, because the queuing port max message size ({}) has to be larger than 0", max_message_size);
-                return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check max number of messages
             if max_nb_message != q.max_num_msg as MessageRange {
                 trace!("yielding InvalidConfig, because the queuing port max number of messages ({}) mismatches the configuration table value ({})", max_nb_message, q.max_num_msg);
-                return Err(ErrorReturnCode::InvalidConfig);
-            } else if max_nb_message <= 0 {
-                trace!("yielding InvalidConfig, because the queuing port max number of messages ({}) has to be larger than 0", max_nb_message);
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
@@ -333,7 +327,7 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
             .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API
                                                     // does not allow
 
-        return Ok((msg_len as MessageSize, has_overflowed as QueueOverflow));
+        Ok((msg_len as MessageSize, has_overflowed as QueueOverflow))
     }
 
     fn get_queuing_port_status(

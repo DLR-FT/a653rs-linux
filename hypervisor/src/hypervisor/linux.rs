@@ -89,7 +89,7 @@ impl Hypervisor {
     fn add_channel(&mut self, channel: Channel) -> LeveledResult<()> {
         match channel {
             Channel::Queuing(q) => {
-                if self.queuing_channel.contains_key(&q.name().to_string()) {
+                if self.queuing_channel.contains_key(q.name()) {
                     return Err(anyhow!("Queuing Channel \"{}\" already exists", q.name()))
                         .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
                 }
@@ -97,7 +97,7 @@ impl Hypervisor {
                 self.queuing_channel.insert(queuing.name(), queuing);
             }
             Channel::Sampling(s) => {
-                if self.sampling_channel.contains_key(&s.name().to_string()) {
+                if self.sampling_channel.contains_key(s.name()) {
                     return Err(anyhow!("Sampling Channel \"{}\" already exists", s.name()))
                         .lev_typ(SystemError::PartitionConfig, ErrorLevel::ModuleInit);
                 }
