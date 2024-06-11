@@ -8,7 +8,7 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 
 use anyhow::Result;
 use nix::libc::EINTR;
-use nix::sys::eventfd::{self, EfdFlags};
+use nix::sys::eventfd::EventFd;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
 use polling::{Event, Events, Poller};
 
@@ -57,7 +57,7 @@ fn execute_fd(fd: BorrowedFd, request: SyscallRequest) -> Result<SyscallResponse
     // Create the file descriptor triple
     let mut request_fd = Mfd::create("requ")?;
     let mut response_fd = Mfd::create("resp")?;
-    let event_fd = eventfd::eventfd(0, EfdFlags::empty())?;
+    let event_fd = EventFd::new()?;
 
     // Initialize the request file descriptor
     request_fd.write(&request.serialize()?)?;
@@ -129,7 +129,7 @@ mod tests {
             )
             .unwrap();
 
-            let fds: Vec<OwnedFd> = match res.cmsgs().next().unwrap() {
+            let fds: Vec<OwnedFd> = match res.cmsgs().unwrap().next().unwrap() {
                 ControlMessageOwned::ScmRights(fds) => fds
                     .into_iter()
                     .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
@@ -161,7 +161,7 @@ mod tests {
 
             // Trigger the eventfd
             let buf = 1_u64.to_ne_bytes();
-            unistd::write(event_fd.as_raw_fd(), &buf).unwrap();
+            unistd::write(event_fd, &buf).unwrap();
         });
 
         request_thread.join().unwrap();

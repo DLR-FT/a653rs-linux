@@ -234,7 +234,9 @@ where
         let io_fd = self.socket.as_raw_fd();
         match recvmsg::<()>(io_fd, &mut iov, Some(&mut cmsg), MsgFlags::MSG_DONTWAIT) {
             Ok(msg) => {
-                if let Some(ControlMessageOwned::ScmRights(fds)) = msg.cmsgs().next() {
+                if let Some(ControlMessageOwned::ScmRights(fds)) =
+                    msg.cmsgs().typ(SystemError::Panic)?.next()
+                {
                     if let &[raw_fd] = fds.as_slice() {
                         let sock = unsafe { T::from_raw_fd(raw_fd) };
                         return Ok(Some(sock));
