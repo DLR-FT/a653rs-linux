@@ -147,6 +147,12 @@ pub struct Partition {
 
     #[serde(default)]
     pub sockets: Vec<PosixSocket>,
+
+    #[serde(default)]
+    pub stdout: Option<PathBuf>,
+
+    #[serde(default)]
+    pub stderr: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
