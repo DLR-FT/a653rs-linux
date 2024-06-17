@@ -186,6 +186,7 @@ pub struct SyscallRequest {
 
 #[derive(Debug, PartialEq)]
 pub struct SyscallResponse {
+    // TODO is redundancy necessary here?
     pub id: ApexSyscall,
     pub status: u64,
 }
