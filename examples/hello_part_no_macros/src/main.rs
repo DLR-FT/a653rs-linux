@@ -37,8 +37,8 @@ pub struct HelloPartition;
 // Ports are initialized in in the {cold,warm}_start functions, but are used in
 // the processes. We us static variables to pass them over. However, `static
 // mut` requires `unsafe`, hence we use a `OnceCell`.
-static SOURCE_PORT: OnceCell<SamplingPortSource<10_000, Hypervisor>> = OnceCell::new();
-static DESTINATION_PORT: OnceCell<SamplingPortDestination<10_000, Hypervisor>> = OnceCell::new();
+static SOURCE_PORT: OnceCell<SamplingPortSource<Hypervisor>> = OnceCell::new();
+static DESTINATION_PORT: OnceCell<SamplingPortDestination<Hypervisor>> = OnceCell::new();
 
 // Implements the Partition trait for the given hypervisor, a653rs-linux in this
 // case
@@ -52,13 +52,13 @@ impl a653rs::prelude::Partition<Hypervisor> for HelloPartition {
             // create port name (which can fail if the string is too long)
             let port_name = Name::from_str("Hello").unwrap();
             // create port (which can fail if the port is not configured on the hypervisor)
-            let port = ctx.create_sampling_port_source(port_name).unwrap();
+            let port = ctx.create_sampling_port_source(port_name, 10_000).unwrap();
             // store port in static var for later retrieval by the processes
             SOURCE_PORT.set(port).unwrap();
         } else if ident == 1 {
             let port_name = Name::from_str("Hello").unwrap();
             let port = ctx
-                .create_sampling_port_destination(port_name, Duration::from_secs(1_000))
+                .create_sampling_port_destination(port_name, 10_000, Duration::from_secs(1_000))
                 .unwrap();
             DESTINATION_PORT.set(port).unwrap();
         }

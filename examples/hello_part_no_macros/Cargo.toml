@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 a653rs = { workspace = true }
-a653rs-postcard = { git = "https://github.com/DLR-FT/a653rs-postcard.git", branch = "main" }
+a653rs-postcard = { version = "0.4", features = ["alloc"] }
 a653rs-linux = { path = "../../partition" }
 once_cell.workspace = true
 serde = "1.0"
