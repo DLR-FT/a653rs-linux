@@ -34,12 +34,12 @@
 
         rust-toolchain = with fenix;
           combine [
-            latest.rustc
-            latest.cargo
-            latest.clippy
+            stable.rustc
+            stable.cargo
+            stable.clippy
             latest.rustfmt
-            targets.${rust-target}.latest.rust-std
-            targets.thumbv6m-none-eabi.latest.rust-std # for no_std test
+            targets.${rust-target}.stable.rust-std
+            targets.thumbv6m-none-eabi.stable.rust-std # for no_std test
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above
