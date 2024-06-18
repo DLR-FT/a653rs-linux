@@ -21,7 +21,8 @@ polling.workspace = true
 itertools.workspace = true
 once_cell.workspace = true
 bytesize.workspace = true
-anyhow = "1.0"
+anyhow.workspace = true
+
 tempfile = "3.3"
 clone3 = "0.2"
 serde = { version = "1.0", features = ["derive"] }

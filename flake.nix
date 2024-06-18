@@ -72,6 +72,14 @@
             partitions = [ "hello_part_no_macros" ];
           }
           {
+            name = "redirect_stdio";
+            partitions = [ "redirect_stdio" ];
+            preRun = ''
+              touch $PRJ_ROOT/std{out,err}
+              echo $'hello\nworld!\n' > $PRJ_ROOT/stdin
+            '';
+          }
+          {
             name = "fuel_tank";
             partitions = [ "fuel_tank_simulation" "fuel_tank_controller" ];
           }
@@ -103,7 +111,7 @@
               cargoTestOptions = x: x ++ [ "--package" pname ];
             } // env;
         } // (builtins.listToAttrs (builtins.map
-          ({ name, partitions }: {
+          ({ name, partitions, ... }: {
             name = "example-${name}";
             value = naersk-lib.buildPackage
               rec {
@@ -181,7 +189,7 @@
               inherit (nixpkgs.lib) flatten;
             in
             flatten (map
-              ({ name, partitions }: [
+              ({ name, partitions, preRun ? "" }: [
                 {
                   name = "run-example-${name}";
                   command = ''
@@ -192,8 +200,10 @@
                     # prepend PATH so that partition images can be found
                     PATH="target/${rust-target}/release:$PATH"
 
+                    ${preRun}
+
                     # (build &) run hypervisor
-                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}/${name}.yaml $@
+                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- "examples/${name}/${name}.yaml" $@
                   '';
                   help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
                   category = "example";

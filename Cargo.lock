@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "a653rs-linux-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "a653rs",
  "anyhow",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "a653rs-linux-hypervisor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "a653rs",
  "a653rs-linux-core",
@@ -555,10 +555,6 @@ dependencies = [
  "a653rs-postcard",
  "humantime",
  "log",
- "memmap2",
- "nix",
- "once_cell",
- "procfs",
  "serde",
 ]
 
@@ -1062,6 +1058,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "redirect_stdio"
+version = "0.1.0"
+dependencies = [
+ "a653rs",
+ "a653rs-linux",
+ "anyhow",
+ "log",
+ "nix",
 ]
 
 [[package]]
