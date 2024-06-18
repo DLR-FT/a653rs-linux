@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 a653rs = { workspace = true, features = ["macros"] }
-a653rs-linux = { path = "../../partition" }
+a653rs-linux.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 procfs.workspace = true
 nix.workspace = true

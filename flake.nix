@@ -193,7 +193,7 @@
                     PATH="target/${rust-target}/release:$PATH"
 
                     # (build &) run hypervisor
-                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}.yaml $@
+                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- examples/${name}/${name}.yaml $@
                   '';
                   help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
                   category = "example";

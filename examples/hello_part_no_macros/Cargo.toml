@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 a653rs = { workspace = true }
 a653rs-postcard = { version = "0.4", features = ["alloc"] }
-a653rs-linux = { path = "../../partition" }
+a653rs-linux.workspace = true
 once_cell.workspace = true
 serde = "1.0"
 log = "0"
