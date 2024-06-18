@@ -18,6 +18,7 @@ jobs:
           - ping
           - dev_random
           - ping_queue
+          - redirect_stdio
     env:
       DURATION: 10s
       RUST_LOG: trace
