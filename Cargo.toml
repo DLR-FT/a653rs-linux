@@ -9,20 +9,21 @@ members = [
     "examples/hello_part",
     "examples/hello_part_no_macros",
 
-    "examples/fuel_tank_simulation",
-    "examples/fuel_tank_controller",
+    "examples/fuel_tank/simulation",
+    "examples/fuel_tank/controller",
 
-    "examples/ping_client",
-    "examples/ping_server",
+    "examples/ping/client",
+    "examples/ping/server",
 
     "examples/dev_random",
 
-    "examples/ping_queue_client",
-    "examples/ping_queue_server",
+    "examples/ping_queue/client",
+    "examples/ping_queue/server",
 ]
 
 [workspace.dependencies]
 a653rs = "0.6"
+a653rs-linux.path = "partition"
 log = "0"
 nix = { version = "0.29", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
 memmap2 = "0.9"

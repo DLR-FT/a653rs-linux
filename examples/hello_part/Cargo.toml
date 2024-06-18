@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 a653rs = { workspace = true, features = ["macros"] }
 a653rs-postcard = { version = "0.4", features = ["alloc"] }
-a653rs-linux = { path = "../../partition" }
+a653rs-linux.workspace = true
 nix.workspace = true
 memmap2.workspace = true
 procfs.workspace = true

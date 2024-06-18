@@ -1,5 +1,5 @@
 [package]
-name = "ping_queue_client"
+name = "ping_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 a653rs = { workspace = true, features = ["macros"] }
-a653rs-linux = { path = "../../partition" }
+a653rs-linux.workspace = true
 log.workspace = true
