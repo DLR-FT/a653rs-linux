@@ -2,3 +2,8 @@
 .direnv/
 .vscode/
 result
+
+# For the redirect_stdio example
+stdin
+stdout
+stderr

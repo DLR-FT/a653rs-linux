@@ -19,8 +19,8 @@ memmap2.workspace = true
 procfs.workspace = true
 polling.workspace = true
 itertools.workspace = true
+anyhow.workspace = true
 
-anyhow = "1.0"
 log = "0"
 walkdir = "2.3"
 serde = { version = "1.0", features = ["derive"] }
