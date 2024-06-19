@@ -24,7 +24,7 @@ members = [
 [workspace.dependencies]
 a653rs = "0.6"
 a653rs-linux = { version = "0.2", path = "partition" }
-a653rs-linux-core = { version = "0.1", path = "core" }
+a653rs-linux-core = { version = "0.2", path = "core" }
 log = "0"
 nix = { version = "0.29", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
 memmap2 = "0.9"
