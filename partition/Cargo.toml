@@ -12,7 +12,7 @@ socket = []
 
 [dependencies]
 a653rs.workspace = true
-a653rs-linux-core = { path = "../core" }
+a653rs-linux-core.workspace = true
 nix.workspace = true
 memmap2.workspace = true
 procfs.workspace = true
