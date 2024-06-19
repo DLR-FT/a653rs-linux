@@ -1,8 +1,13 @@
 [package]
 name = "a653rs-linux-core"
 version = "0.2.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+description = "Core Library for a653rs-linux hypervisor and partition library"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
