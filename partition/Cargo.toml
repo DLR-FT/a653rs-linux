@@ -1,8 +1,14 @@
 [package]
 name = "a653rs-linux"
 version = "0.2.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+description = "a653rs partition library for a653rs-linux hypervisor"
+
 
 [features]
 # Enables support for TCP and UDP sockets in partitions

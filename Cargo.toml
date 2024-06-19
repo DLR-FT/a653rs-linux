@@ -21,6 +21,19 @@ members = [
     "examples/ping_queue/server",
 ]
 
+[workspace.package]
+edition = "2021"
+authors = ["Sven Friedrich <sven.friedrich@dlr.de>"]
+license = "MIT OR Apache-2.0"
+keywords = [
+  "arinc",
+  "avionics",
+]
+categories = [
+  "aerospace", 
+]
+repository = "https://github.com/DLR-FT/a653rs-linux/"
+
 [workspace.dependencies]
 a653rs = "0.6"
 a653rs-linux = { version = "0.2", path = "partition" }
