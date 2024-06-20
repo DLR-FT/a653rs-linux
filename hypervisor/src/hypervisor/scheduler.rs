@@ -72,6 +72,12 @@ impl<'a> PartitionTimeframeScheduler<'a> {
             return Ok(());
         }
 
+        if let OperatingMode::Idle = self.partition.get_base_run().1.mode() {
+            trace!("Partition is IDLE, waiting till the end of the partition time window");
+            std::thread::sleep(self.timeout.remaining_time());
+            return Ok(());
+        }
+
         // If we are in the normal mode at the beginning of the time frame,
         // only then we may schedule the periodic process inside a partition
         if let OperatingMode::Normal = self.partition.get_base_run().1.mode() {
