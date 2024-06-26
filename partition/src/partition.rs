@@ -40,7 +40,7 @@ impl ApexLinuxPartition {
     #[cfg(feature = "socket")]
     pub fn get_tcp_stream(sockaddr: &str) -> Result<Option<TcpStream>, ApexLinuxError> {
         for stored in TCP_SOCKETS.iter() {
-            if stored.local_addr()?.to_string() == sockaddr {
+            if stored.peer_addr()?.to_string() == sockaddr {
                 let socket = stored.try_clone()?;
                 return Ok(Some(socket));
             }

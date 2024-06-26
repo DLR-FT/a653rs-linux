@@ -223,7 +223,8 @@ impl Run {
                     start_condition: condition,
                     start_time_fd: sys_time.as_raw_fd(),
                     partition_mode_fd: mode_file.as_raw_fd(),
-                    io_fd: udp_io_rx.as_raw_fd(),
+                    udp_io_fd: udp_io_rx.as_raw_fd(),
+                    tcp_io_fd: tcp_io_rx.as_raw_fd(),
                     sampling: base
                         .sampling_channel
                         .clone()
