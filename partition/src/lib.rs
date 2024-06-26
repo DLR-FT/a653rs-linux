@@ -86,11 +86,11 @@ pub(crate) static SENDER: Lazy<IpcSender<PartitionCall>> =
 
 #[cfg(feature = "socket")]
 pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =
-    Lazy::new(|| unsafe { IoReceiver::<UdpSocket>::from_raw_fd(CONSTANTS.io_fd) });
+    Lazy::new(|| unsafe { IoReceiver::<UdpSocket>::from_raw_fd(CONSTANTS.udp_io_fd) });
 
 #[cfg(feature = "socket")]
 pub(crate) static TCP_IO_RX: Lazy<IoReceiver<TcpStream>> =
-    Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.io_fd) });
+    Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.tcp_io_fd) });
 
 pub(crate) static SYSCALL: Lazy<OwnedFd> = Lazy::new(|| {
     let syscall_socket = socket::socket(
