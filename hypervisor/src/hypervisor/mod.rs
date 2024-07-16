@@ -115,80 +115,11 @@ impl Hypervisor {
         Ok(())
     }
 
-    // pub fn run(mut self) -> LeveledResult<()> {
-    //     self.cg
-    //         .mv_proc(nix::unistd::getpid())
-    //         .typ(SystemError::CGroup)
-    //         .lev(ErrorLevel::ModuleInit)?;
-
-    //     //for p in self.partitions.values_mut() {
-    //     //    let part = &self.config.partitions[p.id() - 1];
-    //     //    //let args = PartitionStartArgs {
-    //     //    //    condition: StartCondition::NormalStart,
-    //     //    //    duration: part.duration,
-    //     //    //    period: part.period,
-    //     //    //    warm_start: false,
-    //     //    //};
-    //     //
-    //     //    p.init().unwrap();
-    //     //}
-
-    //     let mut frame_start = Instant::now();
-
-    //     // retain the first frame start as our sytems t0
-    //     if self.t0.is_none() {
-    //         self.t0 = Some(frame_start);
-    //     }
-
-    //     let sys_time = SYSTEM_START_TIME
-    //         .get()
-    //         .ok_or_else(|| anyhow!("SystemTime was not set"))
-    //         .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
-    //     sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
-    //     sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
-    //     loop {
-    //         // if we are not ment to execute any longer, terminate here
-    //         match self.terminate_after {
-    //             Some(terminate_after) if frame_start - self.t0.unwrap() >
-    // terminate_after => {                 info!(
-    // "quitting, as a run-time of {} was reached",
-    // humantime::Duration::from(terminate_after)                 );
-    //                 quit::with_code(0)
-    //             }
-    //             _ => {}
-    //         }
-
-    //         for (target_start, target_stop, partition_name) in &self.schedule {
-    //             sleep(target_start.saturating_sub(frame_start.elapsed()));
-
-    //             self.partitions.get_mut(partition_name).unwrap().run(
-    //                 &mut self.sampling_channel,
-    //                 &mut self.queuing_channel,
-    //                 Timeout::new(frame_start, *target_stop),
-    //             )?;
-    //         }
-    //         sleep(self.major_frame.saturating_sub(frame_start.elapsed()));
-
-    //         frame_start += self.major_frame;
-    //     }
-    // }
     pub fn run(mut self) -> LeveledResult<()> {
         self.cg
             .mv_proc(nix::unistd::getpid())
             .typ(SystemError::CGroup)
             .lev(ErrorLevel::ModuleInit)?;
-
-        //for p in self.partitions.values_mut() {
-        //    let part = &self.config.partitions[p.id() - 1];
-        //    //let args = PartitionStartArgs {
-        //    //    condition: StartCondition::NormalStart,
-        //    //    duration: part.duration,
-        //    //    period: part.period,
-        //    //    warm_start: false,
-        //    //};
-        //
-        //    p.init().unwrap();
-        //}
 
         let mut frame_start = Instant::now();
 
