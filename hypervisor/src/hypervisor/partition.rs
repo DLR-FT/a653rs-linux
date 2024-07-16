@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use super::config::PosixSocket;
 use super::scheduler::Timeout;
 use crate::hypervisor::config::Partition as PartitionConfig;
-use crate::hypervisor::linux::SYSTEM_START_TIME;
+use crate::hypervisor::SYSTEM_START_TIME;
 use crate::problem;
 
 use a653rs::bindings::{PartitionId, PortDirection};
