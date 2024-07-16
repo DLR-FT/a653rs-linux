@@ -6,14 +6,13 @@ use std::io::IoSlice;
 use std::num::NonZeroUsize;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 
+use a653rs_linux_core::mfd::{Mfd, Seals};
+use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 use anyhow::Result;
 use nix::libc::EINTR;
 use nix::sys::eventfd::EventFd;
 use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
 use polling::{Event, Events, Poller};
-
-use a653rs_linux_core::mfd::{Mfd, Seals};
-use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 
 use crate::SYSCALL;
 
@@ -85,12 +84,11 @@ mod tests {
     use std::io::IoSliceMut;
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
+    use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::socket::{
         recvmsg, socketpair, AddressFamily, ControlMessageOwned, SockFlag, SockType,
     };
     use nix::{cmsg_space, unistd};
-
-    use a653rs_linux_core::syscall::ApexSyscall;
 
     use super::*;
 

@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 use std::mem;
 use std::mem::size_of;
-use std::os::fd::RawFd;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::ptr::slice_from_raw_parts;
 use std::time::Instant;
 

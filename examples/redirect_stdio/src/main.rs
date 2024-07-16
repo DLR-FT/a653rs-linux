@@ -31,8 +31,9 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod redirect_stdio {
-    use log::info;
     use std::io::BufRead;
+
+    use log::info;
 
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {
