@@ -4,15 +4,14 @@ use std::thread::Builder;
 
 use a653rs::bindings::*;
 use a653rs::prelude::{ProcessAttribute, SystemTime};
-use anyhow::anyhow;
-use nix::unistd::{gettid, Pid};
-
 use a653rs_linux_core::cgroup;
 use a653rs_linux_core::cgroup::CGroup;
 use a653rs_linux_core::error::{
     ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResult, TypedResultExt,
 };
 use a653rs_linux_core::partition::PartitionConstants;
+use anyhow::anyhow;
+use nix::unistd::{gettid, Pid};
 
 use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
 

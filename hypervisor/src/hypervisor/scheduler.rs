@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use a653rs::bindings::PartitionId;
 use a653rs::prelude::OperatingMode;
-
 use a653rs_linux_core::error::{LeveledResult, TypedResult};
 use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;

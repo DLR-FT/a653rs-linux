@@ -1,5 +1,4 @@
 use std::cmp::min;
-
 #[cfg(feature = "socket")]
 use std::{
     fmt::Display,
@@ -13,7 +12,6 @@ use a653rs_linux_core::health_event::PartitionCall;
 use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
 
 use crate::{CONSTANTS, SENDER};
-
 #[cfg(feature = "socket")]
 use crate::{TCP_SOCKETS, UDP_SOCKETS};
 

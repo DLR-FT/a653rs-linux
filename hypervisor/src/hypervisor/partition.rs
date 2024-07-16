@@ -7,12 +7,6 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use super::config::PosixSocket;
-use super::scheduler::Timeout;
-use crate::hypervisor::config::Partition as PartitionConfig;
-use crate::hypervisor::SYSTEM_START_TIME;
-use crate::problem;
-
 use a653rs::bindings::{PartitionId, PortDirection};
 use a653rs::prelude::{OperatingMode, StartCondition};
 use a653rs_linux_core::cgroup::{self, CGroup};
@@ -36,6 +30,12 @@ use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Ui
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
+
+use super::config::PosixSocket;
+use super::scheduler::Timeout;
+use crate::hypervisor::config::Partition as PartitionConfig;
+use crate::hypervisor::SYSTEM_START_TIME;
+use crate::problem;
 
 mod mounting;
 

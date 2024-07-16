@@ -11,9 +11,11 @@
 //!     This makes misuse of the API (as in attempting to create a port/process
 //!     during `NORMAL`) impossible.
 
-use core::{str::FromStr, time::Duration};
+use core::str::FromStr;
+use core::time::Duration;
 
-use a653rs::{bindings::ApexPartitionP4, prelude::*};
+use a653rs::bindings::ApexPartitionP4;
+use a653rs::prelude::*;
 use a653rs_linux::partition::ApexLogger;
 use a653rs_postcard::sampling::{SamplingPortDestinationExt, SamplingPortSourceExt};
 use humantime::format_duration;

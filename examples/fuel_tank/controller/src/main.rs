@@ -2,9 +2,8 @@
 
 use a653rs::partition;
 use a653rs::prelude::PartitionExt;
-use log::LevelFilter;
-
 use a653rs_linux::partition::ApexLogger;
+use log::LevelFilter;
 
 fn main() {
     ApexLogger::install_panic_hook();

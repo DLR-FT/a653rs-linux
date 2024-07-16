@@ -5,14 +5,13 @@ use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
+use a653rs_linux_core::mfd::{Mfd, Seals};
+use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 use anyhow::{anyhow, bail, Result};
 use libc::EINTR;
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
 use polling::{Event, Events, Poller};
-
-use a653rs_linux_core::mfd::{Mfd, Seals};
-use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
@@ -110,12 +109,11 @@ mod tests {
     use std::io::IoSlice;
     use std::os::fd::{AsFd, AsRawFd};
 
+    use a653rs_linux_core::syscall::ApexSyscall;
     use nix::sys::eventfd::EventFd;
     use nix::sys::socket::{
         sendmsg, socketpair, AddressFamily, ControlMessage, SockFlag, SockType,
     };
-
-    use a653rs_linux_core::syscall::ApexSyscall;
 
     use super::*;
 
