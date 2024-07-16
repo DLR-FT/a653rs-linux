@@ -1,9 +1,7 @@
 //! Implementation of a memory fd
 
-use std::{
-    io::{Read, Seek, SeekFrom, Write},
-    os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
-};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
 use anyhow::{bail, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};

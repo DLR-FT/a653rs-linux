@@ -1,9 +1,8 @@
 #[macro_use]
 extern crate log;
 
-use log::LevelFilter;
-
 use a653rs_linux_hypervisor::run_hypervisor;
+use log::LevelFilter;
 
 /// Helper to print top-level errors through [log::error]
 #[quit::main]

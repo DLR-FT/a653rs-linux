@@ -3,11 +3,10 @@ use std::thread::sleep;
 
 use a653rs::bindings::*;
 use a653rs::prelude::{Name, SystemTime};
-use nix::libc::EAGAIN;
-
 use a653rs_linux_core::error::SystemError;
 use a653rs_linux_core::queuing::{QueuingDestination, QueuingSource};
 use a653rs_linux_core::sampling::{SamplingDestination, SamplingSource};
+use nix::libc::EAGAIN;
 
 use crate::partition::ApexLinuxPartition;
 use crate::process::Process as LinuxProcess;

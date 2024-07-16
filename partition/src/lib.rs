@@ -12,10 +12,6 @@ extern crate log;
 use std::net::{TcpStream, UdpSocket};
 #[cfg(feature = "socket")]
 use std::os::fd::FromRawFd;
-
-#[cfg(feature = "socket")]
-use a653rs_linux_core::ipc::IoReceiver;
-
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,6 +19,8 @@ use std::time::{Duration, Instant};
 use a653rs::prelude::OperatingMode;
 use a653rs_linux_core::file::{get_memfd, TempFile};
 use a653rs_linux_core::health_event::PartitionCall;
+#[cfg(feature = "socket")]
+use a653rs_linux_core::ipc::IoReceiver;
 use a653rs_linux_core::ipc::{self, IpcSender};
 use a653rs_linux_core::partition::*;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;

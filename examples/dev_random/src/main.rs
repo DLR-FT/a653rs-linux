@@ -12,8 +12,10 @@ fn main() {
 
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod dev_random {
+    use std::fs::*;
+    use std::io::Read;
+
     use log::info;
-    use std::{fs::*, io::Read};
 
     #[start(cold)]
     fn cold_start(mut ctx: start::Context) {

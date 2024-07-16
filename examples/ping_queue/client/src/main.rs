@@ -1,8 +1,7 @@
 use a653rs::partition;
 use a653rs::prelude::PartitionExt;
-use log::LevelFilter;
-
 use a653rs_linux::partition::ApexLogger;
+use log::LevelFilter;
 
 fn main() {
     ApexLogger::install_panic_hook();
@@ -14,6 +13,7 @@ fn main() {
 #[partition(a653rs_linux::partition::ApexLinuxPartition)]
 mod ping_queue_client {
     use core::time::Duration;
+
     use log::{info, warn};
 
     #[queuing_out(
