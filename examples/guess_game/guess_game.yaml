@@ -1,0 +1,36 @@
+major_frame: 1s
+partitions:
+  - id: 0
+    name: guess_game_server
+    duration: 500ms
+    offset: 0ms
+    period: 1s
+    image: ./target/x86_64-unknown-linux-musl/release/guess_game_server
+  - id: 1
+    name: guess_game_client
+    duration: 500ms
+    offset: 500ms
+    period: 1s
+    image: ./target/x86_64-unknown-linux-musl/release/guess_game_client
+    mounts:
+      - [ ./stdin, /stdin ]
+      - [ ./stdout, /stdout ]
+channel:
+  - !Queuing
+    msg_size: 4B
+    msg_num: 1
+    source:
+      partition: guess_game_client
+      port: req_src # request source
+    destination:
+      partition: guess_game_server
+      port: req_dest # request destination
+  - !Queuing
+    msg_size: 1B
+    msg_num: 1
+    source:
+      partition: guess_game_server
+      port: resp_src # response source
+    destination:
+      partition: guess_game_client
+      port: resp_dest # response destination

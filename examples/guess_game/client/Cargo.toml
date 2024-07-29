@@ -1,0 +1,11 @@
+[package]
+name = "guess_game_client"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+a653rs = { workspace = true, features = ["macros"] }
+a653rs-linux.workspace = true
+log.workspace = true
+nix.workspace = true
+anyhow.workspace = true

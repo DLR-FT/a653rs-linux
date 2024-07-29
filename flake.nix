@@ -95,6 +95,10 @@
             name = "ping_queue";
             partitions = [ "ping_queue_server" "ping_queue_client" ];
           }
+          {
+            name = "guess_game";
+            partitions = [ "guess_game_server" "guess_game_client" ];
+          }
         ];
 
         cargoPackageList = ps: builtins.map (p: "--package=${p}") ps;

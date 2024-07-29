@@ -20,7 +20,10 @@ members = [
 
     "examples/dev_random",
 
-    "examples/redirect_stdio"
+    "examples/redirect_stdio", 
+    
+    "examples/guess_game/server",
+    "examples/guess_game/client"
 ]
 
 [workspace.package]
