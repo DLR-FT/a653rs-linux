@@ -8,29 +8,9 @@ use std::{mem, ptr};
 /// created inside a buffer of type `&[u8]` via [ConcurrentQueue::init_at].
 /// The required buffer size can be requested in advance via
 /// [ConcurrentQueue::size] by providing the size and maximum number of
-/// entries. # Example
-/// ```
-/// # use a653rs_linux_core::queuing::queue::ConcurrentQueue;
-/// // Create a ConcurrentQueue inside of a Vec<u8> buffer object
-/// let required_size = ConcurrentQueue::size(1, 4);
-/// let mut  buffer = vec![0u8; required_size];
-/// ConcurrentQueue::init_at(&mut buffer, 1, 4);
-/// let queue1 = unsafe { ConcurrentQueue::load_from(&buffer) };
-/// let queue2 = unsafe { ConcurrentQueue::load_from(&buffer) };
+/// entries.
 ///
-/// // Let's push some values in the queue
-/// assert!(queue1.push(&[1]).is_some());
-/// assert!(queue2.push(&[2]).is_some());
-///
-/// // Now pop them using the Fifo method
-/// assert_eq!(queue2.pop().unwrap()[0], 1);
-/// assert_eq!(queue1.pop().unwrap()[0], 2);
-///
-/// // When the queue is empty, pop will return None
-/// assert_eq!(queue1.pop(), None);
-/// assert_eq!(queue2.pop(), None);
-/// ```
-#[repr(C)]
+/// See [tests] for examples
 pub struct ConcurrentQueue {
     pub msg_size: usize,
     pub msg_capacity: usize,
@@ -158,21 +138,6 @@ impl ConcurrentQueue {
         (first + idx) % self.msg_capacity * self.msg_size
     }
 
-    /// Gets an element from the queue at a specific index
-    pub fn get(&self, idx: usize) -> Option<&[u8]> {
-        assert!(idx < self.msg_capacity);
-
-        let current_len = self.len.load(Ordering::SeqCst);
-        if idx > current_len {
-            return None;
-        }
-
-        let idx = self.to_physical_idx(self.first.load(Ordering::SeqCst), idx);
-
-        let msg = &unsafe { self.data.get().as_mut().unwrap() }[idx..(idx + self.msg_size)];
-        Some(msg)
-    }
-
     /// Pushes an element to the back of the queue. If there was space, a
     /// mutable reference to the inserted element is returned.
     pub fn push(&self, data: &[u8]) -> Option<&mut [u8]> {
@@ -202,6 +167,7 @@ impl ConcurrentQueue {
     }
 
     /// Tries to pop an element from the front of the queue.
+    #[allow(unused)]
     pub fn pop(&self) -> Option<Box<[u8]>> {
         self.pop_then(|entry| Vec::from(entry).into_boxed_slice())
     }
@@ -245,11 +211,6 @@ impl ConcurrentQueue {
     /// Returns the current length of this queue
     pub fn len(&self) -> usize {
         self.len.load(Ordering::SeqCst)
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     pub fn clear(&self) {
