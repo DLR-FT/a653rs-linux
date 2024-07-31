@@ -83,7 +83,7 @@ mod tests {
     use std::io::IoSliceMut;
     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 
-    use a653rs_linux_core::syscall::ApexSyscall;
+    use a653rs_linux_core::syscall::SyscallType;
     use nix::sys::socket::{
         recvmsg, socketpair, AddressFamily, ControlMessageOwned, SockFlag, SockType,
     };
@@ -105,13 +105,13 @@ mod tests {
             let response = execute_fd(
                 requester.as_fd(),
                 SyscallRequest {
-                    id: ApexSyscall::Start,
+                    id: SyscallType::Start,
                     params: vec![1, 2, 42],
                 },
             )
             .unwrap();
 
-            assert_eq!(response.id, ApexSyscall::Start);
+            assert_eq!(response.id, SyscallType::Start);
             assert_eq!(response.status, 42);
         });
         let response_thread = std::thread::spawn(move || {
@@ -141,14 +141,14 @@ mod tests {
 
             // Fetch the request
             let request = SyscallRequest::deserialize(&request_fd.read_all().unwrap()).unwrap();
-            assert_eq!(request.id, ApexSyscall::Start);
+            assert_eq!(request.id, SyscallType::Start);
             assert_eq!(request.params, vec![1, 2, 42]);
 
             // Write the response
             response_fd
                 .write(
                     &SyscallResponse {
-                        id: ApexSyscall::Start,
+                        id: SyscallType::Start,
                         status: 42,
                     }
                     .serialize()

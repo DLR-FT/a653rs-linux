@@ -109,7 +109,7 @@ mod tests {
     use std::io::IoSlice;
     use std::os::fd::{AsFd, AsRawFd};
 
-    use a653rs_linux_core::syscall::ApexSyscall;
+    use a653rs_linux_core::syscall::SyscallType;
     use nix::sys::eventfd::EventFd;
     use nix::sys::socket::{
         sendmsg, socketpair, AddressFamily, ControlMessage, SockFlag, SockType,
@@ -136,7 +136,7 @@ mod tests {
             request_fd
                 .write(
                     &SyscallRequest {
-                        id: ApexSyscall::Start,
+                        id: SyscallType::Start,
                         params: vec![1, 2, 3],
                     }
                     .serialize()
@@ -170,7 +170,7 @@ mod tests {
             }
 
             let response = SyscallResponse::deserialize(&response_fd.read_all().unwrap()).unwrap();
-            assert_eq!(response.id, ApexSyscall::Start);
+            assert_eq!(response.id, SyscallType::Start);
             assert_eq!(response.status, 0);
         });
 

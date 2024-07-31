@@ -8,17 +8,17 @@ pub const SYSCALL_SOCKET_PATH: &str = "/syscall-a653";
 
 mod ty;
 
-pub use ty::ApexSyscall;
+pub use ty::SyscallType;
 
 #[derive(Debug, PartialEq)]
 pub struct SyscallRequest {
-    pub id: ApexSyscall,
+    pub id: SyscallType,
     pub params: Vec<u64>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SyscallResponse {
-    pub id: ApexSyscall,
+    pub id: SyscallType,
     pub status: u64,
 }
 
@@ -49,8 +49,8 @@ impl SyscallRequest {
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
         let mut serialized: &[u8] = serialized;
 
-        let id = ApexSyscall::from_u64(serialized.read_u64::<NativeEndian>()?)
-            .ok_or(anyhow!("deserialization of ApexSyscall failed"))?;
+        let id = SyscallType::from_u64(serialized.read_u64::<NativeEndian>()?)
+            .ok_or(anyhow!("deserialization of SyscallType failed"))?;
 
         let nparams = serialized.read_u8()?;
         let mut params: Vec<u64> = Vec::with_capacity(nparams as usize);
@@ -85,8 +85,8 @@ impl SyscallResponse {
     pub fn deserialize(serialized: &Vec<u8>) -> Result<Self> {
         let mut serialized: &[u8] = serialized;
 
-        let id = ApexSyscall::from_u64(serialized.read_u64::<NativeEndian>()?)
-            .ok_or(anyhow!("deserialization of ApexSyscall failed"))?;
+        let id = SyscallType::from_u64(serialized.read_u64::<NativeEndian>()?)
+            .ok_or(anyhow!("deserialization of SyscallType failed"))?;
         let status = serialized.read_u64::<NativeEndian>()?;
 
         Ok(SyscallResponse { id, status })
@@ -100,14 +100,14 @@ mod tests {
     #[test]
     fn test_serialize_request() {
         let request = SyscallRequest {
-            id: ApexSyscall::Start,
+            id: SyscallType::Start,
             params: vec![1, 2, 3],
         };
         let serialized = request.serialize().unwrap();
         let mut serialized: &[u8] = &serialized;
 
         let id = serialized.read_u64::<NativeEndian>().unwrap();
-        assert_eq!(id, ApexSyscall::Start as u64);
+        assert_eq!(id, SyscallType::Start as u64);
 
         let nparams = serialized.read_u8().unwrap();
         assert_eq!(nparams, 3);
@@ -124,14 +124,14 @@ mod tests {
     #[test]
     fn test_serialize_response() {
         let response = SyscallResponse {
-            id: ApexSyscall::Start,
+            id: SyscallType::Start,
             status: 42,
         };
         let serialized = response.serialize().unwrap();
         let mut serialized: &[u8] = &serialized;
 
         let id = serialized.read_u64::<NativeEndian>().unwrap();
-        assert_eq!(id, ApexSyscall::Start as u64);
+        assert_eq!(id, SyscallType::Start as u64);
 
         let status = serialized.read_u64::<NativeEndian>().unwrap();
         assert_eq!(status, 42);
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn test_deserialize_request() {
         let request = SyscallRequest {
-            id: ApexSyscall::Start,
+            id: SyscallType::Start,
             params: vec![1, 2, 3],
         };
         let serialized = request.serialize().unwrap();
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn test_deserialize_response() {
         let response = SyscallResponse {
-            id: ApexSyscall::Start,
+            id: SyscallType::Start,
             status: 42,
         };
         let serialized = response.serialize().unwrap();

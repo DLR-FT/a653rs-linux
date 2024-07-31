@@ -1,6 +1,6 @@
 enum_from_primitive! {
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ApexSyscall {
+pub enum SyscallType {
     /// P1-5 3.2.2.1 - GET_PARTITION_STATUS
     GetPartitionStatus = 6530,
     /// P1-5 3.2.2.2 - SET_PARTITION_MODE
