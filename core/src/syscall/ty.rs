@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 enum_from_primitive! {
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SyscallType {
     /// P1-5 3.2.2.1 - GET_PARTITION_STATUS
     GetPartitionStatus = 6530,
