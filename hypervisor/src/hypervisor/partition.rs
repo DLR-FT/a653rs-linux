@@ -886,7 +886,7 @@ impl PartitionConfig {
         let PartitionConfig { image, name, .. } = self;
 
         // if image is either an absolute path or starts with ./ , it is left as is
-        let bin = if image.is_absolute() || image.starts_with(path::Component::CurDir) {
+        if image.is_absolute() || image.starts_with(path::Component::CurDir) {
             // verify image exists
             if !image.exists() {
                 problem!(Panic, "partition image {image:?} does not exist");
@@ -902,19 +902,28 @@ impl PartitionConfig {
             {
                 problem!(Panic, "partition image {image:?} is not executable")
             } else {
-                image.clone()
+                return Ok(image.clone());
             }
         }
-        // if image does not contain any path separators, try to search it in $PATH
+        // if image does not contain any path separators, try to search it in $PATH and target dir
         else if image.components().count() == 1 {
             if let Ok(image_from_path) = which::which(image) {
-                image_from_path
-            } else {
-                problem!(
-                    Panic,
-                    "could not find image {image:?} for partition {name} in path"
-                );
+                return Ok(image_from_path);
             }
+            let mut target = target_lexicon::Triple::host();
+            target.environment = target_lexicon::Environment::Musl;
+            let typ = cfg!(debug_assertions)
+                .then_some("debug")
+                .unwrap_or("release");
+            let target_path = PathBuf::from(format!("target/{target}/{typ}/{}", image.display()));
+            if target_path.exists() {
+                return Ok(target_path);
+            }
+            problem!(
+                Panic,
+                "could not find image {image:?} for partition {name} in path or at {}",
+                target_path.display()
+            );
         // other cases are **not** supported
         } else {
             problem!(
@@ -922,8 +931,6 @@ impl PartitionConfig {
                 "image {image:?} for partition {name} must start with / or ./",
             );
         };
-
-        Ok(bin)
     }
 }
 
