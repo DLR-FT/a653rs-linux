@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 pub const SYSCALL_SOCKET_PATH: &str = "/syscall-a653";
 
+pub mod receiver;
+pub mod sender;
 mod ty;
 
 pub use ty::SyscallType;

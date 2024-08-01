@@ -1,17 +1,16 @@
-//! Implementation of the mechanism to perform system calls
-
 use std::io::IoSliceMut;
 use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
-use a653rs_linux_core::mfd::{Mfd, Seals};
-use a653rs_linux_core::syscall::{SyscallRequest, SyscallResponse};
 use anyhow::{anyhow, bail, Result};
-use libc::EINTR;
+use nix::libc::EINTR;
 use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
 use polling::{Event, Events, Poller};
+
+use crate::mfd::{Mfd, Seals};
+use crate::syscall::{SyscallRequest, SyscallResponse};
 
 /// Receives an FD triple from fd
 // TODO: Use generics here
@@ -105,17 +104,17 @@ pub fn handle(fd: BorrowedFd, timeout: Option<Duration>) -> Result<u32> {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_receiver {
     use std::io::IoSlice;
     use std::os::fd::{AsFd, AsRawFd};
 
-    use a653rs_linux_core::syscall::SyscallType;
     use nix::sys::eventfd::EventFd;
     use nix::sys::socket::{
         sendmsg, socketpair, AddressFamily, ControlMessage, SockFlag, SockType,
     };
 
     use super::*;
+    use crate::syscall::SyscallType;
 
     #[test]
     fn test_handle() {
