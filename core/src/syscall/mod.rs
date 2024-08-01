@@ -58,6 +58,7 @@ mod tests {
     use super::{SyscallRequest, SyscallType};
     use crate::syscall::receiver::SyscallReceiver;
     use crate::syscall::sender::SyscallSender;
+    use crate::syscall::SyscallResponse;
 
     #[test]
     pub fn single_syscall() {
@@ -70,26 +71,33 @@ mod tests {
         };
 
         let receiver_thread = thread::spawn(move || {
-            let num_handled_syscalls = receiver.handle(Some(Duration::from_secs(1))).unwrap();
-            assert_eq!(num_handled_syscalls, 1);
+            let syscall_handler = |request: SyscallRequest| {
+                assert_eq!(request.params, &[1, 2, 3]);
+                SyscallResponse {
+                    id: request.id,
+                    status: 456,
+                }
+            };
+
+            let syscall_was_handled = receiver
+                .receive_one(Some(Duration::from_secs(1)), syscall_handler)
+                .unwrap();
+
+            assert!(syscall_was_handled);
         });
 
         // Use random data for now
         let request = SyscallRequest {
             id: SyscallType::GetProcessId,
-            params: Vec::default(),
+            params: vec![1, 2, 3],
         };
 
         let response = sender.execute_fd(request).unwrap();
 
         assert_eq!(response.id, SyscallType::GetProcessId);
-        assert_eq!(
-            response.status, 0,
-            "expected default syscall return status of 0"
-        );
+        assert_eq!(response.status, 456);
 
-        // join the receiver thread until `SysCallReceiver` allows to receive just a
-        // single syscall
+        // join the receiver thread just to be safe
         receiver_thread.join().unwrap();
     }
 }
