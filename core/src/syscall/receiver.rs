@@ -109,13 +109,29 @@ impl SyscallReceiver {
     }
 
     /// Waits for readable data on fd
+    ///
+    /// Note: Even if timeout is None, this can return Ok(false). See
+    /// [Poller::wait]
     fn wait_fds(&self, timeout: Option<Duration>) -> Result<bool> {
+        let end_of_timeout = timeout.map(|duration| Instant::now() + duration);
+
+        // This closure calculates the duratioon until the end of timeout is reached.
+        // It is necessary, so that the timeout duration can be recalculated in case the
+        // `poller.wait` method returns spuriously.
+        let remaining_timeout_duration =
+            || end_of_timeout.map(|end| end.duration_since(Instant::now()));
+
         let poller = Poller::new()?;
         let mut events = Events::with_capacity(NonZeroUsize::MIN);
         unsafe { poller.add(self.0.as_raw_fd(), Event::readable(0))? };
         loop {
-            match poller.wait(&mut events, timeout) {
-                Ok(0) => return Ok(false),
+            match poller.wait(&mut events, remaining_timeout_duration()) {
+                Ok(0) => {
+                    // The poller's `wait` method may return spuriously.
+                    // In that case call it again. `remaining_time_duration` will automatically
+                    // calculate the new timeout duration.
+                    continue;
+                }
                 Ok(1) => return Ok(true),
                 Err(e) => {
                     if e.raw_os_error() == Some(EINTR) {

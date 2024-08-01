@@ -48,6 +48,12 @@ impl SyscallSender {
 
         loop {
             match poller.wait(&mut events, None) {
+                Ok(0) => {
+                    // The poller's `wait` method may return spuriously.
+                    // In that case, just call it again, because the `wait_event` method may only
+                    // return an event or an error.
+                    continue;
+                }
                 Ok(1) => break,
                 Err(e) => {
                     if e.raw_os_error() == Some(EINTR) {
