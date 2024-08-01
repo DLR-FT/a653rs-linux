@@ -4,5 +4,5 @@ use anyhow::Result;
 use crate::SYSCALL;
 
 pub fn execute(request: SyscallRequest) -> Result<SyscallResponse> {
-    SYSCALL.execute_fd(request)
+    SYSCALL.execute(request)
 }

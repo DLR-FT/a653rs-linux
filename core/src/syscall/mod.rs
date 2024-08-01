@@ -92,7 +92,7 @@ mod tests {
             params: vec![1, 2, 3],
         };
 
-        let response = sender.execute_fd(request).unwrap();
+        let response = sender.execute(request).unwrap();
 
         assert_eq!(response.id, SyscallType::GetProcessId);
         assert_eq!(response.status, 456);

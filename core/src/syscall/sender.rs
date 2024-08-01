@@ -69,7 +69,7 @@ impl SyscallSender {
         Ok(())
     }
 
-    pub fn execute_fd(&self, request: SyscallRequest) -> Result<SyscallResponse> {
+    pub fn execute(&self, request: SyscallRequest) -> Result<SyscallResponse> {
         // Create the file descriptor triple
         let mut request_fd = Mfd::create("requ")?;
         let mut response_fd = Mfd::create("resp")?;
