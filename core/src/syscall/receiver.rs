@@ -17,6 +17,10 @@ use crate::syscall::{SyscallRequest, SyscallResponse};
 pub struct SyscallReceiver(UnixDatagram);
 
 impl SyscallReceiver {
+    pub fn from_datagram(datagram: UnixDatagram) -> Self {
+        Self(datagram)
+    }
+
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let socket = UnixDatagram::bind(path)?;
         socket.set_nonblocking(true)?;

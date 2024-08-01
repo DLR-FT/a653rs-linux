@@ -16,6 +16,10 @@ use crate::syscall::{SyscallRequest, SyscallResponse};
 pub struct SyscallSender(UnixDatagram);
 
 impl SyscallSender {
+    pub fn from_datagram(datagram: UnixDatagram) -> Self {
+        Self(datagram)
+    }
+
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let socket = UnixDatagram::unbound()?;
         socket.connect(path.as_ref())?;
@@ -78,93 +82,3 @@ impl SyscallSender {
         Ok(response)
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use std::io::IoSliceMut;
-//     use std::os::fd::{FromRawFd, OwnedFd, RawFd};
-
-//     use nix::sys::socket::{
-//         recvmsg, socketpair, AddressFamily, ControlMessageOwned, SockFlag,
-// SockType,     };
-//     use nix::{cmsg_space, unistd};
-
-//     use super::*;
-//     use crate::syscall::SyscallType;
-
-//     #[test]
-//     fn test_execute() {
-//         let (requester, responder) = socketpair(
-//             AddressFamily::Unix,
-//             SockType::Datagram,
-//             None,
-//             SockFlag::empty(),
-//         )
-//         .unwrap();
-
-//         let request_thread = std::thread::spawn(move || {
-//             let response = execute_fd(
-//                 requester.as_fd(),
-//                 SyscallRequest {
-//                     id: SyscallType::Start,
-//                     params: vec![1, 2, 42],
-//                 },
-//             )
-//             .unwrap();
-
-//             assert_eq!(response.id, SyscallType::Start);
-//             assert_eq!(response.status, 42);
-//         });
-//         let response_thread = std::thread::spawn(move || {
-//             // Receive the file descriptors
-//             let mut cmsg = cmsg_space!([RawFd; 3]);
-//             let mut iobuf = [0u8];
-//             let mut iov = [IoSliceMut::new(&mut iobuf)];
-//             let res = recvmsg::<()>(
-//                 responder.as_raw_fd(),
-//                 &mut iov,
-//                 Some(&mut cmsg),
-//                 MsgFlags::empty(),
-//             )
-//             .unwrap();
-
-//             let fds: Vec<OwnedFd> = match
-// res.cmsgs().unwrap().next().unwrap() {
-// ControlMessageOwned::ScmRights(fds) => fds                     .into_iter()
-//                     .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
-//                     .collect::<Vec<_>>(),
-//                 _ => panic!("unknown cmsg received"),
-//             };
-
-//             let [request, response, event_fd] = fds.try_into().unwrap();
-//             let mut request_fd = Mfd::from_fd(request).unwrap();
-//             let mut response_fd = Mfd::from_fd(response).unwrap();
-
-//             // Fetch the request
-//             let request =
-// SyscallRequest::deserialize(&request_fd.read_all().unwrap()).unwrap();
-//             assert_eq!(request.id, SyscallType::Start);
-//             assert_eq!(request.params, vec![1, 2, 42]);
-
-//             // Write the response
-//             response_fd
-//                 .write(
-//                     &SyscallResponse {
-//                         id: SyscallType::Start,
-//                         status: 42,
-//                     }
-//                     .serialize()
-//                     .unwrap(),
-//                 )
-//                 .unwrap();
-//             response_fd.finalize(Seals::Readable).unwrap();
-
-//             // Trigger the eventfd
-//             let buf = 1_u64.to_ne_bytes();
-//             unistd::write(event_fd, &buf).unwrap();
-//         });
-
-//         request_thread.join().unwrap();
-//         response_thread.join().unwrap();
-//     }
-// }
