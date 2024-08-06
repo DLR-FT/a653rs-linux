@@ -30,7 +30,6 @@ use tinyvec::ArrayVec;
 
 pub mod apex;
 pub mod partition;
-pub mod syscall;
 //mod scheduler;
 pub(crate) mod process;
 
@@ -89,6 +88,7 @@ pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =
 pub(crate) static TCP_IO_RX: Lazy<IoReceiver<TcpStream>> =
     Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.tcp_io_fd) });
 
+#[allow(unused)]
 pub(crate) static SYSCALL: Lazy<SyscallSender> = Lazy::new(|| {
     SyscallSender::from_path(SYSCALL_SOCKET_PATH)
         .expect("opening a syscall socket to always succeed")

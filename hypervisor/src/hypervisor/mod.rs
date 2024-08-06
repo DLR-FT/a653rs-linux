@@ -20,6 +20,8 @@ pub mod partition;
 pub mod process;
 pub mod rpc;
 pub mod scheduler;
+#[allow(unused)]
+pub mod syscall;
 
 pub static SYSTEM_START_TIME: OnceCell<TempFile<Instant>> = OnceCell::new();
 

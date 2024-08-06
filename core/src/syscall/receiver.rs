@@ -11,7 +11,9 @@ use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
 use nix::{cmsg_space, unistd};
 use polling::{Event, Events, Poller};
 
+use super::SyscallType;
 use crate::mfd::{Mfd, Seals};
+use crate::syscall::syscalls::Syscall;
 use crate::syscall::{SyscallRequest, SyscallResponse};
 
 pub struct SyscallReceiver(UnixDatagram);
@@ -28,26 +30,31 @@ impl SyscallReceiver {
     }
 
     /// Returns whether a syscall was handled
-    pub fn receive_one<F>(&self, timeout: Option<Duration>, handler: F) -> Result<bool>
-    where
-        F: FnOnce(SyscallRequest) -> SyscallResponse,
-    {
+    pub fn receive_one(
+        &self,
+        timeout: Option<Duration>,
+        handler: impl FnOnce(SyscallType, &[u8]) -> Vec<u8>,
+    ) -> Result<bool> {
         if self.wait_fds(timeout)? {
             let [request_fd, resp_fd, event_fd] = self.recv_fd_triple()?;
             let mut request_fd = Mfd::from_fd(request_fd)?;
             let mut response_fd = Mfd::from_fd(resp_fd)?;
 
+            // TODO Refactor this function to not be able to return unless a response has
+            // been sent. The partition is blocked and is waiting for
+            // response. Thus returning here would discard the received
+            // message and the partition will never unblock.
+
             // Fetch the request
-            let request: SyscallRequest = bincode::deserialize(&request_fd.read_all()?)?;
-            let request_id = request.id;
+            let serialized_payload = request_fd.read_all()?;
 
-            trace!("Handling system call {:?}", request.id);
-            let response = handler(request);
+            // Deserialize the type and data
+            let payload: SyscallRequest = bincode::deserialize(&serialized_payload)?;
 
-            assert_eq!(request_id, response.id);
+            let serialized_response = handler(payload.0, &payload.1);
 
             // Write the response
-            response_fd.write(&bincode::serialize(&response)?)?;
+            response_fd.write(&serialized_response)?;
             response_fd.finalize(Seals::Readable)?;
 
             // Trigger the event
@@ -61,10 +68,12 @@ impl SyscallReceiver {
     }
 
     /// Returns the number of syscalls handled
-    pub fn receive_all<F>(&self, timeout: Option<Duration>, mut handler: F) -> Result<usize>
-    where
-        F: FnMut(SyscallRequest) -> SyscallResponse,
-    {
+    pub fn receive_all<F, Params, Returns>(
+        &self,
+        timeout: Option<Duration>,
+        mut handler: impl FnMut(SyscallType, &[u8]) -> Vec<u8>,
+    ) -> Result<usize>
+where {
         let start = Instant::now();
 
         let mut num_syscalls = 0;
@@ -144,4 +153,25 @@ impl SyscallReceiver {
             }
         }
     }
+}
+
+/// A helper function that is used to:
+/// 1. deserialize parameters for a given syscall type,
+/// 2. execute a function `f` on the parameters and
+/// 3. serialize the returned response
+///
+/// Its usage is mainly to abstract away the underlying
+/// serialization implementation.
+pub fn wrap_serialization<'params, S: Syscall<'params>, F>(
+    serialized_params: &'params [u8],
+    f: F,
+) -> Result<Vec<u8>>
+where
+    F: FnOnce(S::Params) -> Result<S::Returns, a653rs::bindings::ErrorReturnCode>,
+{
+    let params: S::Params = bincode::deserialize(serialized_params)?;
+
+    let response: SyscallResponse<S::Returns> = f(params);
+
+    bincode::serialize(&response).map_err(Into::into)
 }

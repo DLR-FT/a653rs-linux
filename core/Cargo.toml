@@ -21,10 +21,10 @@ polling.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
 bincode.workspace = true
+serde.workspace = true
 
 log = "0"
 walkdir = "2.3"
-serde = { version = "1.0", features = ["derive"] }
 memfd = "0.6"
 thiserror = "1.0"
 bytesize = {workspace = true, features = ["serde"]}

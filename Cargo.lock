@@ -28,6 +28,7 @@ dependencies = [
  "oneshot",
  "polling",
  "procfs",
+ "serde",
  "tinyvec",
 ]
 

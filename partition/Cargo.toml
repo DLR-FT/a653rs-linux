@@ -25,6 +25,7 @@ procfs.workspace = true
 polling.workspace = true
 once_cell.workspace = true
 anyhow.workspace = true
+serde.workspace = true
 
 lazy_static = "1.4"
 log.workspace = true

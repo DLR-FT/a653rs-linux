@@ -11,6 +11,7 @@ use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
 use polling::{Event, Events, Poller};
 
 use crate::mfd::{Mfd, Seals};
+use crate::syscall::syscalls::Syscall;
 use crate::syscall::{SyscallRequest, SyscallResponse};
 
 pub struct SyscallSender(UnixDatagram);
@@ -69,14 +70,25 @@ impl SyscallSender {
         Ok(())
     }
 
-    pub fn execute(&self, request: SyscallRequest) -> Result<SyscallResponse> {
+    pub fn execute<'params, S: Syscall<'params>>(
+        &self,
+        params: S::Params,
+    ) -> Result<Result<S::Returns, a653rs::bindings::ErrorReturnCode>> {
         // Create the file descriptor triple
         let mut request_fd = Mfd::create("requ")?;
         let mut response_fd = Mfd::create("resp")?;
         let event_fd = EventFd::new()?;
 
-        // Initialize the request file descriptor
-        request_fd.write(&request.serialize()?)?;
+        let serialized_parameters = bincode::serialize(&params)?;
+
+        let payload: SyscallRequest = (S::TY, serialized_parameters);
+
+        // We need another serialization step here, so the receiver can deserialize just
+        // the SyscallType without knowing the parameter types
+        let serialized_payload = bincode::serialize(&payload)?;
+
+        // Write to the request file descriptor
+        request_fd.write(&serialized_payload)?;
         request_fd.finalize(Seals::Readable)?;
 
         // Send the file descriptors to the hypervisor
@@ -84,7 +96,9 @@ impl SyscallSender {
 
         Self::wait_event(event_fd.as_fd())?;
 
-        let response = SyscallResponse::deserialize(&response_fd.read_all()?)?;
+        let data = response_fd.read_all()?;
+        let response: SyscallResponse<S::Returns> = bincode::deserialize(&data)?;
+
         Ok(response)
     }
 }
