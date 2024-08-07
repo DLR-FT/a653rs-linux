@@ -29,6 +29,9 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    use a653rs::bindings::ApexSystemTime;
+    use a653rs::prelude::{QueueOverflow, QueuingPortId};
+
     use super::SyscallType;
     use crate::syscall::receiver::{self, SyscallReceiver};
     use crate::syscall::sender::SyscallSender;
@@ -53,7 +56,14 @@ mod tests {
                 receiver::wrap_serialization::<syscalls::SendQueuingMessage, _>(
                     serialized_params,
                     |params| {
-                        assert_eq!(&params, &[1, 2, 3]);
+                        assert_eq!(
+                            params,
+                            (
+                                0 as QueuingPortId,
+                                [1u8, 2, 3].as_slice(),
+                                0 as ApexSystemTime
+                            )
+                        );
 
                         Ok(())
                     },
@@ -70,7 +80,11 @@ mod tests {
 
         // Make a syscall
         let response: Result<(), a653rs::bindings::ErrorReturnCode> = sender
-            .execute::<syscalls::SendQueuingMessage>(&[1, 2, 3])
+            .execute::<syscalls::SendQueuingMessage>((
+                0 as QueuingPortId,
+                &[1, 2, 3],
+                0 as ApexSystemTime,
+            ))
             .expect("sending and receiving a response to succeed");
 
         assert_eq!(response, Ok(()));
@@ -83,6 +97,7 @@ mod tests {
     pub fn two_syscalls() {
         let (sender, receiver) = new_sender_receiver_pair();
 
+        // The receiver thread represents the hypervisor.
         let receiver_thread = thread::spawn(move || {
             // A simulated queuing port. This represents the hypervisor state.
             let mut queuing_port_state: VecDeque<Vec<u8>> = VecDeque::new();
@@ -93,7 +108,7 @@ mod tests {
                         receiver::wrap_serialization::<syscalls::SendQueuingMessage, _>(
                             serialized_params,
                             |params| {
-                                queuing_port_state.push_back(params.to_owned());
+                                queuing_port_state.push_back(params.1.to_owned());
 
                                 Ok(())
                             },
@@ -106,6 +121,7 @@ mod tests {
                             |_params| {
                                 queuing_port_state
                                     .pop_front()
+                                    .map(|msg| (false as QueueOverflow, msg))
                                     .ok_or(a653rs::bindings::ErrorReturnCode::NotAvailable)
                             },
                         )
@@ -126,19 +142,23 @@ mod tests {
 
         // Send one message into the queuing port
         let response = sender
-            .execute::<syscalls::SendQueuingMessage>(&[4, 3, 2, 1])
+            .execute::<syscalls::SendQueuingMessage>((
+                0 as QueuingPortId,
+                &[4, 3, 2, 1],
+                0 as ApexSystemTime,
+            ))
             .unwrap();
         assert_eq!(response, Ok(()));
 
         // Receive the previous message from the queuing port
         let response = sender
-            .execute::<syscalls::ReceiveQueuingMessage>(())
+            .execute::<syscalls::ReceiveQueuingMessage>((0 as QueuingPortId, 0 as ApexSystemTime))
             .expect("sending and receiving a response to succeed");
-        assert_eq!(response, Ok(vec![4, 3, 2, 1]));
+        assert_eq!(response, Ok((false as QueueOverflow, vec![4, 3, 2, 1])));
 
         // Now the queuing port should be empty
         let response = sender
-            .execute::<syscalls::ReceiveQueuingMessage>(())
+            .execute::<syscalls::ReceiveQueuingMessage>((0 as QueuingPortId, 0 as ApexSystemTime))
             .expect("sending and receiving a response to succeed");
         assert_eq!(
             response,

@@ -1,8 +1,10 @@
 use a653rs::prelude::PartitionId;
-use a653rs_linux_core::syscall::syscalls::{ReceiveQueuingMessage, SendQueuingMessage, Syscall};
-use a653rs_linux_core::syscall::SyscallType;
+use a653rs_linux_core::syscall::syscalls::{self, Syscall};
+use a653rs_linux_core::syscall::{self, SyscallType};
 use anyhow::Result;
 
+// Temporary replacement until the new hypervisor architecture allows for a
+// modular and mutable hypervisor state during partition execution
 type HypervisorState = ();
 
 trait SyscallHandler<'params>: Syscall<'params> + Sized {
@@ -19,52 +21,193 @@ trait SyscallHandler<'params>: Syscall<'params> + Sized {
 
     fn handle(
         params: Self::Params,
-        hv_state: &mut (),
+        hv_state: &mut HypervisorState,
         current_partition: PartitionId,
     ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode>;
 }
 
-fn handle_syscall(
+pub fn handle_syscall(
     ty: SyscallType,
-    params: &[u8],
+    serialized_params: &[u8],
     hypervisor_state: &mut HypervisorState,
     current_partition: PartitionId,
 ) -> Result<Vec<u8>> {
-    match ty {
-        SyscallType::SendQueuingMessage => SendQueuingMessage::handle_with_serialization(
-            params,
-            hypervisor_state,
-            current_partition,
-        ),
-        SyscallType::ReceiveQueuingMessage => ReceiveQueuingMessage::handle_with_serialization(
-            params,
-            hypervisor_state,
-            current_partition,
-        ),
+    use syscalls::*;
+
+    let handler_fn = match ty {
+        SyscallType::GetPartitionStatus => GetPartitionStatus::handle_with_serialization,
+        SyscallType::SetPartitionMode => SetPartitionMode::handle_with_serialization,
+        SyscallType::Start => Start::handle_with_serialization,
+        SyscallType::CreateSamplingPort => CreateSamplingPort::handle_with_serialization,
+        SyscallType::WriteSamplingMessage => WriteSamplingMessage::handle_with_serialization,
+        SyscallType::ReadSamplingMessage => ReadSamplingMessage::handle_with_serialization,
+        SyscallType::CreateQueuingPort => CreateQueuingPort::handle_with_serialization,
+        SyscallType::SendQueuingMessage => SendQueuingMessage::handle_with_serialization,
+        SyscallType::ReceiveQueuingMessage => ReceiveQueuingMessage::handle_with_serialization,
+        SyscallType::GetQueuingPortStatus => GetQueuingPortStatus::handle_with_serialization,
+        SyscallType::ClearQueuingPort => ClearQueuingPort::handle_with_serialization,
+        SyscallType::PeriodicWait => PeriodicWait::handle_with_serialization,
+        SyscallType::GetTime => GetTime::handle_with_serialization,
+        SyscallType::ReportApplicationMessage => {
+            ReportApplicationMessage::handle_with_serialization
+        }
+        SyscallType::RaiseApplicationError => RaiseApplicationError::handle_with_serialization,
         other_ty => {
             todo!("Implement syscall {other_ty:?}")
         }
-    }
+    };
+
+    handler_fn(serialized_params, hypervisor_state, current_partition)
 }
 
 // --------------- HANDLER IMPLEMENTATIONS ---------------
 
-impl<'params> SyscallHandler<'params> for SendQueuingMessage {
+impl SyscallHandler<'_> for syscalls::GetPartitionStatus {
     fn handle(
         _params: Self::Params,
         _hv_state: &mut HypervisorState,
         _current_partition: PartitionId,
     ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
-        todo!("Handle SendQueuingMessage")
+        todo!("handle syscall GetPartitionStatus")
     }
 }
 
-impl<'params> SyscallHandler<'params> for ReceiveQueuingMessage {
+impl<'params> SyscallHandler<'params> for syscalls::SetPartitionMode {
     fn handle(
         _params: Self::Params,
         _hv_state: &mut HypervisorState,
         _current_partition: PartitionId,
     ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
-        todo!("Handle ReceiveQueuingMessage")
+        todo!("handle syscall SetPartitionMode")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::Start {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall Start")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::CreateSamplingPort {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall CreateSamplingPort")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::WriteSamplingMessage {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall WriteSamplingMessage")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::ReadSamplingMessage {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall ReadSamplingMessage")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::CreateQueuingPort {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall CreateQueuingPort")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::SendQueuingMessage {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall SendQueuingMessage")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::ReceiveQueuingMessage {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall ReceiveQueuingMessage")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::GetQueuingPortStatus {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall GetQueuingPortStatus")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::ClearQueuingPort {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall ClearQueuingPort")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::PeriodicWait {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall PeriodicWait")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::GetTime {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall GetTime")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::ReportApplicationMessage {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall ReportApplicationMessage")
+    }
+}
+
+impl<'params> SyscallHandler<'params> for syscalls::RaiseApplicationError {
+    fn handle(
+        _params: Self::Params,
+        _hv_state: &mut HypervisorState,
+        _current_partition: PartitionId,
+    ) -> Result<Self::Returns, a653rs::bindings::ErrorReturnCode> {
+        todo!("handle syscall RaiseApplicationError")
     }
 }
