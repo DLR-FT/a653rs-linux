@@ -12,7 +12,6 @@ extern crate log;
 use std::net::{TcpStream, UdpSocket};
 #[cfg(feature = "socket")]
 use std::os::fd::FromRawFd;
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -23,15 +22,14 @@ use a653rs_linux_core::health_event::PartitionCall;
 use a653rs_linux_core::ipc::IoReceiver;
 use a653rs_linux_core::ipc::{self, IpcSender};
 use a653rs_linux_core::partition::*;
+use a653rs_linux_core::syscall::sender::SyscallSender;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
-use nix::sys::socket::{self, connect, AddressFamily, SockFlag, SockType, UnixAddr};
 use once_cell::sync::{Lazy, OnceCell};
 use process::Process;
 use tinyvec::ArrayVec;
 
 pub mod apex;
 pub mod partition;
-pub mod syscall;
 //mod scheduler;
 pub(crate) mod process;
 
@@ -90,22 +88,10 @@ pub(crate) static UDP_IO_RX: Lazy<IoReceiver<UdpSocket>> =
 pub(crate) static TCP_IO_RX: Lazy<IoReceiver<TcpStream>> =
     Lazy::new(|| unsafe { IoReceiver::<TcpStream>::from_raw_fd(CONSTANTS.tcp_io_fd) });
 
-pub(crate) static SYSCALL: Lazy<OwnedFd> = Lazy::new(|| {
-    let syscall_socket = socket::socket(
-        AddressFamily::Unix,
-        SockType::Datagram,
-        SockFlag::empty(),
-        None,
-    )
-    .unwrap();
-
-    connect(
-        syscall_socket.as_raw_fd(),
-        &UnixAddr::new(SYSCALL_SOCKET_PATH).unwrap(),
-    )
-    .unwrap();
-
-    syscall_socket
+#[allow(unused)]
+pub(crate) static SYSCALL: Lazy<SyscallSender> = Lazy::new(|| {
+    SyscallSender::from_path(SYSCALL_SOCKET_PATH)
+        .expect("opening a syscall socket to always succeed")
 });
 
 #[cfg(feature = "socket")]
