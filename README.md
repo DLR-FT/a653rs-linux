@@ -4,6 +4,11 @@ This repository contains two crates which both depend on the `a653rs-linux-core`
 - `a653rs-linux-hypervisor` is an [ARINC 653](https://aviation-ia.sae-itc.com/standards/arinc653p0-3-653p0-3-avionics-application-software-standard-interface-part-0-overview-arinc-653)-compliant type 2 hypervisor that supports paravirtualization on a process level. It is based on the Linux OS and provides an APEX-like API, as defined in the `a653rs-linux-core` crate, to the partitions.
 - `a653rs-linux` is a [`a653rs`](https://github.com/DLR-FT/a653rs) shim library used in partition development. It uses the hypervisor's APEX-like API to provide an actual APEX API.
 
+<p align="center"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/3f1e2424-681b-4418-9e12-fc63f0a46230">
+    <img width="75%" alt="A figure showing the three different crates in this project and the a653rs crate and their relations." src="https://github.com/user-attachments/assets/0e57736f-86fa-4e66-a5be-36c928bc5bb8">
+</picture></p>
+
 The goal of this project is to provide a familiar environment for the functional development of ARINC 653 partitions.
 
 The user provides a partitioning scheme and a normal Linux binary for each partition, which will then in turn be scheduled and managed by the `a653rs-linux-hypervisor` binary.
