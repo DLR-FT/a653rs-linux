@@ -74,6 +74,8 @@ impl<'a> SourceDatagram<'a> {
         if queue_is_full {
             *self.has_overflowed = true;
             return None;
+        } else {
+            *self.has_overflowed = false;
         }
         let entry = self.message_queue
             .push_then(|entry| Message::init_at(entry, data, message_timestamp)).expect("push to be successful because we just checked if there is space in both the source and destination");
