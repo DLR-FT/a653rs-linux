@@ -293,3 +293,169 @@ impl StripFieldExt for [u8] {
         (field, rest)
     }
 }
+
+#[cfg(test)]
+mod test_swap_algorithm {
+    use std::time::Instant;
+
+    use itertools::assert_equal;
+
+    use super::datagrams::{DestinationDatagram, SourceDatagram};
+    use super::{queue, Queuing};
+    use crate::channel::{PortConfig, QueuingChannelConfig};
+    use crate::queuing::message::Message;
+
+    fn init_queuing(msg_size: usize, msg_num: usize) -> Queuing {
+        QueuingChannelConfig {
+            msg_size: bytesize::ByteSize::b(msg_size as u64),
+            msg_num,
+            source: PortConfig {
+                partition: "foo".to_owned(),
+                port: "bar".to_owned(),
+            },
+            destination: PortConfig {
+                partition: "baz".to_owned(),
+                port: "bat".to_owned(),
+            },
+        }
+        .try_into()
+        .unwrap()
+    }
+
+    fn get_datagrams(queuing: &mut Queuing) -> (SourceDatagram, DestinationDatagram) {
+        let source = unsafe { SourceDatagram::load_from(&mut *queuing.source_receiver) };
+        let destination =
+            unsafe { DestinationDatagram::load_from(&mut *queuing.destination_sender) };
+
+        (source, destination)
+    }
+
+    #[test]
+    fn simple() {
+        let mut queuing = init_queuing(3, 1);
+
+        {
+            let (mut source, destination) = get_datagrams(&mut queuing);
+
+            assert_eq!(source.message_queue.len(), 0);
+            assert_eq!(destination.message_queue.len(), 0);
+
+            source.push(&[1, 2, 3], Instant::now());
+
+            assert_eq!(source.message_queue.len(), 1);
+        }
+
+        assert!(queuing.swap());
+
+        {
+            let (source, mut destination) = get_datagrams(&mut queuing);
+
+            assert_eq!(source.message_queue.len(), 0);
+            assert_eq!(destination.message_queue.len(), 1);
+
+            destination.pop_then(|msg: Message| {
+                assert_eq!(msg.get_data(), &[1, 2, 3]);
+            });
+        }
+    }
+
+    #[test]
+    fn request_clear() {
+        let mut queuing = init_queuing(1, 3);
+
+        {
+            let (mut source, destination) = get_datagrams(&mut queuing);
+
+            // These messages will be cleared
+            source.push(&[1], Instant::now());
+            source.push(&[2], Instant::now());
+
+            assert!(destination.clear_requested_timestamp.is_none());
+            *destination.clear_requested_timestamp = Some(Instant::now());
+
+            // This one will not be cleared
+            source.push(&[3], Instant::now());
+        }
+
+        queuing.swap();
+
+        {
+            let (source, mut destination) = get_datagrams(&mut queuing);
+
+            assert_eq!(source.message_queue.len(), 0);
+
+            destination.pop_then(|msg: Message| {
+                assert_eq!(msg.get_data(), &[3]);
+            });
+        }
+    }
+
+    #[test]
+    fn overflow() {
+        let mut queuing = init_queuing(2, 2);
+
+        {
+            let (mut source, _) = get_datagrams(&mut queuing);
+            assert!(source.push(&[1, 2], Instant::now()).is_some());
+            assert!(source.push(&[3, 4], Instant::now()).is_some());
+            // This triggers an overflow a
+            assert!(source.push(&[5, 6], Instant::now()).is_none());
+
+            assert!(*source.has_overflowed);
+        }
+
+        // Transfer the two messages and overflow flag to the destination
+        assert!(queuing.swap());
+
+        {
+            let (mut source, mut destination) = get_datagrams(&mut queuing);
+
+            // The overflow flag of the source partition should only be cleared, when it
+            // successfully sends a message.
+            assert!(*source.has_overflowed);
+
+            // Pushing a new message here will fail, even though there should be space in
+            // the source datagram. That is because the number of max messages is shared
+            // between both source and destination datagrams.
+            assert!(source.push(&[7, 8], Instant::now()).is_none());
+
+            assert!(*destination.has_overflowed);
+            destination.pop_then(|msg: Message| {
+                assert_eq!(msg.get_data(), &[1, 2]);
+            });
+            destination.pop_then(|msg: Message| {
+                assert_eq!(msg.get_data(), &[3, 4]);
+            });
+        }
+
+        // Let the source know there is space in the queuing port again
+        assert!(!queuing.swap());
+
+        {
+            let (mut source, destination) = get_datagrams(&mut queuing);
+
+            // Let's clear the overflow flag
+            assert!(source.push(&[9, 10], Instant::now()).is_some());
+
+            assert!(!*source.has_overflowed);
+
+            // The destination does not know about the successfully sent message yet
+            assert!(*destination.has_overflowed);
+        }
+
+        // Let the destination know the overflow flag is cleared now
+        assert!(queuing.swap());
+
+        {
+            let (source, mut destination) = get_datagrams(&mut queuing);
+
+            // Both overflow flags should be cleared now
+            assert!(!*source.has_overflowed);
+            assert!(!*destination.has_overflowed);
+
+            destination.pop_then(|msg: Message| {
+                assert_eq!(msg.get_data(), &[9, 10]);
+            });
+        }
+    }
+}
