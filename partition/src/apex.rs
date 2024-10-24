@@ -87,8 +87,7 @@ impl ApexProcessP4 for ApexLinuxPartition {
 impl ApexSamplingPortP4 for ApexLinuxPartition {
     fn create_sampling_port(
         sampling_port_name: SamplingPortName,
-        // TODO Return ErrorCode for wrong max message size
-        _max_message_size: MessageSize,
+        max_message_size: MessageSize,
         port_direction: PortDirection,
         refresh_period: ApexSystemTime,
     ) -> Result<SamplingPortId, ErrorReturnCode> {
@@ -108,14 +107,32 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
             .enumerate()
             .find(|(_, s)| s.name.eq(name))
         {
-            if s.dir != port_direction {
-                trace!("yielding InvalidConfig, because mismatching port direction:\nexpected {:?}, got {port_direction:?}", s.dir);
+            // check max message size
+            if max_message_size != s.msg_size as MessageSize {
+                trace!("yielding InvalidConfig, because the sampling port max message size ({}) mismatches the configuration table value ({})", max_message_size, s.msg_size);
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
-            let refresh = SystemTime::new(refresh_period).unwrap_duration();
+            // check correct port direction
+            if s.dir != port_direction {
+                trace!("yielding InvalidConfig, because sampling port has mismatching port direction:\nexpected {:?}, got {port_direction:?}", s.dir);
+                return Err(ErrorReturnCode::InvalidConfig);
+            }
+
+            // check partition mode
+            if let OperatingMode::Normal = PARTITION_MODE.read().unwrap() {
+                trace!("yielding InvalidMode, because sampling port creation is not allowed in normal mode");
+                return Err(ErrorReturnCode::InvalidMode);
+            }
+
+            // check if refresh_period is in range
+            let SystemTime::Normal(refresh) = SystemTime::new(refresh_period) else {
+                trace!("yielding InvalidConfig, because refresh period is out of range: got {refresh_period:?}");
+                return Err(ErrorReturnCode::InvalidConfig);
+            };
             let ch = (i, refresh);
 
+            // check if max number of channels is reached
             let mut channels = SAMPLING_PORTS.read().unwrap();
             if channels.try_push(ch).is_some() {
                 trace!(
@@ -137,11 +154,11 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         sampling_port_id: SamplingPortId,
         message: &[ApexByte],
     ) -> Result<(), ErrorReturnCode> {
-        if let Some((port, _)) = SAMPLING_PORTS
-            .read()
-            .unwrap()
-            .get(sampling_port_id as usize - 1)
-        {
+        // reduce port id by one
+        let sampling_port_id = (sampling_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
+        if let Some((port, _)) = SAMPLING_PORTS.read().unwrap().get(sampling_port_id) {
             if let Some(port) = CONSTANTS.sampling.get(*port) {
                 if message.len() > port.msg_size {
                     return Err(ErrorReturnCode::InvalidConfig);
@@ -167,7 +184,12 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         } else {
             return Err(ErrorReturnCode::NotAvailable);
         };
-        if let Some((port, val)) = read.get(sampling_port_id as usize - 1) {
+
+        // reduce port id by one
+        let sampling_port_id = (sampling_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
+        if let Some((port, val)) = read.get(sampling_port_id) {
             if let Some(port) = CONSTANTS.sampling.get(*port) {
                 if message.is_empty() {
                     return Err(ErrorReturnCode::InvalidParam);
@@ -272,10 +294,14 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         message: &[ApexByte],
         _time_out: ApexSystemTime,
     ) -> Result<(), ErrorReturnCode> {
+        // reduce port id by one
+        let queuing_port_id = (queuing_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
         let port = QUEUING_PORTS
             .read()
             .ok()
-            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id))
             .and_then(|port| CONSTANTS.queuing.get(port))
             .ok_or(ErrorReturnCode::InvalidParam)?;
 
@@ -308,10 +334,14 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         _time_out: ApexSystemTime,
         message: &mut [ApexByte],
     ) -> Result<(MessageSize, QueueOverflow), ErrorReturnCode> {
+        // reduce port id by one
+        let queuing_port_id = (queuing_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
         let port = QUEUING_PORTS
             .read()
             .ok()
-            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id))
             .and_then(|port| CONSTANTS.queuing.get(port))
             .ok_or(ErrorReturnCode::InvalidParam)?;
 
@@ -332,10 +362,14 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
     fn get_queuing_port_status(
         queuing_port_id: QueuingPortId,
     ) -> Result<QueuingPortStatus, ErrorReturnCode> {
+        // reduce port id by one
+        let queuing_port_id = (queuing_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
         let port = QUEUING_PORTS
             .read()
             .ok()
-            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id))
             .and_then(|port| CONSTANTS.queuing.get(port))
             .ok_or(ErrorReturnCode::InvalidParam)?;
 
@@ -360,10 +394,14 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
     }
 
     fn clear_queuing_port(queuing_port_id: QueuingPortId) -> Result<(), ErrorReturnCode> {
+        // reduce port id by one
+        let queuing_port_id = (queuing_port_id as usize)
+            .checked_sub(1)
+            .ok_or(ErrorReturnCode::InvalidParam)?;
         let port = QUEUING_PORTS
             .read()
             .ok()
-            .and_then(|ports| ports.into_iter().nth(queuing_port_id as usize - 1))
+            .and_then(|ports| ports.into_iter().nth(queuing_port_id))
             .and_then(|port| CONSTANTS.queuing.get(port))
             .ok_or(ErrorReturnCode::InvalidParam)?;
 
