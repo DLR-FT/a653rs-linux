@@ -105,21 +105,23 @@
           default = packages.a653rs-linux-hypervisor;
           a653rs-linux-hypervisor = naersk-lib.buildPackage
             rec {
+              inherit env;
               pname = "a653rs-linux-hypervisor";
               root = ./.;
               cargoBuildOptions = x: x ++ [ "--package" pname ];
               cargoTestOptions = x: x ++ [ "--package" pname ];
-            } // env;
+            };
         } // (builtins.listToAttrs (builtins.map
           ({ name, partitions, ... }: {
             name = "example-${name}";
             value = naersk-lib.buildPackage
-              rec {
+              {
+                inherit env;
                 pname = name;
                 root = ./.;
                 cargoBuildOptions = x: x ++ (cargoPackageList partitions);
                 cargoTestOptions = x: x ++ (cargoPackageList partitions);
-              } // env;
+              };
           }
           )
           examples));
