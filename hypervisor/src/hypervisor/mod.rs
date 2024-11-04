@@ -9,7 +9,7 @@ use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError
 use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use config::{Channel, Config};
 use once_cell::sync::OnceCell;
 use partition::Partition;
@@ -133,7 +133,7 @@ impl Hypervisor {
 
         let sys_time = SYSTEM_START_TIME
             .get()
-            .ok_or_else(|| anyhow!("SystemTime was not set"))
+            .context("SystemTime was not set")
             .lev_typ(SystemError::Panic, ErrorLevel::ModuleInit)?;
         sys_time.write(&frame_start).lev(ErrorLevel::ModuleInit)?;
         sys_time.seal_read_only().lev(ErrorLevel::ModuleInit)?;
