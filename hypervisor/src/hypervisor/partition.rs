@@ -437,6 +437,10 @@ impl Run {
 
         Ok(())
     }
+
+    pub fn periodic_running(&self) -> bool {
+        self.mode == OperatingMode::Normal && self.periodic
+    }
 }
 
 struct IoTxRx {
