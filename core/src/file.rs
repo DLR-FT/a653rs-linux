@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::mem::{size_of, MaybeUninit};
 use std::os::unix::prelude::{AsRawFd, FileExt, IntoRawFd, RawFd};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use memfd::{FileSeal, Memfd, MemfdOptions};
 use memmap2::{Mmap, MmapMut};
 use nix::unistd::{close, dup};
@@ -183,6 +183,6 @@ pub fn get_memfd(name: &str) -> TypedResult<i32> {
                 None
             }
         })
-        .ok_or_else(|| anyhow!("No File Descriptor with Name: {name}"))
+        .with_context(|| format!("No File Descriptor with Name: {name}"))
         .typ(SystemError::Panic)
 }

@@ -13,7 +13,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Ok};
+use anyhow::{bail, Context, Ok};
 use itertools::Itertools;
 use nix::sys::statfs;
 use nix::unistd::Pid;
@@ -278,7 +278,7 @@ pub fn mount_point() -> anyhow::Result<PathBuf> {
         .mountinfo()?
         .into_iter()
         .find(|m| m.fs_type.eq("cgroup2")) // TODO A process can have several cgroup mounts
-        .ok_or_else(|| anyhow!("no cgroup2 mount found"))
+        .context("no cgroup2 mount found")
         .map(|m| m.mount_point.clone())
 }
 
@@ -289,7 +289,7 @@ pub fn current_cgroup() -> anyhow::Result<PathBuf> {
         .cgroups()?
         .into_iter()
         .next()
-        .ok_or(anyhow!("cannot obtain cgroup"))?
+        .context("cannot obtain cgroup")?
         .pathname
         .clone();
     let path = &path[1..path.len()]; // Remove the leading '/'
