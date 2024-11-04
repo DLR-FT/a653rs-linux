@@ -96,6 +96,11 @@ impl<'a> PartitionTimeframeScheduler<'a> {
         if self.timeout.has_time_left() {
             let res = self.run_post_periodic();
             self.handle_partition_result(res)?;
+        } else if let OperatingMode::Normal = self.partition.get_base_run().1.mode() {
+            warn!(
+                "Deadline miss of periodic process in partition: {}",
+                self.partition.name()
+            );
         }
         Ok(())
     }
