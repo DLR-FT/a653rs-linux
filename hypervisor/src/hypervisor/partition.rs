@@ -22,11 +22,11 @@ use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
 use anyhow::{anyhow, Context};
 use bytesize::ByteSize;
-use clone3::Clone3;
 use itertools::Itertools;
 pub use mounting::FileMounter;
 use nix::mount::{umount2, MntFlags};
-use nix::unistd::{chdir, close, getpid, pivot_root, setgid, setuid, Gid, Pid, Uid};
+use nix::sched::{unshare, CloneFlags};
+use nix::unistd::{chdir, close, getpid, gettid, pivot_root, setgid, setuid, Gid, Pid, Uid};
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
 use tempfile::{tempdir, TempDir};
@@ -72,8 +72,8 @@ pub(crate) struct Run {
 impl Run {
     pub fn new(base: &Base, condition: StartCondition, warm_start: bool) -> TypedResult<Run> {
         trace!("Create new \"Run\" for \"{}\" partition", base.name());
-        let cgroup_processes = base
-            .cgroup
+        let cgroup_base = CGroup::import_root(base.cgroup.get_path()).typ(SystemError::CGroup)?;
+        let cgroup_processes = cgroup_base
             .new(PartitionConstants::PROCESSES_CGROUP)
             .typ(SystemError::CGroup)?;
         let cgroup_main = cgroup_processes
@@ -85,13 +85,14 @@ impl Run {
         let cgroup_aperiodic = cgroup_processes
             .new_threaded(PartitionConstants::APERIODIC_PROCESS_CGROUP)
             .typ(SystemError::CGroup)?;
+        cgroup_base.freeze().typ(SystemError::CGroup)?;
 
         let real_uid = nix::unistd::getuid();
         let real_gid = nix::unistd::getgid();
 
         let sys_time = SYSTEM_START_TIME
             .get()
-            .ok_or_else(|| anyhow!("SystemTime was not set"))
+            .context("SystemTime was not set")
             .typ(SystemError::Panic)?;
 
         let ipc_path = base
@@ -119,164 +120,154 @@ impl Run {
             tcp_io_rx,
         } = send_sockets(base)?;
 
-        let pid = match unsafe {
-            Clone3::default()
-                .flag_newcgroup()
-                .flag_newuser()
-                .flag_newpid()
-                .flag_newns()
-                .flag_newipc()
-                .flag_newnet()
-                .flag_into_cgroup(
-                    &std::fs::File::open(base.cgroup.get_path())
-                        .typ(SystemError::CGroup)?
-                        .as_raw_fd(),
-                )
-                .call()
-        }
-        .typ(SystemError::Panic)?
-        {
-            0 => {
-                // Map User and user group (required for tmpfs mounts)
-                std::fs::write(
-                    PathBuf::from("/proc/self").join("uid_map"),
-                    format!("0 {} 1", real_uid.as_raw()),
-                )
-                .unwrap();
-                std::fs::write(PathBuf::from("/proc/self").join("setgroups"), b"deny").unwrap();
-                std::fs::write(
-                    PathBuf::from("/proc/self").join("gid_map"),
-                    format!("0 {} 1", real_gid.as_raw()).as_bytes(),
-                )
-                .unwrap();
+        let callback = Box::new(move || -> isize {
+            // Map User and user group (required for tmpfs mounts)
+            std::fs::write(
+                PathBuf::from("/proc/self").join("uid_map"),
+                format!("0 {} 1", real_uid.as_raw()),
+            )
+            .unwrap();
+            std::fs::write(PathBuf::from("/proc/self").join("setgroups"), b"deny").unwrap();
+            std::fs::write(
+                PathBuf::from("/proc/self").join("gid_map"),
+                format!("0 {} 1", real_gid.as_raw()).as_bytes(),
+            )
+            .unwrap();
 
-                // Set uid and gid to the map user above (0)
-                setuid(Uid::from_raw(0)).unwrap();
-                setgid(Gid::from_raw(0)).unwrap();
+            cgroup_base.mv_proc(getpid()).unwrap();
+            unshare(CloneFlags::CLONE_NEWCGROUP).unwrap();
 
-                Partition::print_fds();
-                // Release all unneeded fd's
+            // Set uid and gid to the map user above (0)
+            setuid(Uid::from_raw(0)).unwrap();
+            setgid(Gid::from_raw(0)).unwrap();
 
-                let mut keep = base.sampling_fds();
-                keep.extend_from_slice(&base.queuing_fds());
-                keep.push(sys_time.as_raw_fd());
-                keep.push(mode_file.as_raw_fd());
-                keep.push(udp_io_rx.as_raw_fd());
-                keep.push(tcp_io_rx.as_raw_fd());
+            Partition::print_fds();
+            // Release all unneeded fd's
 
-                Partition::release_fds(&keep).unwrap();
+            let mut keep = base.sampling_fds();
+            keep.extend_from_slice(&base.queuing_fds());
+            keep.push(sys_time.as_raw_fd());
+            keep.push(mode_file.as_raw_fd());
+            keep.push(udp_io_rx.as_raw_fd());
+            keep.push(tcp_io_rx.as_raw_fd());
 
-                let ipc_path_inner: PathBuf = PartitionConstants::IPC_SENDER[1..].into();
+            Partition::release_fds(&keep).unwrap();
 
-                // Mount the required mounts
-                let mut mounts = vec![
-                    // Mount working directory as tmpfs
-                    FileMounter::tmpfs("", ByteSize::kb(500)),
-                    // Mount binary
-                    FileMounter::bind_ro(&base.bin, "/bin").unwrap(),
-                    // Mount /dev/null (for stdio::null)
-                    FileMounter::bind_ro("/dev/null", "/dev/null").unwrap(),
-                    // Mount proc
-                    FileMounter::proc(),
-                    // Mount CGroup v2
-                    FileMounter::cgroup(),
-                    // IPC Socket for Syscalls
-                    FileMounter::bind_rw(ipc_path, ipc_path_inner).unwrap(),
-                ];
+            let ipc_path_inner: PathBuf = PartitionConstants::IPC_SENDER[1..].into();
 
-                for (source, target) in base.mounts.iter().cloned() {
-                    // make target path relative because they will later be appended to the
-                    // partition's base directory by the `FileMounter`
-                    let relative_target = target
-                        .strip_prefix("/")
-                        .context("target paths for mounting must be absolute")
-                        .typ(SystemError::Panic)?;
+            // Mount the required mounts
+            let mut mounts = vec![
+                // Mount working directory as tmpfs
+                FileMounter::tmpfs("", ByteSize::kb(500)),
+                // Mount binary
+                FileMounter::bind_ro(&base.bin, "/bin").unwrap(),
+                // Mount /dev/null (for stdio::null)
+                FileMounter::bind_ro("/dev/null", "/dev/null").unwrap(),
+                // Mount proc
+                FileMounter::proc(),
+                // Mount CGroup v2
+                FileMounter::cgroup(),
+                // IPC Socket for Syscalls
+                FileMounter::bind_rw(&ipc_path, ipc_path_inner).unwrap(),
+            ];
 
-                    let file_mounter = FileMounter::bind_rw(source, relative_target)
-                        .context("failed to initialize file mounter")
-                        .typ(SystemError::Panic)?;
-                    mounts.push(file_mounter);
-                }
+            for (source, target) in base.mounts.iter().cloned() {
+                // make target path relative because they will later be appended to the
+                // partition's base directory by the `FileMounter`
+                let relative_target = target
+                    .strip_prefix("/")
+                    .context("target paths for mounting must be absolute")
+                    .unwrap();
 
-                // TODO: Check for duplicate mounts
-
-                let tmpfs_path = base.working_dir.path().join("tmpfs");
-                for m in mounts {
-                    debug!("mounting {:?}", &m);
-                    m.mount(&tmpfs_path)
-                        .context("failed to mount")
-                        .typ(SystemError::Panic)?;
-                }
-
-                // Change working directory and root (unmount old root)
-                chdir(&tmpfs_path).unwrap();
-                pivot_root(".", ".").unwrap();
-                umount2(".", MntFlags::MNT_DETACH).unwrap();
-                //umount("old").unwrap();
-                chdir("/").unwrap();
-
-                let constants: RawFd = PartitionConstants {
-                    name: base.name.clone(),
-                    identifier: base.id,
-                    period: base.period,
-                    duration: base.duration,
-                    start_condition: condition,
-                    start_time_fd: sys_time.as_raw_fd(),
-                    partition_mode_fd: mode_file.as_raw_fd(),
-                    udp_io_fd: udp_io_rx.as_raw_fd(),
-                    tcp_io_fd: tcp_io_rx.as_raw_fd(),
-                    sampling: base
-                        .sampling_channel
-                        .clone()
-                        .drain()
-                        .map(|(_, s)| s)
-                        .collect_vec(),
-                    queuing: base
-                        .queuing_channel
-                        .clone()
-                        .drain()
-                        .map(|(_, q)| q)
-                        .collect_vec(),
-                }
-                .try_into()
-                .unwrap();
-
-                // Run binary
-                let mut command = Command::new("/bin");
-                let mut command = command
-                    .stdout(Stdio::null())
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::null())
-                    // Set Partition Name Env
-                    .env(
-                        PartitionConstants::PARTITION_CONSTANTS_FD,
-                        constants.to_string(),
-                    );
-                unsafe {
-                    let path = cgroup::mount_point().typ(SystemError::CGroup)?;
-                    let path = path
-                        .join(PartitionConstants::PROCESSES_CGROUP)
-                        .join(PartitionConstants::MAIN_PROCESS_CGROUP);
-                    let cgroup_main = CGroup::import_root(path).typ(SystemError::CGroup).unwrap();
-
-                    command = command.pre_exec(move || {
-                        cgroup_main
-                            .mv_proc(getpid())
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                    });
-                }
-                command.exec();
-                unsafe { libc::_exit(0) };
+                let file_mounter = FileMounter::bind_rw(source, relative_target)
+                    .context("failed to initialize file mounter")
+                    .typ(SystemError::Panic)
+                    .unwrap();
+                mounts.push(file_mounter);
             }
-            child => child,
-        };
+
+            // TODO: Check for duplicate mounts
+
+            let tmpfs_path = base.working_dir.path().join("tmpfs");
+            for m in mounts {
+                debug!("mounting {:?}", &m);
+                m.mount(&tmpfs_path)
+                    .context("failed to mount")
+                    .typ(SystemError::Panic)
+                    .unwrap();
+            }
+
+            // Change working directory and root (unmount old root)
+            chdir(&tmpfs_path).unwrap();
+            pivot_root(".", ".").unwrap();
+            umount2(".", MntFlags::MNT_DETACH).unwrap();
+            chdir("/").unwrap();
+
+            let constants: RawFd = PartitionConstants {
+                name: base.name.clone(),
+                identifier: base.id,
+                period: base.period,
+                duration: base.duration,
+                start_condition: condition,
+                start_time_fd: sys_time.as_raw_fd(),
+                partition_mode_fd: mode_file.as_raw_fd(),
+                udp_io_fd: udp_io_rx.as_raw_fd(),
+                tcp_io_fd: tcp_io_rx.as_raw_fd(),
+                sampling: base.sampling_channel.clone().into_values().collect_vec(),
+                queuing: base.queuing_channel.clone().into_values().collect_vec(),
+            }
+            .try_into()
+            .unwrap();
+
+            // Run binary
+            let mut command = Command::new("/bin");
+            let mut command = command
+                .stdout(Stdio::null())
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                // Set Partition Name Env
+                .env(
+                    PartitionConstants::PARTITION_CONSTANTS_FD,
+                    constants.to_string(),
+                );
+            unsafe {
+                let path = cgroup::mount_point().typ(SystemError::CGroup).unwrap();
+                let path = path
+                    .join(PartitionConstants::PROCESSES_CGROUP)
+                    .join(PartitionConstants::MAIN_PROCESS_CGROUP);
+                let cgroup_main = CGroup::import_root(path).typ(SystemError::CGroup).unwrap();
+
+                command = command.pre_exec(move || {
+                    cgroup_main
+                        .mv_proc(gettid())
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                });
+            }
+
+            command.exec();
+            unsafe { libc::_exit(0) };
+        });
+
+        const STACK_SIZE: usize = 1024 * 1024;
+        let stack: &mut [u8; STACK_SIZE] = &mut [0; STACK_SIZE];
+
+        let pid = unsafe {
+            nix::sched::clone(
+                callback,
+                stack,
+                CloneFlags::CLONE_NEWUSER
+                    | CloneFlags::CLONE_NEWPID
+                    | CloneFlags::CLONE_NEWNS
+                    | CloneFlags::CLONE_NEWIPC
+                    | CloneFlags::CLONE_NEWNET,
+                None,
+            )
+        }
+        .unwrap();
         debug!(
             "Successfully created Partition {}. Main Pid: {pid}",
             base.name()
         );
-
-        //let pid_fd = PidFd::try_from(Pid::from_raw(pid));
-        let pid = Pid::from_raw(pid);
 
         Ok(Run {
             _cgroup_main: cgroup_main,
