@@ -127,7 +127,7 @@ impl<'a> PartitionTimeframeScheduler<'a> {
     /// `Ok(None)`. In case of `Ok(_)` the contained value is returned as
     /// `Ok(Some(_))`.
     fn handle_partition_result<T>(&mut self, res: TypedResult<T>) -> LeveledResult<Option<T>> {
-        res.map(|t| Some(t))
+        res.map(Some)
             .or_else(|err| self.partition.handle_error(err).map(|_| None))
     }
 }
