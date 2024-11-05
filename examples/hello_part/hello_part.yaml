@@ -12,9 +12,9 @@ partitions:
     duration: 10ms
     image: hello_part
     period: 1s
-    sockets:
-      - type: udp
-        address: 127.0.0.1:34256
+    # sockets:
+    #   - type: udp
+    #     address: 127.0.0.1:34256
 channel:
   - !Sampling
     name: Hello

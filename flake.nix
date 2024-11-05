@@ -5,6 +5,11 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     utils.url = "git+https://github.com/numtide/flake-utils.git";
     devshell.url = "github:numtide/devshell";
+    sel4-utils = {
+      url = "github:DLR-FT/seL4-nix-utils";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "utils";
+    };
     fenix = {
       url = "git+https://github.com/nix-community/fenix.git?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -103,6 +108,13 @@
         packages = {
           # the hypervisor itself
           default = packages.a653rs-linux-hypervisor;
+          minimal-linux-example = inputs.sel4-utils.packages.x86_64-linux.linux-aarch64.override {
+            extraRootfsFiles = {
+              "/bin/hypervisor".copy = lib.meta.getExe' self.packages.aarch64-linux.a653rs-linux-hypervisor "a653rs-linux-hypervisor";
+              "/bin/hello_part".copy = lib.meta.getExe' self.packages.aarch64-linux.example-hello_part "hello_part";
+              "/conf".copy = pkgs.writeText "conf" (builtins.readFile ./examples/hello_part/hello_part.yaml);
+            };
+          };
           a653rs-linux-hypervisor = naersk-lib.buildPackage
             rec {
               inherit env;

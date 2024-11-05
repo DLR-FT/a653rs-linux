@@ -117,6 +117,7 @@
         "fenix": "fenix",
         "naersk": "naersk",
         "nixpkgs": "nixpkgs_2",
+        "sel4-utils": "sel4-utils",
         "utils": "utils"
       }
     },
@@ -134,6 +135,30 @@
         "owner": "rust-lang",
         "ref": "nightly",
         "repo": "rust-analyzer",
+        "type": "github"
+      }
+    },
+    "sel4-utils": {
+      "inputs": {
+        "flake-utils": [
+          "utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "treefmt-nix": "treefmt-nix"
+      },
+      "locked": {
+        "lastModified": 1730709599,
+        "narHash": "sha256-hxvWwc3U/9Q1IEq1j9qf9Z5GvNfMjUY/mtxpOaBpsfM=",
+        "owner": "DLR-FT",
+        "repo": "seL4-nix-utils",
+        "rev": "e66b8796837e79b29cbea40c510ccebb436edd5a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "DLR-FT",
+        "repo": "seL4-nix-utils",
         "type": "github"
       }
     },
@@ -164,6 +189,27 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "treefmt-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "sel4-utils",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1710781103,
+        "narHash": "sha256-nehQK/XTFxfa6rYKtbi8M1w+IU1v5twYhiyA4dg1vpg=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "7ee5aaac63c30d3c97a8c56efe89f3b2aa9ae564",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
         "type": "github"
       }
     },
