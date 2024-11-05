@@ -43,4 +43,54 @@ jobs:
       - name: Check CGroup
         run: systemd-run --user --scope cat /proc/self/cgroup
       - name: Run example ${{ matrix.example }}
-        run: nix develop --command systemd-run-example-${{ matrix.example }} --duration $DURATION
+        shell: nix develop --command bash -e {0}
+        run: systemd-run-example-${{ matrix.example }} --duration "$DURATION" 2>&1 | tee ./output.log
+      - name: Verify output
+        run: |
+          assert_contain() {
+            local contain="$1"
+            local msg="$2"
+            if ! grep "$contain" ./output.log; then
+              printf "$msg\n"
+              return 1
+            fi
+            return 0
+          }
+
+          assert_not_contain() {
+            local contain="$1"
+            if grep "$contain" ./output.log; then
+              return 1
+            fi
+            return 0
+          }
+          
+          assert_not_contain "ERROR"
+          assert_not_contain "panic"
+
+          if [ "${{ matrix.example }}" = "hello_part" ]; then
+            assert_not_contain "WARN"
+            assert_contain "Received via Sampling Port: CustomMessage" \
+              "no custom message received"
+          fi
+          if [ "${{ matrix.example }}" = "fuel_tank" ]; then
+            assert_not_contain "WARN"
+          fi
+          if [ "${{ matrix.example }}" = "ping" ]; then
+            assert_contain "received valid response" \
+              "no valid response received"
+          fi
+          if [ "${{ matrix.example }}" = "dev_random" ]; then
+            assert_not_contain "WARN"
+            assert_contain "got some randomness" \
+              "missing randomness log info"
+          fi
+          if [ "${{ matrix.example }}" = "ping_queue" ]; then
+            assert_contain "Received valid response" \
+              "no valid response received"
+          fi
+          if [ "${{ matrix.example }}" = "redirect_stdio" ]; then
+            assert_not_contain "WARN"
+            assert_contain "Terminating partition" \
+              "partition didn't terminate as expected"
+          fi
