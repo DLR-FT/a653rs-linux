@@ -69,7 +69,7 @@ where
 
         // Serialize the received data into T
         bincode::deserialize(&buffer[0..len])
-            .map(|r| Some(r))
+            .map(Some)
             .typ(SystemError::Panic)
     }
 
