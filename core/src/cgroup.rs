@@ -13,7 +13,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Ok};
+use anyhow::{bail, ensure, Context, Ok};
 use itertools::Itertools;
 use nix::sys::statfs;
 use nix::unistd::Pid;
@@ -39,18 +39,18 @@ impl CGroup {
         trace!("Create cgroup \"{name}\"");
         // Double-checking if path is cgroup does not hurt, as it is
         // better to not potentially create a directory at a random location.
-        if !is_cgroup(path.as_ref())? {
-            bail!("{} is not a valid cgroup", path.as_ref().display());
-        }
+        ensure!(
+            is_cgroup(path.as_ref())?,
+            "{} is not a valid cgroup",
+            path.as_ref().display()
+        );
 
         let path = PathBuf::from(path.as_ref()).join(name);
 
-        if path.exists() {
-            bail!("CGroup {path:?} already exists");
-        } else {
-            // will fail if the path already exists
-            fs::create_dir(&path)?;
-        }
+        ensure!(!path.exists(), "CGroup {path:?} already exists");
+
+        // will fail if the path already exists
+        fs::create_dir(&path)?;
 
         Self::import_root(&path)
     }
@@ -60,11 +60,9 @@ impl CGroup {
         trace!("Import cgroup {}", path.as_ref().display());
         let path = PathBuf::from(path.as_ref());
 
-        if !is_cgroup(&path)? {
-            bail!("{} is not a valid cgroup", path.display());
-        }
-
-        Ok(CGroup { path })
+        let cgroup = CGroup { path };
+        cgroup.ensure_is_cgroup()?;
+        Ok(cgroup)
     }
 
     /// Creates a sub-cgroup inside this one
@@ -79,12 +77,19 @@ impl CGroup {
         Ok(cgroup)
     }
 
+    fn ensure_is_cgroup(&self) -> anyhow::Result<()> {
+        ensure!(
+            is_cgroup(&self.path)?,
+            "{} is not a valid cgroup",
+            self.path.display()
+        );
+        Ok(())
+    }
+
     /// Moves a process to this cgroup
     pub fn mv_proc(&self, pid: Pid) -> anyhow::Result<()> {
         trace!("Move {pid:?} to {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         fs::write(self.path.join("cgroup.procs"), pid.to_string())?;
         Ok(())
@@ -93,9 +98,7 @@ impl CGroup {
     /// Moves a thread to this cgroup
     pub fn mv_thread(&self, pid: Pid) -> anyhow::Result<()> {
         trace!("Move {pid:?} to {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         fs::write(self.path.join("cgroup.threads"), pid.to_string())?;
         Ok(())
@@ -104,9 +107,7 @@ impl CGroup {
     /// Changes the cgroups type to "threaded"
     fn set_threaded(&self) -> anyhow::Result<()> {
         trace!("Change type of {} to threaded", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         fs::write(self.path.join("cgroup.type"), "threaded")?;
         Ok(())
@@ -114,9 +115,7 @@ impl CGroup {
 
     /// Returns all PIDs associated with this cgroup
     pub fn get_pids(&self) -> anyhow::Result<Vec<Pid>> {
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         let pids: Vec<Pid> = fs::read(self.path.join("cgroup.procs"))?
             .lines()
@@ -128,9 +127,7 @@ impl CGroup {
 
     /// Returns all TIDs associated with this cgroup
     pub fn get_tids(&self) -> anyhow::Result<Vec<Pid>> {
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         let pids: Vec<Pid> = fs::read(self.path.join("cgroup.threads"))?
             .lines()
@@ -142,18 +139,14 @@ impl CGroup {
 
     /// Checks whether this cgroup is populated
     pub fn populated(&self) -> anyhow::Result<bool> {
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         Ok(fs::read_to_string(self.get_events_path())?.contains("populated 1\n"))
     }
 
     /// Checks whether this cgroup is frozen
     pub fn frozen(&self) -> anyhow::Result<bool> {
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         // We need to check for the existance of cgroup.freeze, because
         // this file does not exist on the root cgroup.
@@ -168,16 +161,12 @@ impl CGroup {
     /// Freezes this cgroup (does nothing if already frozen)
     pub fn freeze(&self) -> anyhow::Result<()> {
         trace!("Freeze {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         // We need to check for the existance of cgroup.freeze, because
         // this file does not exist on the root cgroup.
         let path = self.path.join("cgroup.freeze");
-        if !path.exists() {
-            bail!("cannot freeze the root cgroup");
-        }
+        ensure!(path.exists(), "cannot freeze the root cgroup");
 
         Ok(fs::write(path, "1")?)
     }
@@ -185,16 +174,12 @@ impl CGroup {
     /// Unfreezes this cgroup (does nothing if not frozen)
     pub fn unfreeze(&self) -> anyhow::Result<()> {
         trace!("Unfreeze {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         // We need to check for the existance of cgroup.freeze, because
         // this file does not exist on the root cgroup.
         let path = self.path.join("cgroup.freeze");
-        if !path.exists() {
-            bail!("cannot unfreeze the root cgroup");
-        }
+        ensure!(path.exists(), "cannot unfreeze the root cgroup");
 
         Ok(fs::write(path, "0")?)
     }
@@ -203,16 +188,12 @@ impl CGroup {
     /// procedure is finished
     pub fn kill(&self) -> anyhow::Result<()> {
         trace!("Kill {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         // We need to check for the existance of cgroup.kill, because
         // this file does not exist on the root cgroup.
         let killfile = self.path.join("cgroup.kill");
-        if !killfile.exists() {
-            bail!("cannot kill the root cgroup");
-        }
+        ensure!(killfile.exists(), "cannot kill the root cgroup");
 
         // Emit the kill signal to all processes inside the cgroup
         trace!("writing '1' to {}", killfile.display());
@@ -244,9 +225,7 @@ impl CGroup {
     /// Kills all processes and removes the current cgroup
     pub fn rm(&self) -> anyhow::Result<()> {
         trace!("Remove {}", self.get_path().display());
-        if !is_cgroup(&self.path)? {
-            bail!("{} is not a valid cgroup", self.path.display());
-        }
+        self.ensure_is_cgroup()?;
 
         // Calling kill will also kill all sub cgroup processes
         self.kill()?;
