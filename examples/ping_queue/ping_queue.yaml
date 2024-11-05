@@ -2,13 +2,13 @@ major_frame: 1s
 partitions:
   - id: 0
     name: ping_queue_client
-    duration: 10ms
+    duration: 30ms
     offset: 0ms
     period: 1s
     image: ping_queue_client
   - id: 1
     name: ping_queue_server
-    duration: 20ms
+    duration: 30ms
     offset: 450ms
     period: 1s
     image: ping_queue_server
