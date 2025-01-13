@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::net::{TcpStream, UdpSocket};
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
 use std::os::unix::process::CommandExt;
@@ -151,6 +152,27 @@ impl Run {
             keep.push(udp_io_rx.as_raw_fd());
             keep.push(tcp_io_rx.as_raw_fd());
 
+            let mut stdout = None;
+            if let Some(path) = &base.stdout {
+                let out = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .unwrap();
+                keep.push(out.as_raw_fd());
+                stdout = Some(out);
+            }
+            let mut stderr = None;
+            if let Some(path) = &base.stderr {
+                let err = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .unwrap();
+                keep.push(err.as_raw_fd());
+                stderr = Some(err);
+            }
+
             Partition::release_fds(&keep).unwrap();
 
             let ipc_path_inner: PathBuf = PartitionConstants::IPC_SENDER[1..].into();
@@ -222,9 +244,9 @@ impl Run {
             // Run binary
             let mut command = Command::new("/bin");
             let mut command = command
-                .stdout(Stdio::null())
+                .stdout(stdout.map(Stdio::from).unwrap_or_else(Stdio::null))
                 .stdin(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(stderr.map(Stdio::from).unwrap_or_else(Stdio::null))
                 // Set Partition Name Env
                 .env(
                     PartitionConstants::PARTITION_CONSTANTS_FD,
@@ -476,6 +498,8 @@ pub(crate) struct Base {
     period: Duration,
     working_dir: TempDir,
     sockets: Vec<PosixSocket>,
+    stdout: Option<PathBuf>,
+    stderr: Option<PathBuf>,
 }
 
 impl Base {
@@ -555,6 +579,8 @@ impl Partition {
             sampling_channel,
             sockets: config.sockets,
             queuing_channel,
+            stdout: config.stdout,
+            stderr: config.stderr,
         };
         // TODO use StartCondition::HmModuleRestart in case of a ModuleRestart!!
         let run =
