@@ -82,7 +82,7 @@ mod ping_queue_client {
             match ctx.ping_request.unwrap().send(&buf, SystemTime::Infinite) {
                 Ok(_) => {}
                 Err(Error::NotAvailable) => warn!("Failed to send ping request"),
-                Err(other) => panic!("Failed to send ping request: {:?}", other),
+                Err(other) => panic!("Failed to send ping request: {other:?}"),
             }
 
             let SystemTime::Normal(time_after_send) = ctx.get_time() else {
@@ -122,10 +122,12 @@ mod ping_queue_client {
                     let from_server = Duration::from_nanos(from_server as u64);
 
                     // and log the results!
-                    info!("Received valid response: RTT={round_trip:?}  client-to-server={to_server:?}  server-to-client={from_server:?}");
+                    info!(
+                        "Received valid response: RTT={round_trip:?}  client-to-server={to_server:?}  server-to-client={from_server:?}"
+                    );
                 }
                 Err(Error::NotAvailable) => warn!("Failed to receive ping response"),
-                other => panic!("Failed to receive ping response: {:?}", other),
+                other => panic!("Failed to receive ping response: {other:?}"),
             };
 
             // wait until the beginning of this partitions next MiF. In scheduling terms

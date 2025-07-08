@@ -9,7 +9,7 @@ use std::{
 use a653rs::prelude::{ApexErrorP4Ext, MAX_ERROR_MESSAGE_SIZE};
 use a653rs_linux_core::error::SystemError;
 use a653rs_linux_core::health_event::PartitionCall;
-use log::{set_logger, set_max_level, LevelFilter, Record, SetLoggerError};
+use log::{LevelFilter, Record, SetLoggerError, set_logger, set_max_level};
 
 use crate::{CONSTANTS, SENDER};
 #[cfg(feature = "socket")]

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{TcpStream, UdpSocket};
-use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, PermissionsExt, RawFd};
+use std::os::unix::prelude::{AsRawFd, OwnedFd, PermissionsExt, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::{self, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -16,25 +16,25 @@ use a653rs_linux_core::error::{
 use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::health::{ModuleRecoveryAction, PartitionHMTable, RecoveryAction};
 use a653rs_linux_core::health_event::PartitionCall;
-use a653rs_linux_core::ipc::{bind_receiver, io_pair, IoReceiver, IoSender, IpcReceiver};
+use a653rs_linux_core::ipc::{IoReceiver, IoSender, IpcReceiver, bind_receiver, io_pair};
 use a653rs_linux_core::partition::{PartitionConstants, QueuingConstant, SamplingConstant};
 use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use bytesize::ByteSize;
 use itertools::Itertools;
 pub use mounting::FileMounter;
-use nix::mount::{umount2, MntFlags};
-use nix::sched::{unshare, CloneFlags};
-use nix::unistd::{chdir, close, getpid, gettid, pivot_root, setgid, setuid, Gid, Pid, Uid};
+use nix::mount::{MntFlags, umount2};
+use nix::sched::{CloneFlags, unshare};
+use nix::unistd::{Gid, Pid, Uid, chdir, close, getpid, gettid, pivot_root, setgid, setuid};
 use polling::{Event, Events, Poller};
 use procfs::process::Process;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 
 use super::config::PosixSocket;
 use super::scheduler::Timeout;
-use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::hypervisor::SYSTEM_START_TIME;
+use crate::hypervisor::config::Partition as PartitionConfig;
 use crate::problem;
 
 mod mounting;
@@ -59,7 +59,6 @@ pub(crate) struct Run {
     aperiodic: bool,
 
     mode: OperatingMode,
-    _mode_file_fd: OwnedFd,
     mode_file: TempFile<OperatingMode>,
     call_rx: IpcReceiver<PartitionCall>,
     // We need to keep the struct for the sender's side, so
@@ -110,7 +109,7 @@ impl Run {
             OperatingMode::ColdStart
         };
         let mode_file = TempFile::create("operation_mode")?;
-        let mode_file_fd = unsafe { OwnedFd::from_raw_fd(mode_file.as_raw_fd()) };
+        let mode_file_child = mode_file.clone();
         mode_file.write(&mode)?;
 
         let IoTxRx {
@@ -147,11 +146,11 @@ impl Run {
             let mut keep = base.sampling_fds();
             keep.extend_from_slice(&base.queuing_fds());
             keep.push(sys_time.as_raw_fd());
-            keep.push(mode_file.as_raw_fd());
+            keep.push(mode_file_child.as_raw_fd());
             keep.push(udp_io_rx.as_raw_fd());
             keep.push(tcp_io_rx.as_raw_fd());
 
-            Partition::release_fds(&keep).unwrap();
+            Partition::release_fds(keep.as_slice()).unwrap();
 
             let ipc_path_inner: PathBuf = PartitionConstants::IPC_SENDER[1..].into();
 
@@ -210,7 +209,7 @@ impl Run {
                 duration: base.duration,
                 start_condition: condition,
                 start_time_fd: sys_time.as_raw_fd(),
-                partition_mode_fd: mode_file.as_raw_fd(),
+                partition_mode_fd: mode_file_child.as_raw_fd(),
                 udp_io_fd: udp_io_rx.as_raw_fd(),
                 tcp_io_fd: tcp_io_rx.as_raw_fd(),
                 sampling: base.sampling_channel.clone().into_values().collect_vec(),
@@ -237,14 +236,11 @@ impl Run {
                     .join(PartitionConstants::MAIN_PROCESS_CGROUP);
                 let cgroup_main = CGroup::import_root(path).typ(SystemError::CGroup).unwrap();
 
-                command = command.pre_exec(move || {
-                    cgroup_main
-                        .mv_proc(gettid())
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                });
+                command = command
+                    .pre_exec(move || cgroup_main.mv_proc(gettid()).map_err(std::io::Error::other));
             }
 
-            command.exec();
+            let _ = command.exec();
             unsafe { libc::_exit(0) };
         });
 
@@ -281,7 +277,6 @@ impl Run {
             _io_tcp_tx: tcp_io_tx,
             periodic: false,
             aperiodic: false,
-            _mode_file_fd: mode_file_fd,
         })
     }
 
@@ -689,15 +684,15 @@ impl Partition {
                     match self.base.part_hm().try_action(*se) {
                         Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
                         Some(_) => {
-                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")));
                         }
                         None => {
                             return Err(TypedError::new(
                                 SystemError::Panic,
                                 anyhow!(
-                                "Could not get recovery action for requested partition error: {se}"
-                            ),
-                            ))
+                                    "Could not get recovery action for requested partition error: {se}"
+                                ),
+                            ));
                         }
                     };
                 }
@@ -739,15 +734,15 @@ impl Partition {
                     match self.base.part_hm().try_action(*se) {
                         Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
                         Some(_) => {
-                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")));
                         }
                         None => {
                             return Err(TypedError::new(
                                 SystemError::Panic,
                                 anyhow!(
-                                "Could not get recovery action for requested partition error: {se}"
-                            ),
-                            ))
+                                    "Could not get recovery action for requested partition error: {se}"
+                                ),
+                            ));
                         }
                     };
                 }
@@ -786,15 +781,15 @@ impl Partition {
                     match self.base.part_hm().try_action(*se) {
                         Some(RecoveryAction::Module(ModuleRecoveryAction::Ignore)) => {}
                         Some(_) => {
-                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")))
+                            return Err(TypedError::new(*se, anyhow!("Received Partition Error")));
                         }
                         None => {
                             return Err(TypedError::new(
                                 SystemError::Panic,
                                 anyhow!(
-                                "Could not get recovery action for requested partition error: {se}"
-                            ),
-                            ))
+                                    "Could not get recovery action for requested partition error: {se}"
+                                ),
+                            ));
                         }
                     };
                 }
@@ -827,14 +822,14 @@ impl Partition {
                 match self.base.part_hm().panic {
                     // We do not Handle Module Recovery actions here
                     RecoveryAction::Module(_) => {
-                        return TypedResult::Err(err).lev(ErrorLevel::Partition)
+                        return TypedResult::Err(err).lev(ErrorLevel::Partition);
                     }
                     RecoveryAction::Partition(action) => action,
                 }
             }
             // We do not Handle Module Recovery actions here
             Some(RecoveryAction::Module(_)) => {
-                return TypedResult::Err(err).lev(ErrorLevel::Partition)
+                return TypedResult::Err(err).lev(ErrorLevel::Partition);
             }
             Some(RecoveryAction::Partition(action)) => action,
         };
@@ -997,7 +992,7 @@ impl PeriodicPoller {
                     }
                     _ => {
                         return Err(anyhow!("Unexpected Event Received: {e:?}"))
-                            .typ(SystemError::Panic)
+                            .typ(SystemError::Panic);
                     }
                 }
             }

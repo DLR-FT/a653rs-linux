@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use a653rs::bindings::PortDirection;
 use a653rs::prelude::{PartitionId, StartCondition};
+use bincode::config::Configuration;
 use memfd::{FileSeal, MemfdOptions};
 use serde::{Deserialize, Serialize};
 
@@ -69,7 +70,10 @@ impl TryFrom<RawFd> for PartitionConstants {
         let mut file = File::open(format!("/proc/self/fd/{file}")).typ(SystemError::Panic)?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).typ(SystemError::Panic)?;
-        bincode::deserialize(&buf).typ(SystemError::Panic)
+        const CONFIG: Configuration = bincode::config::standard();
+        bincode::serde::decode_from_slice(&buf, CONFIG)
+            .map(|v| v.0)
+            .typ(SystemError::Panic)
     }
 }
 
@@ -77,7 +81,8 @@ impl TryFrom<PartitionConstants> for RawFd {
     type Error = TypedError;
 
     fn try_from(consts: PartitionConstants) -> TypedResult<Self> {
-        let bytes = bincode::serialize(&consts).typ(SystemError::Panic)?;
+        const CONFIG: Configuration = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&consts, CONFIG).typ(SystemError::Panic)?;
 
         let mem = MemfdOptions::default()
             .close_on_exec(false)

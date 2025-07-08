@@ -5,9 +5,10 @@ use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 
 use anyhow::Result;
+use bincode::config::Configuration;
 use nix::libc::EINTR;
 use nix::sys::eventfd::EventFd;
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
+use nix::sys::socket::{ControlMessage, MsgFlags, sendmsg};
 use polling::{Event, Events, Poller};
 
 use crate::mfd::{Mfd, Seals};
@@ -60,7 +61,7 @@ impl SyscallSender {
                     if e.raw_os_error() == Some(EINTR) {
                         continue;
                     } else {
-                        panic!("poller failed with {:?}", e)
+                        panic!("poller failed with {e:?}")
                     }
                 }
                 _ => panic!("unknown poller state"),
@@ -79,13 +80,14 @@ impl SyscallSender {
         let mut response_fd = Mfd::create("resp")?;
         let event_fd = EventFd::new()?;
 
-        let serialized_parameters = bincode::serialize(&params)?;
+        const CONFIG: Configuration = bincode::config::standard();
+        let serialized_parameters = bincode::serde::encode_to_vec(&params, CONFIG)?;
 
         let payload: SyscallRequest = (S::TY, serialized_parameters);
 
         // We need another serialization step here, so the receiver can deserialize just
         // the SyscallType without knowing the parameter types
-        let serialized_payload = bincode::serialize(&payload)?;
+        let serialized_payload = bincode::serde::encode_to_vec(&payload, CONFIG)?;
 
         // Write to the request file descriptor
         request_fd.write(&serialized_payload)?;
@@ -97,7 +99,8 @@ impl SyscallSender {
         Self::wait_event(event_fd.as_fd())?;
 
         let data = response_fd.read_all()?;
-        let response: SyscallResponse<S::Returns> = bincode::deserialize(&data)?;
+        let response: SyscallResponse<S::Returns> =
+            bincode::serde::decode_from_slice(&data, CONFIG)?.0;
 
         Ok(response)
     }

@@ -8,11 +8,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Error;
+use bincode::config::Configuration;
 use nix::cmsg_space;
 use nix::errno::Errno;
 use nix::sys::socket::{
-    recvmsg, sendmsg, socketpair, AddressFamily, ControlMessage, ControlMessageOwned, MsgFlags,
-    SockFlag, SockType,
+    AddressFamily, ControlMessage, ControlMessageOwned, MsgFlags, SockFlag, SockType, recvmsg,
+    sendmsg, socketpair,
 };
 use polling::{Event, Events, Poller};
 use serde::{Deserialize, Serialize};
@@ -40,8 +41,13 @@ where
     /// Sends value alongside the IpcSender
     /// This fails if the resource is temporarily not available.
     pub fn try_send(&self, value: &T) -> TypedResult<()> {
+        const CONFIG: Configuration = bincode::config::standard();
         self.socket
-            .send(bincode::serialize(value).typ(SystemError::Panic)?.as_ref())
+            .send(
+                bincode::serde::encode_to_vec(value, CONFIG)
+                    .typ(SystemError::Panic)?
+                    .as_ref(),
+            )
             .typ(SystemError::Panic)?;
         Ok(())
     }
@@ -62,13 +68,15 @@ where
         let len = match self.socket.recv(&mut buffer) {
             Ok(len) => len,
             Err(e) if e.kind() != ErrorKind::TimedOut => {
-                return Err(Error::from(e)).typ(SystemError::Panic)
+                return Err(Error::from(e)).typ(SystemError::Panic);
             }
             _ => return Ok(None),
         };
 
         // Serialize the received data into T
-        bincode::deserialize(&buffer[0..len])
+        const CONFIG: Configuration = bincode::config::standard();
+        bincode::serde::decode_from_slice(&buffer[0..len], CONFIG)
+            .map(|v| v.0)
             .map(Some)
             .typ(SystemError::Panic)
     }
@@ -167,7 +175,7 @@ impl<T> From<OwnedFd> for IpcReceiver<T> {
 impl<T> FromRawFd for IpcSender<T> {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         Self {
-            socket: UnixDatagram::from_raw_fd(fd),
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
             _p: PhantomData,
         }
     }
@@ -176,7 +184,7 @@ impl<T> FromRawFd for IpcSender<T> {
 impl<T> FromRawFd for IpcReceiver<T> {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         Self {
-            socket: UnixDatagram::from_raw_fd(fd),
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
             _p: PhantomData,
         }
     }
@@ -294,7 +302,7 @@ impl<T> From<OwnedFd> for IoReceiver<T> {
 impl<T> FromRawFd for IoSender<T> {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         Self {
-            socket: UnixDatagram::from_raw_fd(fd),
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
             _p: PhantomData,
         }
     }
@@ -303,7 +311,7 @@ impl<T> FromRawFd for IoSender<T> {
 impl<T> FromRawFd for IoReceiver<T> {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         Self {
-            socket: UnixDatagram::from_raw_fd(fd),
+            socket: unsafe { UnixDatagram::from_raw_fd(fd) },
             _p: PhantomData,
         }
     }

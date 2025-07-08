@@ -8,7 +8,7 @@ use log::LevelFilter;
 #[quit::main]
 fn main() {
     let level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
-    std::env::set_var("RUST_LOG", level.clone());
+    unsafe { std::env::set_var("RUST_LOG", level.clone()) };
 
     pretty_env_logger::formatted_builder()
         .parse_filters(&level)

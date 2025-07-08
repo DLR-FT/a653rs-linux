@@ -109,25 +109,35 @@ impl ApexSamplingPortP4 for ApexLinuxPartition {
         {
             // check max message size
             if max_message_size != s.msg_size as MessageSize {
-                trace!("yielding InvalidConfig, because the sampling port max message size ({}) mismatches the configuration table value ({})", max_message_size, s.msg_size);
+                trace!(
+                    "yielding InvalidConfig, because the sampling port max message size ({}) mismatches the configuration table value ({})",
+                    max_message_size, s.msg_size
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check correct port direction
             if s.dir != port_direction {
-                trace!("yielding InvalidConfig, because sampling port has mismatching port direction:\nexpected {:?}, got {port_direction:?}", s.dir);
+                trace!(
+                    "yielding InvalidConfig, because sampling port has mismatching port direction:\nexpected {:?}, got {port_direction:?}",
+                    s.dir
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check partition mode
             if let OperatingMode::Normal = PARTITION_MODE.read().unwrap() {
-                trace!("yielding InvalidMode, because sampling port creation is not allowed in normal mode");
+                trace!(
+                    "yielding InvalidMode, because sampling port creation is not allowed in normal mode"
+                );
                 return Err(ErrorReturnCode::InvalidMode);
             }
 
             // check if refresh_period is in range
             let SystemTime::Normal(refresh) = SystemTime::new(refresh_period) else {
-                trace!("yielding InvalidConfig, because refresh period is out of range: got {refresh_period:?}");
+                trace!(
+                    "yielding InvalidConfig, because refresh period is out of range: got {refresh_period:?}"
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             };
             let ch = (i, refresh);
@@ -240,25 +250,36 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
         {
             // check max message size
             if max_message_size != q.msg_size as MessageSize {
-                trace!("yielding InvalidConfig, because the queuing port max message size ({}) mismatches the configuration table value ({})", max_message_size, q.msg_size);
+                trace!(
+                    "yielding InvalidConfig, because the queuing port max message size ({}) mismatches the configuration table value ({})",
+                    max_message_size, q.msg_size
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check max number of messages
             if max_nb_message != q.max_num_msg as MessageRange {
-                trace!("yielding InvalidConfig, because the queuing port max number of messages ({}) mismatches the configuration table value ({})", max_nb_message, q.max_num_msg);
+                trace!(
+                    "yielding InvalidConfig, because the queuing port max number of messages ({}) mismatches the configuration table value ({})",
+                    max_nb_message, q.max_num_msg
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check correct port direction
             if q.dir != port_direction {
-                trace!("yielding InvalidConfig, because queuing port has mismatching port direction:\nexpected {:?}, got {port_direction:?}", q.dir);
+                trace!(
+                    "yielding InvalidConfig, because queuing port has mismatching port direction:\nexpected {:?}, got {port_direction:?}",
+                    q.dir
+                );
                 return Err(ErrorReturnCode::InvalidConfig);
             }
 
             // check partition mode
             if let OperatingMode::Normal = PARTITION_MODE.read().unwrap() {
-                trace!("yielding InvalidMode, because queuing port creation is not allowed in normal mode");
+                trace!(
+                    "yielding InvalidMode, because queuing port creation is not allowed in normal mode"
+                );
                 return Err(ErrorReturnCode::InvalidMode);
             }
 
@@ -354,7 +375,7 @@ impl ApexQueuingPortP4 for ApexLinuxPartition {
             .unwrap()
             .read(message)
             .ok_or(ErrorReturnCode::NotAvailable)?; // standard states that a length of 0 should also be set here, which the API
-                                                    // does not allow
+        // does not allow
 
         Ok((msg_len as MessageSize, has_overflowed as QueueOverflow))
     }
@@ -452,7 +473,7 @@ impl ApexErrorP4 for ApexLinuxPartition {
                         return Ok(());
                     }
                 }
-                panic!("Failed to report application message: {}", e);
+                panic!("Failed to report application message: {e}");
             }
         }
         Ok(())

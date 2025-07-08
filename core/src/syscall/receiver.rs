@@ -5,9 +5,10 @@ use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
+use bincode::config::Configuration;
 use nix::libc::EINTR;
-use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags};
+use nix::sys::socket::{ControlMessageOwned, MsgFlags, recvmsg};
 use nix::{cmsg_space, unistd};
 use polling::{Event, Events, Poller};
 
@@ -49,7 +50,9 @@ impl SyscallReceiver {
             let serialized_payload = request_fd.read_all()?;
 
             // Deserialize the type and data
-            let payload: SyscallRequest = bincode::deserialize(&serialized_payload)?;
+            const CONFIG: Configuration = bincode::config::standard();
+            let payload: SyscallRequest =
+                bincode::serde::decode_from_slice(&serialized_payload, CONFIG)?.0;
 
             let serialized_response = handler(payload.0, &payload.1);
 
@@ -146,7 +149,7 @@ where {
                     if e.raw_os_error() == Some(EINTR) {
                         continue;
                     } else {
-                        panic!("poller failed with {:?}", e)
+                        panic!("poller failed with {e:?}")
                     }
                 }
                 _ => panic!("unknown poller state"),
@@ -169,9 +172,10 @@ pub fn wrap_serialization<'params, S: Syscall<'params>, F>(
 where
     F: FnOnce(S::Params) -> Result<S::Returns, a653rs::bindings::ErrorReturnCode>,
 {
-    let params: S::Params = bincode::deserialize(serialized_params)?;
+    const CONFIG: Configuration = bincode::config::standard();
+    let params: S::Params = bincode::serde::borrow_decode_from_slice(serialized_params, CONFIG)?.0;
 
     let response: SyscallResponse<S::Returns> = f(params);
 
-    bincode::serialize(&response).map_err(Into::into)
+    bincode::serde::encode_to_vec(&response, CONFIG).map_err(Into::into)
 }

@@ -156,9 +156,7 @@ impl Queuing {
         if let Some(clear_requested_at) = mem::take(destination_datagram.clear_requested_timestamp)
         {
             while source_datagram.message_queue.peek_then(|msg| {
-                msg.map_or(false, |msg| {
-                    &clear_requested_at > Message::from_bytes(msg).timestamp
-                })
+                msg.is_some_and(|msg| &clear_requested_at > Message::from_bytes(msg).timestamp)
             }) {
                 source_datagram.message_queue.pop_then(|_| ());
             }
@@ -175,7 +173,9 @@ impl Queuing {
         *source_datagram.num_messages_in_destination = destination_datagram.message_queue.len();
         *destination_datagram.has_overflowed = *source_datagram.has_overflowed;
 
-        trace!("Swapped {num_msg_swapped} messages: Destination={destination_datagram:?} Source={source_datagram:?}");
+        trace!(
+            "Swapped {num_msg_swapped} messages: Destination={destination_datagram:?} Source={source_datagram:?}"
+        );
 
         num_msg_swapped > 0
     }
@@ -233,15 +233,13 @@ impl QueuingDestination {
     pub fn read(&mut self, buffer: &mut [u8]) -> Option<(usize, bool)> {
         let mut datagram = unsafe { DestinationDatagram::load_from(&mut self.0) };
 
-        let read_bytes_and_overflowed_flag = datagram.pop_then(|msg| {
+        datagram.pop_then(|msg| {
             let data = msg.get_data();
             let len = data.len().min(buffer.len());
             buffer[..len].copy_from_slice(&data[..len]);
 
             len
-        });
-
-        read_bytes_and_overflowed_flag
+        })
     }
 
     pub fn get_current_num_messages(&mut self) -> usize {
@@ -281,7 +279,7 @@ impl StripFieldExt for [u8] {
     unsafe fn strip_field<T>(&self) -> (&T, &Self) {
         assert!(self.len() >= size_of::<T>());
         let (field, rest) = self.split_at(size_of::<T>());
-        let field = (field.as_ptr() as *const T).as_ref().unwrap();
+        let field = unsafe { (field.as_ptr() as *const T).as_ref().unwrap() };
         (field, rest)
     }
 
@@ -289,7 +287,7 @@ impl StripFieldExt for [u8] {
     unsafe fn strip_field_mut<T>(&mut self) -> (&mut T, &mut Self) {
         assert!(self.len() >= size_of::<T>());
         let (field, rest) = self.split_at_mut(size_of::<T>());
-        let field = (field.as_ptr() as *mut T).as_mut().unwrap();
+        let field = unsafe { (field.as_ptr() as *mut T).as_mut().unwrap() };
         (field, rest)
     }
 }

@@ -13,7 +13,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, ensure, Context, Ok};
+use anyhow::{Context, Ok, bail, ensure};
 use itertools::Itertools;
 use nix::sys::statfs;
 use nix::unistd::Pid;
@@ -348,6 +348,7 @@ mod tests {
         cg1.mv_proc(pid).unwrap();
         cg2.mv_proc(pid).unwrap();
         proc.kill().unwrap();
+        proc.wait().unwrap();
 
         cg1.rm().unwrap();
     }
@@ -378,6 +379,7 @@ mod tests {
         assert_eq!(pids[0], pid);
 
         proc.kill().unwrap();
+        proc.wait().unwrap();
 
         cg1.rm().unwrap();
     }
@@ -396,6 +398,7 @@ mod tests {
         assert_eq!(cg.populated().unwrap(), !cg.get_pids().unwrap().is_empty());
 
         proc.kill().unwrap();
+        proc.wait().unwrap();
 
         cg.rm().unwrap();
     }
@@ -423,13 +426,14 @@ mod tests {
         assert!(!cg.frozen().unwrap());
 
         proc.kill().unwrap();
+        proc.wait().unwrap();
 
         cg.rm().unwrap();
     }
 
     #[test]
     fn kill() {
-        let proc = spawn_proc().unwrap();
+        let mut proc = spawn_proc().unwrap();
         let pid = Pid::from_raw(proc.id() as i32);
         let cg = CGroup::new_root(get_path(), &gen_name()).unwrap();
 
@@ -440,6 +444,7 @@ mod tests {
         cg.mv_proc(pid).unwrap();
         assert!(cg.populated().unwrap());
         cg.kill().unwrap();
+        proc.wait().unwrap();
 
         cg.rm().unwrap();
 

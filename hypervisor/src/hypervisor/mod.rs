@@ -9,7 +9,7 @@ use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError
 use a653rs_linux_core::file::TempFile;
 use a653rs_linux_core::queuing::Queuing;
 use a653rs_linux_core::sampling::Sampling;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use config::{Channel, Config};
 use once_cell::sync::OnceCell;
 use partition::Partition;
@@ -145,7 +145,7 @@ impl Hypervisor {
                         "quitting, as a run-time of {} was reached",
                         humantime::Duration::from(timeout.total_duration())
                     );
-                    quit::with_code(0)
+                    return Ok(());
                 }
             }
 

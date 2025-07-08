@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
 use a653rs::partition;
@@ -14,7 +14,9 @@ fn replace_stdio<T: AsRawFd, U: AsRef<Path>>(stdio: T, new: U, write: bool) -> R
         .read(!write)
         .truncate(write)
         .open(new)?;
-    nix::unistd::dup2(new.as_raw_fd(), stdio.as_raw_fd())?;
+    let mut stdio = unsafe { OwnedFd::from_raw_fd(stdio.as_raw_fd()) };
+    nix::unistd::dup2(new, &mut stdio)?;
+    let _silent_drop = stdio.into_raw_fd();
     Ok(())
 }
 

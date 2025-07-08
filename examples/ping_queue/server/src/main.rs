@@ -88,11 +88,11 @@ mod ping_queue_server {
                     match ctx.ping_response.unwrap().send(&buf, SystemTime::Infinite) {
                         Ok(_) => {}
                         Err(Error::NotAvailable) => warn!("Failed to send ping response"),
-                        Err(other) => panic!("Failed to send ping response: {:?}", other),
+                        Err(other) => panic!("Failed to send ping response: {other:?}"),
                     }
                 }
                 Err(Error::NotAvailable) => warn!("Failed to receive ping request"),
-                other => panic!("Failed to receive ping request: {:?}", other),
+                other => panic!("Failed to receive ping request: {other:?}"),
             }
 
             // wait until the next partition window / MiF

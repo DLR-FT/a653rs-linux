@@ -11,7 +11,7 @@ use a653rs_linux_core::error::{
 };
 use a653rs_linux_core::partition::PartitionConstants;
 use anyhow::anyhow;
-use nix::unistd::{gettid, Pid};
+use nix::unistd::{Pid, gettid};
 
 use crate::{APERIODIC_PROCESS, PERIODIC_PROCESS};
 

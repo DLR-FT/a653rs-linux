@@ -23,7 +23,7 @@ pub struct ConcurrentQueue {
 unsafe impl Send for ConcurrentQueue {}
 unsafe impl Sync for ConcurrentQueue {}
 
-impl ptr_meta::Pointee for ConcurrentQueue {
+unsafe impl ptr_meta::Pointee for ConcurrentQueue {
     type Metadata = usize;
 }
 
@@ -91,7 +91,7 @@ impl ConcurrentQueue {
     /// Converts the given buffer pointer to a ConcurrentQueue pointer and
     /// handles shortening the wide-pointer metadata.
     fn buf_to_self(buffer: *const [u8]) -> *const Self {
-        let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+        let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::to_raw_parts(buffer);
         buf_len -= Self::fields_size();
 
         ptr_meta::from_raw_parts(buf_ptr, buf_len)
@@ -100,7 +100,7 @@ impl ConcurrentQueue {
     /// Converts the given mutable buffer pointer to a ConcurrentQueue
     /// pointer and handles shortening the wide-pointer metadata.
     fn buf_to_self_mut(buffer: *mut [u8]) -> *mut Self {
-        let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+        let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::to_raw_parts_mut(buffer);
         buf_len -= Self::fields_size();
 
         ptr_meta::from_raw_parts_mut(buf_ptr, buf_len)
@@ -114,7 +114,7 @@ impl ConcurrentQueue {
     /// UB, because the ConcurrentQueue relies on internal safety mechanisms
     /// to prevent UB due to shared mutable state.
     pub unsafe fn load_from(buffer: &[u8]) -> &Self {
-        let obj = &*Self::buf_to_self(buffer);
+        let obj = unsafe { &*Self::buf_to_self(buffer) };
 
         // Perform some validity checks
         debug_assert!(obj.len.load(Ordering::SeqCst) <= obj.msg_capacity); // Check length
@@ -123,7 +123,7 @@ impl ConcurrentQueue {
         // Also check if unsized data field is of correct size
         // Note: obj_data may be longer than `obj.msg_size * obj.msg_capacity` due to
         // alignment padding. To correct we call `Self::size`.
-        let obj_data = obj.data.get().as_ref().unwrap();
+        let obj_data = unsafe { obj.data.get().as_ref().unwrap() };
         debug_assert_eq!(
             obj_data.len(),
             Self::size(obj.msg_size, obj.msg_capacity) - Self::fields_size()
@@ -139,17 +139,17 @@ impl ConcurrentQueue {
     }
 
     /// Pushes an element to the back of the queue. If there was space, a
-    /// mutable reference to the inserted element is returned.
-    pub fn push(&self, data: &[u8]) -> Option<&mut [u8]> {
+    /// reference to the inserted element is returned.
+    pub fn push(&self, data: &[u8]) -> Option<&[u8]> {
         assert_eq!(data.len(), self.msg_size);
 
         self.push_then(|entry| entry.copy_from_slice(data))
     }
 
     /// Pushes an uninitialized element and then calls a closure to set its
-    /// memory in-place. If there was space, a mutable reference to
+    /// memory in-place. If there was space, a reference to
     /// the inserted element is returned.
-    pub fn push_then<F: FnOnce(&'_ mut [u8])>(&self, set_element: F) -> Option<&mut [u8]> {
+    pub fn push_then<F: FnOnce(&'_ mut [u8])>(&self, set_element: F) -> Option<&[u8]> {
         let current_len = self.len.load(Ordering::SeqCst);
         if current_len == self.msg_capacity {
             return None;
@@ -315,7 +315,7 @@ mod tests {
         let threads = (0..NUM_QUEUES).map(|_| {
             let cloned_buffer = buffer.clone();
             thread::spawn(move || {
-                let queue = unsafe { ConcurrentQueue::load_from(&*cloned_buffer) };
+                let queue = unsafe { ConcurrentQueue::load_from(&cloned_buffer) };
                 queue.push(&[0x1, 0x2]).unwrap();
                 queue.push(&[0x3, 0x4]).unwrap();
                 queue.push(&[0x5, 0x6]).unwrap();
@@ -325,7 +325,7 @@ mod tests {
 
         threads.for_each(|handle| handle.join().expect("that the thread has not panicked"));
 
-        let queue = unsafe { ConcurrentQueue::load_from(&*buffer) };
+        let queue = unsafe { ConcurrentQueue::load_from(&buffer) };
 
         // There should be 4 elements per thread in the queue
         assert_eq!(queue.len(), 4 * NUM_QUEUES);

@@ -2,9 +2,9 @@ use std::fmt::Debug;
 use std::mem::size_of;
 use std::time::Instant;
 
+use crate::queuing::StripFieldExt;
 use crate::queuing::message::Message;
 use crate::queuing::queue::ConcurrentQueue;
-use crate::queuing::StripFieldExt;
 
 #[derive(Debug)]
 pub struct SourceDatagram<'a> {
@@ -45,7 +45,7 @@ impl<'a> SourceDatagram<'a> {
         let (num_messages_in_destination, buffer) = unsafe { buffer.strip_field_mut::<usize>() };
         let (has_overflowed, buffer) = unsafe { buffer.strip_field_mut::<bool>() };
 
-        let message_queue = ConcurrentQueue::load_from(buffer);
+        let message_queue = unsafe { ConcurrentQueue::load_from(buffer) };
 
         Self {
             num_messages_in_destination,
@@ -118,7 +118,7 @@ impl<'a> DestinationDatagram<'a> {
             num_messages_in_source,
             clear_requested_timestamp,
             has_overflowed: has_overflown,
-            message_queue: ConcurrentQueue::load_from(buffer),
+            message_queue: unsafe { ConcurrentQueue::load_from(buffer) },
         }
     }
 

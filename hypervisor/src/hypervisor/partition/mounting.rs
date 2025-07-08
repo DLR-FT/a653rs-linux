@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use bytesize::ByteSize;
-use nix::mount::{mount, MsFlags};
+use nix::mount::{MsFlags, mount};
 
 /// Information about the files that are to be mounted
 #[derive(Debug)]

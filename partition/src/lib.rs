@@ -16,14 +16,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use a653rs::prelude::OperatingMode;
-use a653rs_linux_core::file::{get_memfd, TempFile};
+use a653rs_linux_core::file::{TempFile, get_memfd};
 use a653rs_linux_core::health_event::PartitionCall;
 #[cfg(feature = "socket")]
 use a653rs_linux_core::ipc::IoReceiver;
 use a653rs_linux_core::ipc::{self, IpcSender};
 use a653rs_linux_core::partition::*;
-use a653rs_linux_core::syscall::sender::SyscallSender;
 use a653rs_linux_core::syscall::SYSCALL_SOCKET_PATH;
+use a653rs_linux_core::syscall::sender::SyscallSender;
 use once_cell::sync::{Lazy, OnceCell};
 use process::Process;
 use tinyvec::ArrayVec;

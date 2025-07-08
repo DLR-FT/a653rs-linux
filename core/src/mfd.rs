@@ -3,7 +3,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use memfd::{FileSeal, Memfd, MemfdOptions};
 
 pub struct Mfd(Memfd);

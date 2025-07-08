@@ -106,7 +106,7 @@ mod hello {
                         .ok()
                         .unwrap();
 
-                    info!("Received via Sampling Port: {:?}, valid: {valid:?}", data)
+                    info!("Received via Sampling Port: {data:?}, valid: {valid:?}")
                 }
 
                 ctx.periodic_wait().unwrap();

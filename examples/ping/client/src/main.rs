@@ -106,7 +106,9 @@ mod ping_client {
                 let resp_sent_to_resp_recv = Duration::from_nanos(resp_to_client as u64);
 
                 // and log the results!
-                info!("received valid response:\n\tround-trip {req_sent_to_resp_recv:?}\n\treq-to-server {req_sent_to_resp_sent:?}\n\tresp-to-client{resp_sent_to_resp_recv:?}");
+                info!(
+                    "received valid response:\n\tround-trip {req_sent_to_resp_recv:?}\n\treq-to-server {req_sent_to_resp_sent:?}\n\tresp-to-client{resp_sent_to_resp_recv:?}"
+                );
             } else {
                 warn!("response seems to be incomplete: {validity:?}, {bytes:?}");
             }

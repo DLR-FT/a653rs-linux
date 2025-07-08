@@ -146,7 +146,7 @@ extern "C" fn periodic() {
                     .ok()
                     .unwrap();
 
-                info!("Received via Sampling Port: {:?}, valid: {valid:?}", data)
+                info!("Received via Sampling Port: {data:?}, valid: {valid:?}")
             }
 
             Hypervisor::periodic_wait().unwrap();

@@ -6,8 +6,8 @@ use std::io::ErrorKind;
 use std::os::unix::prelude::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Result};
-use nix::libc::{c_uint, syscall, SYS_pidfd_open};
+use anyhow::{Result, anyhow};
+use nix::libc::{SYS_pidfd_open, c_uint, syscall};
 use nix::unistd::Pid;
 use polling::{Event, Events, Poller};
 

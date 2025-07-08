@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use a653rs_linux_core::cgroup;
 use a653rs_linux_core::error::{ErrorLevel, LeveledResult, ResultExt, SystemError, TypedResultExt};
 use a653rs_linux_core::health::ModuleRecoveryAction;
-use anyhow::anyhow;
 use clap::Parser;
 use hypervisor::config::Config;
 use nix::sys::signal::*;
@@ -85,12 +84,7 @@ pub fn run_hypervisor() -> LeveledResult<()> {
     loop {
         info!("Start Hypervisor");
         match Hypervisor::new(config.clone(), terminate_after)?.run() {
-            Ok(_) => {
-                return Err(anyhow!(
-                    "Hypervisor Run is not supposed to exit with an OK variant"
-                ))
-                .lev_typ(SystemError::Panic, ErrorLevel::ModuleRun)
-            }
+            Ok(_) => return Ok(()),
             Err(e) => {
                 let action = match e.level() {
                     // Partition Level is not expected here
