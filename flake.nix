@@ -24,7 +24,7 @@
         };
 
         # rust target name of the `system`
-        rust-target = pkgs.rust.toRustTarget pkgs.pkgsStatic.targetPlatform;
+        rust-target = pkgs.pkgsStatic.targetPlatform.rust.rustcTarget;
 
         # converts a string to SHOUT_CASE
         shout = string: builtins.replaceStrings [ "-" ] [ "_" ] (nixpkgs.lib.toUpper string);
@@ -245,4 +245,3 @@
         hydraJobs = (nixpkgs.lib.filterAttrs (n: _: n != "default") packages) // checks;
       });
 }
-
