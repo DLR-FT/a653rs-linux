@@ -42,7 +42,7 @@ a653rs-linux = { version = "0.2.2", path = "partition" }
 a653rs-linux-core = { version = "0.2.2", path = "core" }
 anyhow = "1.0"
 log = "0"
-nix = { version = "0.29", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
+nix = { version = "0.30", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
 memmap2 = "0.9"
 procfs = "0.18"
 polling = "3.4"

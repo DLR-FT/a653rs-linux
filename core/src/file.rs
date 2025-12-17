@@ -1,6 +1,7 @@
 //! Implementation of in-memory files
 use std::marker::PhantomData;
 use std::mem::{size_of, MaybeUninit};
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::prelude::{AsRawFd, FileExt, IntoRawFd, RawFd};
 
 use anyhow::{anyhow, Context, Result};
@@ -16,7 +17,7 @@ use crate::shmem::{TypedMmap, TypedMmapMut};
 /// Internal struct for handling in-memory files
 pub struct TempFile<T: Send + Clone + Sized> {
     // TODO: Consider storing a Memfd instead of a RawFd
-    fd: RawFd,
+    fd: BorrowedFd<'static>,
     _p: PhantomData<T>,
 }
 
@@ -39,20 +40,19 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         mem.add_seals(&[FileSeal::SealShrink, FileSeal::SealGrow])
             .typ(SystemError::Panic)?;
 
-        Ok(Self {
-            fd: mem.into_raw_fd(),
-            _p: PhantomData,
-        })
+        let raw_fd = mem.into_raw_fd();
+        Self::try_from(raw_fd)
     }
 
     /// Converts a FD to a Memfd without borrowing ownership
     fn get_memfd(&self) -> TypedResult<Memfd> {
         // TODO: The call to dup(2) may be removed, because RawFd has no real ownership
-        let fd = dup(self.fd).typ(SystemError::Panic)?;
+        let fd = dup(&self.fd).typ(SystemError::Panic)?;
         Memfd::try_from_fd(fd)
             .map_err(|e| {
-                close(fd).ok();
-                anyhow!("Could not get Memfd from {e:#?}")
+                let err = anyhow!("Could not get Memfd from {e:#?}");
+                close(e).ok();
+                err
             })
             .typ(SystemError::Panic)
     }
@@ -69,8 +69,8 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     }
 
     /// Returns the raw FD of the TempFile
-    pub fn fd(&self) -> RawFd {
-        self.fd
+    pub fn fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
     }
 
     /// Writes value to the TempFile (overwrites existing data, but does not
@@ -103,11 +103,11 @@ impl<T: Send + Clone + Sized> TempFile<T> {
         // read_at avoids confusion by moving cursors on shared file descriptors
         let bytes_read = file.read_at(buf, 0).typ(SystemError::Panic)?;
 
-        trace!("read {bytes_read} bytes from memfd {}", self.fd);
+        trace!("read {bytes_read} bytes from memfd {}", self.fd.as_raw_fd());
         if bytes_read != bytes_required {
             warn!(
                 "initialized {} ({bytes_required} bytes in size) with {bytes_read} bytes originating from memfd {}",
-                std::any::type_name::<T>(), self.fd()
+                std::any::type_name::<T>(), self.fd().as_raw_fd()
             );
         }
 
@@ -116,9 +116,9 @@ impl<T: Send + Clone + Sized> TempFile<T> {
 
     /// Returns a mutable memory map from a TempFile
     pub fn get_typed_mmap_mut(&self) -> TypedResult<TypedMmapMut<T>> {
-        let fd = dup(self.fd).typ(SystemError::Panic)?;
+        let fd = dup(self.fd.as_fd()).typ(SystemError::Panic)?;
         unsafe {
-            MmapMut::map_mut(fd)
+            MmapMut::map_mut(fd.as_raw_fd())
                 .map_err(|e| {
                     close(fd).ok();
                     anyhow!("Could not get Mmap from {e:#?}")
@@ -130,9 +130,9 @@ impl<T: Send + Clone + Sized> TempFile<T> {
 
     /// Returns a memory map from a TemplFile
     pub fn get_typed_mmap(&self) -> TypedResult<TypedMmap<T>> {
-        let fd = dup(self.fd).typ(SystemError::Panic)?;
+        let fd = dup(self.fd.as_fd()).typ(SystemError::Panic)?;
         unsafe {
-            Mmap::map(fd)
+            Mmap::map(fd.as_raw_fd())
                 .map_err(|e| {
                     close(fd).ok();
                     anyhow!("Could not get Mmap from {e:#?}")
@@ -146,20 +146,21 @@ impl<T: Send + Clone + Sized> TempFile<T> {
 impl<T: Send + Clone> TryFrom<RawFd> for TempFile<T> {
     type Error = TypedError;
 
-    fn try_from(fd: RawFd) -> Result<Self, Self::Error> {
+    fn try_from(fd_raw: RawFd) -> Result<Self, Self::Error> {
+        let fd = unsafe { BorrowedFd::borrow_raw(fd_raw) };
         let tf = Self {
             fd,
             _p: PhantomData,
         };
         let memfd = tf.get_memfd()?;
-        trace!("Got Memfd from {fd}. Seals: {:?}", memfd.seals());
+        trace!("Got Memfd from {fd_raw}. Seals: {:?}", memfd.seals());
         Ok(tf)
     }
 }
 
 impl<T: Send + Clone + Sized> AsRawFd for TempFile<T> {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd
+        self.fd.as_raw_fd()
     }
 }
 

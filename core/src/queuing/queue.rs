@@ -149,6 +149,7 @@ impl ConcurrentQueue {
     /// Pushes an uninitialized element and then calls a closure to set its
     /// memory in-place. If there was space, a mutable reference to
     /// the inserted element is returned.
+    #[allow(clippy::mut_from_ref)]
     pub fn push_then<F: FnOnce(&'_ mut [u8])>(&self, set_element: F) -> Option<&mut [u8]> {
         let current_len = self.len.load(Ordering::SeqCst);
         if current_len == self.msg_capacity {
