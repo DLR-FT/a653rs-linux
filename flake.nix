@@ -258,6 +258,12 @@
                         category = "example";
                       }
                       {
+                        name = "sudo-run-example-${name}";
+                        command = "sudo --preserve-env run-example-${name} $@";
+                        help = "Run the ${name} example using sudo";
+                        category = "example";
+                      }
+                      {
                         name = "clippy-watch-example-${name}";
                         command = ''
                           cargo watch --exec "clippy ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target}"

@@ -122,11 +122,14 @@ impl Run {
 
         let callback = Box::new(move || -> isize {
             // Map User and user group (required for tmpfs mounts)
-            std::fs::write(
+            if let Err(e) = std::fs::write(
                 PathBuf::from("/proc/self").join("uid_map"),
                 format!("0 {} 1", real_uid.as_raw()),
-            )
-            .unwrap();
+            ) {
+                error!("{e:?}");
+                // panic!();
+            }
+
             std::fs::write(PathBuf::from("/proc/self").join("setgroups"), b"deny").unwrap();
             std::fs::write(
                 PathBuf::from("/proc/self").join("gid_map"),
