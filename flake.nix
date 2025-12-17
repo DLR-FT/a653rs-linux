@@ -2,20 +2,25 @@
   description = "ARINC 653 P4 compliant Linux Hypervisor";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     utils.url = "git+https://github.com/numtide/flake-utils.git";
     devshell.url = "github:numtide/devshell";
-    fenix = {
-      url = "git+https://github.com/nix-community/fenix.git?ref=main";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    naersk = {
-      url = "git+https://github.com/nix-community/naersk.git";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    devshell.inputs.nixpkgs.follows = "nixpkgs";
+    fenix.url = "git+https://github.com/nix-community/fenix.git?ref=main";
+    fenix.inputs.nixpkgs.follows = "nixpkgs";
+    naersk.url = "git+https://github.com/nix-community/naersk.git";
+    naersk.inputs.nixpkgs.follows = "nixpkgs";
   };
-  outputs = { self, nixpkgs, utils, naersk, devshell, ... }@inputs:
-    utils.lib.eachSystem [ "x86_64-linux" "i686-linux" "aarch64-linux" ] (system:
+  outputs =
+    { self
+    , nixpkgs
+    , utils
+    , naersk
+    , devshell
+    , ...
+    }@inputs:
+    utils.lib.eachSystem [ "x86_64-linux" "i686-linux" "aarch64-linux" ] (
+      system:
       let
         lib = nixpkgs.lib;
         pkgs = import nixpkgs {
@@ -24,7 +29,7 @@
         };
 
         # rust target name of the `system`
-        rust-target = pkgs.rust.toRustTarget pkgs.pkgsStatic.targetPlatform;
+        rust-target = pkgs.pkgsStatic.stdenv.targetPlatform.rust.rustcTarget;
 
         # converts a string to SHOUT_CASE
         shout = string: builtins.replaceStrings [ "-" ] [ "_" ] (nixpkgs.lib.toUpper string);
@@ -32,7 +37,8 @@
         # Rust distribution for our hostSystem
         fenix = inputs.fenix.packages.${system};
 
-        rust-toolchain = with fenix;
+        rust-toolchain =
+          with fenix;
           combine [
             stable.rustc
             stable.cargo
@@ -43,10 +49,12 @@
           ];
 
         # overrides a naersk-lib which uses the stable toolchain expressed above
-        naersk-lib = (naersk.lib.${system}.override {
-          cargo = rust-toolchain;
-          rustc = rust-toolchain;
-        });
+        naersk-lib = (
+          naersk.lib.${system}.override {
+            cargo = rust-toolchain;
+            rustc = rust-toolchain;
+          }
+        );
 
         # environment variables to add to the derivations
         env = {
@@ -81,11 +89,17 @@
           }
           {
             name = "fuel_tank";
-            partitions = [ "fuel_tank_simulation" "fuel_tank_controller" ];
+            partitions = [
+              "fuel_tank_simulation"
+              "fuel_tank_controller"
+            ];
           }
           {
             name = "ping";
-            partitions = [ "ping_server" "ping_client" ];
+            partitions = [
+              "ping_server"
+              "ping_client"
+            ];
           }
           {
             name = "dev_random";
@@ -93,7 +107,10 @@
           }
           {
             name = "ping_queue";
-            partitions = [ "ping_queue_server" "ping_queue_client" ];
+            partitions = [
+              "ping_queue_server"
+              "ping_queue_client"
+            ];
           }
         ];
 
@@ -103,131 +120,158 @@
         packages = {
           # the hypervisor itself
           default = packages.a653rs-linux-hypervisor;
-          a653rs-linux-hypervisor = naersk-lib.buildPackage
-            rec {
-              inherit env;
-              pname = "a653rs-linux-hypervisor";
-              root = ./.;
-              cargoBuildOptions = x: x ++ [ "--package" pname ];
-              cargoTestOptions = x: x ++ [ "--package" pname ];
-            };
-        } // (builtins.listToAttrs (builtins.map
-          ({ name, partitions, ... }: {
-            name = "example-${name}";
-            value = naersk-lib.buildPackage
+          a653rs-linux-hypervisor = naersk-lib.buildPackage rec {
+            inherit env;
+            pname = "a653rs-linux-hypervisor";
+            root = ./.;
+            cargoBuildOptions =
+              x:
+              x
+                ++ [
+                "--package"
+                pname
+              ];
+            cargoTestOptions =
+              x:
+              x
+                ++ [
+                "--package"
+                pname
+              ];
+          };
+        }
+        // (builtins.listToAttrs (
+          builtins.map
+            (
+              { name, partitions, ... }:
               {
-                inherit env;
-                pname = name;
-                root = ./.;
-                cargoBuildOptions = x: x ++ (cargoPackageList partitions);
-                cargoTestOptions = x: x ++ (cargoPackageList partitions);
-              };
-          }
-          )
-          examples));
+                name = "example-${name}";
+                value = naersk-lib.buildPackage {
+                  inherit env;
+                  pname = name;
+                  root = ./.;
+                  cargoBuildOptions = x: x ++ (cargoPackageList partitions);
+                  cargoTestOptions = x: x ++ (cargoPackageList partitions);
+                };
+              }
+            )
+            examples
+        ));
 
         # a devshell with all the necessary bells and whistles
-        devShells.default = (pkgs.devshell.mkShell {
-          imports = [ "${devshell}/extra/git/hooks.nix" ];
-          name = "a653rs-linux-dev-shell";
-          packages = with pkgs; [
-            stdenv.cc
-            coreutils
-            rust-toolchain
-            rust-analyzer
-            cargo-outdated
-            cargo-udeps
-            cargo-watch
-            cargo-audit
-            cargo-expand
-            nixpkgs-fmt
-            nodePackages.prettier
-          ];
-          git.hooks = {
-            enable = true;
-            pre-commit.text = "nix flake check";
-          };
-          commands = [
-            { package = "git-cliff"; }
-            { package = "treefmt"; }
-            {
-              name = "udeps";
-              command = ''
-                PATH="${fenix.latest.rustc}/bin:$PATH"
-                cargo udeps $@
-              '';
-              help = pkgs.cargo-udeps.meta.description;
-            }
-            {
-              name = "outdated";
-              command = "cargo-outdated outdated";
-              help = pkgs.cargo-outdated.meta.description;
-            }
-            {
-              name = "audit";
-              command = "cargo audit $@";
-              help = pkgs.cargo-audit.meta.description;
-            }
-            {
-              name = "expand";
-              command = ''
-                PATH="${fenix.latest.rustc}/bin:$PATH"
-                cargo expand $@
-              '';
-              help = pkgs.cargo-expand.meta.description;
-            }
-            {
-              name = "verify-no_std";
-              command = ''
-                cd "$PRJ_ROOT"
-                cargo build --target thumbv6m-none-eabi --no-default-features
-              '';
-              help = "Verify that the library builds for no_std without std-features";
-              category = "dev";
-            }
-          ] ++ (
-            let
-              inherit (builtins) map concatStringsSep;
-              inherit (nixpkgs.lib) flatten;
-            in
-            flatten (map
-              ({ name, partitions, preRun ? "" }: [
-                {
-                  name = "run-example-${name}";
-                  command = ''
-                    cd "$PRJ_ROOT"
-                    # build partitions
-                    cargo build --package ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target} --release
+        devShells.default = (
+          pkgs.devshell.mkShell {
+            imports = [ "${devshell}/extra/git/hooks.nix" ];
+            name = "a653rs-linux-dev-shell";
+            packages = with pkgs; [
+              stdenv.cc
+              coreutils
+              rust-toolchain
+              rust-analyzer
+              cargo-outdated
+              cargo-udeps
+              cargo-watch
+              cargo-audit
+              cargo-expand
+              nixpkgs-fmt
+              nodePackages.prettier
+            ];
+            git.hooks = {
+              enable = true;
+              pre-commit.text = "nix flake check";
+            };
+            commands = [
+              { package = "git-cliff"; }
+              { package = "treefmt"; }
+              {
+                name = "udeps";
+                command = ''
+                  PATH="${fenix.latest.rustc}/bin:$PATH"
+                  cargo udeps $@
+                '';
+                help = pkgs.cargo-udeps.meta.description;
+              }
+              {
+                name = "outdated";
+                command = "cargo-outdated outdated";
+                help = pkgs.cargo-outdated.meta.description;
+              }
+              {
+                name = "audit";
+                command = "cargo audit $@";
+                help = pkgs.cargo-audit.meta.description;
+              }
+              {
+                name = "expand";
+                command = ''
+                  PATH="${fenix.latest.rustc}/bin:$PATH"
+                  cargo expand $@
+                '';
+                help = pkgs.cargo-expand.meta.description;
+              }
+              {
+                name = "verify-no_std";
+                command = ''
+                  cd "$PRJ_ROOT"
+                  cargo build --target thumbv6m-none-eabi --no-default-features
+                '';
+                help = "Verify that the library builds for no_std without std-features";
+                category = "dev";
+              }
+            ]
+            ++ (
+              let
+                inherit (builtins) map concatStringsSep;
+                inherit (nixpkgs.lib) flatten;
+              in
+              flatten (
+                map
+                  (
+                    { name
+                    , partitions
+                    , preRun ? ""
+                    ,
+                    }:
+                    [
+                      {
+                        name = "run-example-${name}";
+                        command = ''
+                          cd "$PRJ_ROOT"
+                          # build partitions
+                          cargo build --package ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target} --release
 
-                    # prepend PATH so that partition images can be found
-                    PATH="target/${rust-target}/release:$PATH"
+                          # prepend PATH so that partition images can be found
+                          PATH="target/${rust-target}/release:$PATH"
 
-                    ${preRun}
+                          ${preRun}
 
-                    # (build &) run hypervisor
-                    RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- "examples/${name}/${name}.yaml" $@
-                  '';
-                  help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
-                  category = "example";
-                }
-                {
-                  name = "systemd-run-example-${name}";
-                  command = "systemd-run --user --scope run-example-${name} $@";
-                  help = "Run the ${name} example using systemd-run";
-                  category = "example";
-                }
-                {
-                  name = "clippy-watch-example-${name}";
-                  command = ''
-                    cargo watch --exec "clippy ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target}"
-                  '';
-                  help = "Continously clippy the ${name} example";
-                  category = "dev";
-                }
-              ])
-              examples)
-          );
-        });
+                          # (build &) run hypervisor
+                          RUST_LOG=''${RUST_LOG:=trace} cargo run --package a653rs-linux-hypervisor --release -- "examples/${name}/${name}.yaml" $@
+                        '';
+                        help = "Run the ${name} example, consisting of the partitions: ${concatStringsSep "," partitions}";
+                        category = "example";
+                      }
+                      {
+                        name = "systemd-run-example-${name}";
+                        command = "systemd-run --user --scope run-example-${name} $@";
+                        help = "Run the ${name} example using systemd-run";
+                        category = "example";
+                      }
+                      {
+                        name = "clippy-watch-example-${name}";
+                        command = ''
+                          cargo watch --exec "clippy ${concatStringsSep " " (cargoPackageList partitions)} --target ${rust-target}"
+                        '';
+                        help = "Continously clippy the ${name} example";
+                        category = "dev";
+                      }
+                    ]
+                  )
+                  examples
+              )
+            );
+          }
+        );
 
         # always check these
         checks = {
@@ -243,6 +287,6 @@
 
         # instructions for the CI server
         hydraJobs = (nixpkgs.lib.filterAttrs (n: _: n != "default") packages) // checks;
-      });
+      }
+    );
 }
-
