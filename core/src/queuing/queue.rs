@@ -23,7 +23,7 @@ pub struct ConcurrentQueue {
 unsafe impl Send for ConcurrentQueue {}
 unsafe impl Sync for ConcurrentQueue {}
 
-impl ptr_meta::Pointee for ConcurrentQueue {
+unsafe impl ptr_meta::Pointee for ConcurrentQueue {
     type Metadata = usize;
 }
 
@@ -91,7 +91,7 @@ impl ConcurrentQueue {
     /// Converts the given buffer pointer to a ConcurrentQueue pointer and
     /// handles shortening the wide-pointer metadata.
     fn buf_to_self(buffer: *const [u8]) -> *const Self {
-        let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+        let (buf_ptr, mut buf_len): (*const (), usize) = ptr_meta::to_raw_parts(buffer);
         buf_len -= Self::fields_size();
 
         ptr_meta::from_raw_parts(buf_ptr, buf_len)
@@ -100,7 +100,7 @@ impl ConcurrentQueue {
     /// Converts the given mutable buffer pointer to a ConcurrentQueue
     /// pointer and handles shortening the wide-pointer metadata.
     fn buf_to_self_mut(buffer: *mut [u8]) -> *mut Self {
-        let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::PtrExt::to_raw_parts(buffer);
+        let (buf_ptr, mut buf_len): (*mut (), usize) = ptr_meta::to_raw_parts_mut(buffer);
         buf_len -= Self::fields_size();
 
         ptr_meta::from_raw_parts_mut(buf_ptr, buf_len)

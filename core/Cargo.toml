@@ -29,7 +29,7 @@ memfd = "0.6"
 thiserror = "2.0"
 bytesize = {workspace = true, features = ["serde"]}
 enum_primitive = "0.1"
-ptr_meta = "0.2.0"
+ptr_meta = "0.3"
 
 [dev-dependencies]
 rand = "0.9"
