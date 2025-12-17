@@ -156,9 +156,7 @@ impl Queuing {
         if let Some(clear_requested_at) = mem::take(destination_datagram.clear_requested_timestamp)
         {
             while source_datagram.message_queue.peek_then(|msg| {
-                msg.map_or(false, |msg| {
-                    &clear_requested_at > Message::from_bytes(msg).timestamp
-                })
+                msg.is_some_and(|msg| &clear_requested_at > Message::from_bytes(msg).timestamp)
             }) {
                 source_datagram.message_queue.pop_then(|_| ());
             }

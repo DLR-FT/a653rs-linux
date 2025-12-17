@@ -198,11 +198,11 @@ impl Sampling {
         Ok(())
     }
 
-    pub fn source_fd(&self) -> BorrowedFd {
+    pub fn source_fd(&self) -> BorrowedFd<'_> {
         self.source.as_fd()
     }
 
-    pub fn destination_fd(&self) -> BorrowedFd {
+    pub fn destination_fd(&self) -> BorrowedFd<'_> {
         self.destination.as_fd()
     }
 }

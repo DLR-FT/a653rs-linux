@@ -47,7 +47,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     /// Converts a FD to a Memfd without borrowing ownership
     fn get_memfd(&self) -> TypedResult<Memfd> {
         // TODO: The call to dup(2) may be removed, because RawFd has no real ownership
-        let fd = dup(&self.fd).typ(SystemError::Panic)?;
+        let fd = dup(self.fd).typ(SystemError::Panic)?;
         Memfd::try_from_fd(fd)
             .map_err(|e| {
                 let err = anyhow!("Could not get Memfd from {e:#?}");
@@ -58,7 +58,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     }
 
     /// Set the TempFile to read-only (prevents further seal modifications)
-    pub fn seal_read_only(&self) -> TypedResult<TypedMmapMut<T>> {
+    pub fn seal_read_only(&self) -> TypedResult<TypedMmapMut<'_, T>> {
         let mmap = self.get_typed_mmap_mut()?;
 
         self.get_memfd()?
@@ -115,7 +115,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     }
 
     /// Returns a mutable memory map from a TempFile
-    pub fn get_typed_mmap_mut(&self) -> TypedResult<TypedMmapMut<T>> {
+    pub fn get_typed_mmap_mut(&self) -> TypedResult<TypedMmapMut<'_, T>> {
         let fd = dup(self.fd.as_fd()).typ(SystemError::Panic)?;
         unsafe {
             MmapMut::map_mut(fd.as_raw_fd())
@@ -129,7 +129,7 @@ impl<T: Send + Clone + Sized> TempFile<T> {
     }
 
     /// Returns a memory map from a TemplFile
-    pub fn get_typed_mmap(&self) -> TypedResult<TypedMmap<T>> {
+    pub fn get_typed_mmap(&self) -> TypedResult<TypedMmap<'_, T>> {
         let fd = dup(self.fd.as_fd()).typ(SystemError::Panic)?;
         unsafe {
             Mmap::map(fd.as_raw_fd())
