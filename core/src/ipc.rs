@@ -41,7 +41,11 @@ where
     /// This fails if the resource is temporarily not available.
     pub fn try_send(&self, value: &T) -> TypedResult<()> {
         self.socket
-            .send(bincode::serialize(value).typ(SystemError::Panic)?.as_ref())
+            .send(
+                postcard::to_allocvec(value)
+                    .typ(SystemError::Panic)?
+                    .as_ref(),
+            )
             .typ(SystemError::Panic)?;
         Ok(())
     }
@@ -68,7 +72,7 @@ where
         };
 
         // Serialize the received data into T
-        bincode::deserialize(&buffer[0..len])
+        postcard::from_bytes(&buffer[0..len])
             .map(Some)
             .typ(SystemError::Panic)
     }

@@ -49,7 +49,7 @@ impl SyscallReceiver {
             let serialized_payload = request_fd.read_all()?;
 
             // Deserialize the type and data
-            let payload: SyscallRequest = bincode::deserialize(&serialized_payload)?;
+            let payload: SyscallRequest = postcard::from_bytes(&serialized_payload)?;
 
             let serialized_response = handler(payload.0, &payload.1);
 
@@ -169,9 +169,9 @@ pub fn wrap_serialization<'params, S: Syscall<'params>, F>(
 where
     F: FnOnce(S::Params) -> Result<S::Returns, a653rs::bindings::ErrorReturnCode>,
 {
-    let params: S::Params = bincode::deserialize(serialized_params)?;
+    let params: S::Params = postcard::from_bytes(serialized_params)?;
 
     let response: SyscallResponse<S::Returns> = f(params);
 
-    bincode::serialize(&response).map_err(Into::into)
+    postcard::to_allocvec(&response).map_err(Into::into)
 }

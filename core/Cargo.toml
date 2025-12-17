@@ -20,7 +20,7 @@ procfs.workspace = true
 polling.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 serde.workspace = true
 
 log = "0"

@@ -79,13 +79,13 @@ impl SyscallSender {
         let mut response_fd = Mfd::create("resp")?;
         let event_fd = EventFd::new()?;
 
-        let serialized_parameters = bincode::serialize(&params)?;
+        let serialized_parameters = postcard::to_allocvec(&params)?;
 
         let payload: SyscallRequest = (S::TY, serialized_parameters);
 
         // We need another serialization step here, so the receiver can deserialize just
         // the SyscallType without knowing the parameter types
-        let serialized_payload = bincode::serialize(&payload)?;
+        let serialized_payload = postcard::to_allocvec(&payload)?;
 
         // Write to the request file descriptor
         request_fd.write(&serialized_payload)?;
@@ -97,7 +97,7 @@ impl SyscallSender {
         Self::wait_event(event_fd.as_fd())?;
 
         let data = response_fd.read_all()?;
-        let response: SyscallResponse<S::Returns> = bincode::deserialize(&data)?;
+        let response: SyscallResponse<S::Returns> = postcard::from_bytes(&data)?;
 
         Ok(response)
     }
