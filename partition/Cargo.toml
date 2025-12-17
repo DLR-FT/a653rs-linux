@@ -27,7 +27,6 @@ once_cell.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 
-lazy_static = "1.4"
 log.workspace = true
 tinyvec = "1.6"
 oneshot = "0.1.6"
