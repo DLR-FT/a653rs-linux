@@ -69,7 +69,7 @@ impl TryFrom<RawFd> for PartitionConstants {
         let mut file = File::open(format!("/proc/self/fd/{file}")).typ(SystemError::Panic)?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).typ(SystemError::Panic)?;
-        bincode::deserialize(&buf).typ(SystemError::Panic)
+        postcard::from_bytes(&buf).typ(SystemError::Panic)
     }
 }
 
@@ -77,7 +77,7 @@ impl TryFrom<PartitionConstants> for RawFd {
     type Error = TypedError;
 
     fn try_from(consts: PartitionConstants) -> TypedResult<Self> {
-        let bytes = bincode::serialize(&consts).typ(SystemError::Panic)?;
+        let bytes = postcard::to_allocvec(&consts).typ(SystemError::Panic)?;
 
         let mem = MemfdOptions::default()
             .close_on_exec(false)

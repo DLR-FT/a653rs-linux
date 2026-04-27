@@ -1,6 +1,6 @@
 [package]
 name = "a653rs-linux-hypervisor"
-version = "0.2.2"
+version = "0.2.3"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -35,5 +35,5 @@ pretty_env_logger = "0.5"
 quit = "2.0"
 memfd = "0.6"
 num = "0.4"
-thiserror = "1.0"
-which = "6.0"
+thiserror = "2.0"
+which = "8.0"

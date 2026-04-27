@@ -1,6 +1,6 @@
 [package]
 name = "a653rs-linux"
-version = "0.2.2"
+version = "0.2.3"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -27,7 +27,6 @@ once_cell.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 
-lazy_static = "1.4"
 log.workspace = true
 tinyvec = "1.6"
 oneshot = "0.1.6"

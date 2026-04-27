@@ -122,11 +122,14 @@ impl Run {
 
         let callback = Box::new(move || -> isize {
             // Map User and user group (required for tmpfs mounts)
-            std::fs::write(
+            if let Err(e) = std::fs::write(
                 PathBuf::from("/proc/self").join("uid_map"),
                 format!("0 {} 1", real_uid.as_raw()),
-            )
-            .unwrap();
+            ) {
+                error!("{e:?}");
+                // panic!();
+            }
+
             std::fs::write(PathBuf::from("/proc/self").join("setgroups"), b"deny").unwrap();
             std::fs::write(
                 PathBuf::from("/proc/self").join("gid_map"),
@@ -237,14 +240,11 @@ impl Run {
                     .join(PartitionConstants::MAIN_PROCESS_CGROUP);
                 let cgroup_main = CGroup::import_root(path).typ(SystemError::CGroup).unwrap();
 
-                command = command.pre_exec(move || {
-                    cgroup_main
-                        .mv_proc(gettid())
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                });
+                command = command
+                    .pre_exec(move || cgroup_main.mv_proc(gettid()).map_err(std::io::Error::other));
             }
 
-            command.exec();
+            let _ = command.exec();
             unsafe { libc::_exit(0) };
         });
 

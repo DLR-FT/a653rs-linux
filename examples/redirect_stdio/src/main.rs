@@ -1,5 +1,4 @@
-use std::fs::OpenOptions;
-use std::os::fd::AsRawFd;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 
 use a653rs::partition;
@@ -8,20 +7,21 @@ use a653rs_linux::partition::ApexLogger;
 use anyhow::Result;
 use log::LevelFilter;
 
-fn replace_stdio<T: AsRawFd, U: AsRef<Path>>(stdio: T, new: U, write: bool) -> Result<()> {
-    let new = OpenOptions::new()
+fn stdio_fd<U: AsRef<Path>>(new: U, write: bool) -> Result<File> {
+    Ok(OpenOptions::new()
         .write(write)
         .read(!write)
         .truncate(write)
-        .open(new)?;
-    nix::unistd::dup2(new.as_raw_fd(), stdio.as_raw_fd())?;
-    Ok(())
+        .open(new)?)
 }
 
 fn main() {
-    replace_stdio(std::io::stdin(), "/stdin", false).unwrap();
-    replace_stdio(std::io::stdout(), "/stdout", true).unwrap();
-    replace_stdio(std::io::stderr(), "/stderr", true).unwrap();
+    let in_fd = stdio_fd("/stdin", false).unwrap();
+    nix::unistd::dup2_stdin(in_fd).unwrap();
+    let out_fd = stdio_fd("/stdout", true).unwrap();
+    nix::unistd::dup2_stdout(out_fd).unwrap();
+    let err_fd = stdio_fd("/stderr", true).unwrap();
+    nix::unistd::dup2_stderr(err_fd).unwrap();
 
     ApexLogger::install_panic_hook();
     ApexLogger::install_logger(LevelFilter::Trace).unwrap();

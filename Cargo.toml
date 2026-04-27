@@ -42,12 +42,12 @@ a653rs-linux = { version = "0.2.2", path = "partition" }
 a653rs-linux-core = { version = "0.2.2", path = "core" }
 anyhow = "1.0"
 log = "0"
-nix = { version = "0.29", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
+nix = { version = "0.30", features = ["socket", "process", "fs", "uio", "signal", "user", "mount", "event", "sched"] }
 memmap2 = "0.9"
-procfs = "0.16"
+procfs = "0.18"
 polling = "3.4"
-itertools = "0.13"
+itertools = "0.14"
 once_cell = "1.19"
-bytesize = "1.1"
-bincode = "1.3"
+bytesize = "2.3"
+postcard = { version = "1.1", features = ["alloc"] }
 serde = { version = "1.0", features = ["derive"] }

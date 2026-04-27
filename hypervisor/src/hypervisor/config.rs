@@ -204,7 +204,7 @@ impl Config {
             .map(|p| p.period.as_nanos())
             .reduce(num::integer::lcm);
         if let Some(lcm_periods) = lcm_periods {
-            if self.major_frame.as_nanos() % lcm_periods != 0 {
+            if !self.major_frame.as_nanos().is_multiple_of(lcm_periods) {
                 return Err(anyhow!("major frame is not a multiple of the least-common-multiple of all partition periods.\n\
                 lcm: {:?}, major_frame: {:?}", Duration::from_nanos(lcm_periods as u64), self.major_frame))
                     .typ(SystemError::Config);

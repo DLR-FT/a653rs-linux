@@ -1,6 +1,6 @@
 [package]
 name = "a653rs-linux-core"
-version = "0.2.2"
+version = "0.2.3"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,16 +20,16 @@ procfs.workspace = true
 polling.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 serde.workspace = true
 
 log = "0"
 walkdir = "2.3"
 memfd = "0.6"
-thiserror = "1.0"
+thiserror = "2.0"
 bytesize = {workspace = true, features = ["serde"]}
 enum_primitive = "0.1"
-ptr_meta = "0.2.0"
+ptr_meta = "0.3"
 
 [dev-dependencies]
-rand = "0.8.5"
+rand = "0.9"
